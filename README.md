@@ -158,9 +158,13 @@ A run produces immutable-ish external artifacts under:
     ├── baseline/
     ├── iterations/
     │   ├── 01/
+    │   │   ├── input.patch
     │   │   ├── prompt.md
     │   │   ├── agent/
-    │   │   └── quick/
+    │   │   ├── actuator.patch
+    │   │   ├── quick/
+    │   │   ├── observed.patch
+    │   │   └── controller-feedback.md  # only when sensors fail
     │   └── ...
     ├── full/
     ├── review/
@@ -168,7 +172,9 @@ A run produces immutable-ish external artifacts under:
     └── evidence.json
 ```
 
-The evidence directory is outside the target worktree so the actuator cannot rewrite the controller's record.
+The evidence directory is outside the target worktree so the actuator cannot rewrite the controller's record. `evidence.json` is checkpointed during the run. Each iteration records the exact feedback received, prompt hash, repository state before and after actuation, repository state observed after quick gates, and any feedback generated for the next iteration.
+
+Gates marked `baseline=false` are independent acceptance sensors. The implementer prompt instructs the actuator not to inspect or run them; their output reaches the actuator only through controller feedback.
 
 ## Mechanical acceptance rule
 

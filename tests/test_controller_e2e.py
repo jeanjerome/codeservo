@@ -111,10 +111,32 @@ else:
 
             self.assertEqual("ACCEPTED", result["status"])
             self.assertEqual(2, len(result["iterations"]))
-            self.assertFalse(result["iterations"][0]["quick_gates"][1]["passed"])
-            self.assertTrue(result["iterations"][1]["quick_gates"][1]["passed"])
+            first, second = result["iterations"]
+            self.assertFalse(first["quick_gates"][1]["passed"])
+            self.assertTrue(second["quick_gates"][1]["passed"])
+            self.assertEqual("", first["feedback_received"])
+            self.assertIn("Gate task-outcome FAILED", first["controller_feedback"]["text"])
+            self.assertEqual(
+                first["controller_feedback"]["text"],
+                Path(first["controller_feedback"]["path"]).read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                first["controller_feedback"]["text"], second["feedback_received"]
+            )
+            self.assertEqual(
+                first["observed_state"]["sha256"], second["input_state"]["sha256"]
+            )
+            self.assertNotEqual(
+                first["input_state"]["sha256"], first["actuator_state"]["sha256"]
+            )
+            second_prompt = Path(second["prompt"]["path"]).read_text(encoding="utf-8")
+            self.assertIn(first["controller_feedback"]["text"], second_prompt)
+            for iteration in (first, second):
+                for state_name in ("input_state", "actuator_state", "observed_state"):
+                    self.assertTrue(Path(iteration[state_name]["path"]).is_file())
             self.assertTrue(Path(result["run_dir"], "change.patch").is_file())
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
+            self.assertEqual(2, evidence["schema_version"])
             self.assertEqual("ACCEPTED", evidence["status"])
 
 

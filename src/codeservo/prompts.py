@@ -10,7 +10,8 @@ def implementer_prompt(task: Task, constitution: Constitution, feedback: str) ->
 Rules:
 - Implement only the task below.
 - Preserve repository instructions and architecture.
-- Never modify .codeservo/**.
+- Do not inspect or modify .codeservo/**; those files belong to the controller.
+- Do not run gates marked baseline=false. They are independent acceptance sensors owned by the controller.
 - Do not commit, push, create PRs, or change Git configuration.
 - Prefer the smallest coherent change.
 - The controller will run the authoritative gates. You may run checks yourself, but your claims are not evidence.
