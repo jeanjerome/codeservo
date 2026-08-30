@@ -195,8 +195,9 @@ run. Each iteration records the exact feedback received, prompt hash,
 repository state before and after actuation, repository state observed after
 quick gates, and any feedback generated for the next iteration.
 Paths stored in `evidence.json` are relative to the run directory so a copied
-run remains self-contained. The record includes CodeServo, Codex, model,
-Python, and Git runtime metadata. SHA-256 digests cover frozen sensors, patch
+run remains self-contained. The record includes the CodeServo version and
+source commit plus Codex, model, Python, and Git runtime metadata. SHA-256
+digests cover frozen sensors, patch
 snapshots, prompts, feedback, gate outcomes and logs, agent events and messages,
 and reviewer artifacts.
 

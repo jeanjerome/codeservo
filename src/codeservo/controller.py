@@ -61,8 +61,12 @@ def _command_version(command: list[str]) -> str:
 
 
 def _runtime_metadata(model: str | None, review_model: str | None) -> dict:
+    source_root = Path(__file__).resolve().parents[2]
     return {
         "codeservo_version": __version__,
+        "codeservo_commit": _command_version(
+            ["git", "-C", str(source_root), "rev-parse", "HEAD"]
+        ),
         "codex_version": _command_version(["codex", "--version"]),
         "implementer_model": model or "codex-default",
         "reviewer_model": review_model or "codex-default",
