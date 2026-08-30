@@ -1,14 +1,12 @@
 import json
-import os
 import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
-from codeservo.controller import run
+from harness import TASK_TEXT, Case, commit_repository, constitution
 
 ISOLATION_PROBE = '''
 def probe_isolation(worktree):
@@ -194,56 +192,16 @@ class ControllerE2ETests(unittest.TestCase):
             historical_sensor = repo / "historical-sensor.txt"
             historical_sensor.write_text("must stay hidden\n", encoding="utf-8")
             (repo / ".codeservo" / "constitution.toml").write_text(
-                f'''version = 1
-
-[scope]
-protected = [".codeservo/**"]
-max_changed_files = 5
-max_diff_lines = 100
-
-[[gate]]
-name = "syntax"
-phase = "quick"
-command = "{sys.executable} -m py_compile app.py"
-baseline = true
-
-[[gate]]
-name = "task-outcome"
-phase = "quick"
-command = 'test -f "$CODESERVO_SENSOR_PATH/README.md" && grep -q "return 2" app.py'
-baseline = false
-sensor = "test/task-outcome"
-
-[[gate]]
-name = "full"
-phase = "full"
-command = "{sys.executable} -m py_compile app.py"
-baseline = true
-
-[review]
-blocking_severities = ["blocker", "major"]
-''',
-                encoding="utf-8",
+                constitution(), encoding="utf-8"
             )
             task = root / "TASK.md"
-            task.write_text(
-                "# Task\n\n## Acceptance criteria\n- [AC1] `value()` returns `2`.\n",
-                encoding="utf-8",
-            )
+            task.write_text(TASK_TEXT, encoding="utf-8")
 
             fake_agent = bin_dir / binary_name
             fake_agent.write_text(script, encoding="utf-8")
             fake_agent.chmod(fake_agent.stat().st_mode | stat.S_IXUSR)
 
-            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
-            subprocess.run(["git", "config", "user.name", "test"], cwd=repo, check=True)
-            subprocess.run(["git", "add", "."], cwd=repo, check=True)
-            subprocess.run(
-                ["git", "commit", "-qm", "historical sensor"],
-                cwd=repo,
-                check=True,
-            )
+            commit_repository(repo, "historical sensor")
             historical_blob = subprocess.run(
                 ["git", "rev-parse", "HEAD:historical-sensor.txt"],
                 cwd=repo,
@@ -252,26 +210,23 @@ blocking_severities = ["blocker", "major"]
                 check=True,
             ).stdout.strip()
             historical_sensor.unlink()
-            subprocess.run(["git", "add", "-u"], cwd=repo, check=True)
-            subprocess.run(
-                ["git", "commit", "-qm", "clean baseline"],
-                cwd=repo,
-                check=True,
-            )
+            commit_repository(repo, "clean baseline")
 
-            env = {
-                "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
-                "CODESERVO_TEST_SOURCE_GIT": str((repo / ".git").resolve()),
-                "CODESERVO_TEST_SOURCE_REPO": str(repo.resolve()),
-            }
-            with patch.dict(os.environ, env, clear=False):
-                result = run(
-                    repo_path=repo,
-                    task_path=task,
-                    max_iterations=3,
-                    state_dir=state_dir,
-                    actuator=actuator,
-                )
+            case = Case(
+                root=root,
+                repo=repo,
+                state_dir=state_dir,
+                task=task,
+                bin_dir=bin_dir,
+            )
+            result = case.run(
+                env={
+                    "CODESERVO_TEST_SOURCE_GIT": str((repo / ".git").resolve()),
+                    "CODESERVO_TEST_SOURCE_REPO": str(repo.resolve()),
+                },
+                actuator=actuator,
+                max_iterations=3,
+            )
 
             self.assertEqual("ACCEPTED", result["status"])
             self.assertEqual(str(state_dir.resolve()), result["state_dir"])

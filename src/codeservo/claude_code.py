@@ -216,6 +216,12 @@ def run_reviewer(
         shutil.copyfile(temporary_stdout, stdout_path)
         shutil.copyfile(temporary_stderr, stderr_path)
 
+    # A failed process explains itself through its exit code; parsing its output
+    # first would report a missing review instead of the reason it is missing.
+    if completed.returncode != 0:
+        raise ClaudeCodeError(
+            f"reviewer exited with {completed.returncode}; see {stderr_path}"
+        )
     review = _review_result(stdout_path, stderr_path)
     result_path.write_text(
         json.dumps(review, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -225,6 +231,7 @@ def run_reviewer(
         "exit_code": completed.returncode,
         "duration_ms": int((time.monotonic() - started) * 1000),
         "schema_sha256": sha256_file(schema_path),
+        "session": _session(_result_event(_events(stdout_path))),
         "stdout_path": str(stdout_path),
         "stdout_sha256": sha256_file(stdout_path),
         "stderr_path": str(stderr_path),
@@ -232,12 +239,6 @@ def run_reviewer(
         "result_path": str(result_path),
         "result_sha256": sha256_file(result_path),
     }
-    if completed.returncode != 0:
-        meta["meta_sha256"] = sha256_record(meta)
-        raise ClaudeCodeError(
-            f"reviewer exited with {completed.returncode}; see {stderr_path}"
-        )
-    meta["session"] = _session(_result_event(_events(stdout_path)))
     meta["meta_sha256"] = sha256_record(meta)
     return review, meta
 
