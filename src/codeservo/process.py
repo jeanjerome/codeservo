@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .evidence import sha256_file
 from .model import CommandResult
+from .sandbox import Isolation, seatbelt_command
 
 
 def run_command(
@@ -18,6 +19,7 @@ def run_command(
     timeout_seconds: int,
     env: dict[str, str] | None = None,
     unset_env: tuple[str, ...] = (),
+    isolation: Isolation = Isolation(),
 ) -> CommandResult:
     out_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = out_dir / f"{name}.stdout.log"
@@ -34,7 +36,7 @@ def run_command(
     with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
         try:
             completed = subprocess.run(
-                ["/bin/sh", "-lc", command],
+                seatbelt_command(["/bin/sh", "-lc", command], isolation),
                 cwd=cwd,
                 stdout=stdout,
                 stderr=stderr,

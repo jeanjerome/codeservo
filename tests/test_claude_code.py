@@ -3,7 +3,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codeservo.actuator import Isolation
 from codeservo.claude_code import (
     ClaudeCodeError,
     IMPLEMENTER_TOOLS,
@@ -13,6 +12,7 @@ from codeservo.claude_code import (
     _review_result,
     describe_isolation,
 )
+from codeservo.sandbox import Isolation
 
 
 class CommandTests(unittest.TestCase):

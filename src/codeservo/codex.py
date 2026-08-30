@@ -7,8 +7,9 @@ import tempfile
 import time
 from pathlib import Path
 
-from .actuator import ActuatorError, Isolation, isolation_evidence, seatbelt_command
+from .actuator import ActuatorError
 from .evidence import sha256_file, sha256_record
+from .sandbox import Isolation, isolation_evidence, seatbelt_command
 
 
 class CodexError(ActuatorError):

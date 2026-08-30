@@ -5,6 +5,7 @@ from pathlib import Path
 from .evidence import sha256_record
 from .model import Constitution, Gate
 from .process import run_command
+from .sandbox import Isolation
 
 
 def run_gates(
@@ -13,6 +14,7 @@ def run_gates(
     gates: tuple[Gate, ...],
     out_dir: Path,
     sensor_paths: dict[str, Path] | None = None,
+    isolation: Isolation = Isolation(),
 ) -> list[dict]:
     results: list[dict] = []
     sensors = sensor_paths or {}
@@ -32,6 +34,7 @@ def run_gates(
                 else None
             ),
             unset_env=("CODESERVO_SENSOR_PATH",),
+            isolation=isolation,
         )
         record = {
             "name": result.name,

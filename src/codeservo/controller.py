@@ -8,13 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__
-from .actuator import (
-    Actuator,
-    ActuatorError,
-    Isolation,
-    default_actuator_name,
-    load_actuator,
-)
+from .actuator import Actuator, ActuatorError, default_actuator_name, load_actuator
 from .config import load_constitution
 from .evidence import (
     relative_evidence_paths,
@@ -36,6 +30,7 @@ from .git import (
 from .model import Constitution
 from .process import tail
 from .prompts import implementer_prompt, reviewer_prompt
+from .sandbox import Isolation, SandboxError, isolation_evidence
 from .task import load_task
 
 
@@ -157,6 +152,17 @@ def _freeze_sensors(
     return paths, evidence
 
 
+def _altered_sensors(
+    sensor_paths: dict[str, Path], sensor_evidence: dict[str, dict]
+) -> list[str]:
+    """Frozen sensors whose content changed after the controller froze them."""
+    return sorted(
+        name
+        for name, path in sensor_paths.items()
+        if sha256_path(path) != sensor_evidence[name]["sha256"]
+    )
+
+
 def _gate_feedback(results: list[dict]) -> str:
     chunks: list[str] = []
     for result in results:
@@ -244,9 +250,12 @@ def run(
         ),
         read_only=(repo,),
     )
+    # Gates are controller-owned measurements: they read the frozen sensors and
+    # write nothing into the record they produce.
+    gate_isolation = Isolation(read_only=(run_dir,))
 
     evidence: dict = {
-        "schema_version": 5,
+        "schema_version": 6,
         "run_id": run_id,
         "started_at": _now(),
         "repo": str(repo),
@@ -257,6 +266,7 @@ def run(
         "runtime": _runtime_metadata(backend, model, review_model),
         "sensors": sensor_evidence,
         "actuator_isolation": backend.describe_isolation(isolation),
+        "gate_isolation": isolation_evidence(gate_isolation, "macos-sandbox-exec"),
         "status": "RUNNING",
         "iterations": [],
         "decision": {"reasons": []},
@@ -291,6 +301,7 @@ def run(
         repo=repo,
         gates=baseline_gates(constitution),
         out_dir=run_dir / "baseline",
+        isolation=gate_isolation,
     )
     evidence["baseline"] = baseline
     persist()
@@ -332,7 +343,7 @@ def run(
                 timeout_seconds=agent_timeout_seconds,
                 isolation=isolation,
             )
-        except ActuatorError as exc:
+        except (ActuatorError, SandboxError) as exc:
             record["agent_error"] = str(exc)
             evidence["iterations"].append(record)
             persist()
@@ -353,6 +364,7 @@ def run(
             gates=constitution.gates_for("quick"),
             out_dir=iteration_dir / "quick",
             sensor_paths=sensor_paths,
+            isolation=gate_isolation,
         )
         record["observed_state"] = _write_patch_snapshot(
             iteration_dir / "observed.patch", worktree, base_commit
@@ -363,6 +375,15 @@ def run(
             "details": scope.details,
         }
         record["quick_gates"] = quick
+
+        altered = _altered_sensors(sensor_paths, sensor_evidence)
+        if altered:
+            evidence["iterations"].append(record)
+            persist()
+            return finish(
+                "REJECTED",
+                [f"gate altered the frozen sensor {name}" for name in altered],
+            )
 
         iteration_passed = scope.passed and all(g["passed"] for g in quick)
         if iteration_passed:
@@ -398,11 +419,18 @@ def run(
         gates=constitution.gates_for("full"),
         out_dir=run_dir / "full",
         sensor_paths=sensor_paths,
+        isolation=gate_isolation,
     )
     evidence["full_gates"] = full
     persist()
+    reasons = [
+        f"gate altered the frozen sensor {name}"
+        for name in _altered_sensors(sensor_paths, sensor_evidence)
+    ]
     if not all(g["passed"] for g in full):
-        return finish("REJECTED", ["full gate failed"])
+        reasons.append("full gate failed")
+    if reasons:
+        return finish("REJECTED", reasons)
 
     schema_path = Path(__file__).resolve().parents[2] / "templates" / "review.schema.json"
     # Installed wheels do not contain repository-level templates; fall back to package copy.
@@ -423,7 +451,7 @@ def run(
             timeout_seconds=agent_timeout_seconds,
             isolation=isolation,
         )
-    except ActuatorError as exc:
+    except (ActuatorError, SandboxError) as exc:
         return finish("REJECTED", [str(exc)])
 
     evidence["review"] = {

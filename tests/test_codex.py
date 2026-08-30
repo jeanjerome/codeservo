@@ -1,8 +1,8 @@
 import unittest
 from pathlib import Path
 
-from codeservo.actuator import Isolation
 from codeservo.codex import _base_command, _sandbox, describe_isolation
+from codeservo.sandbox import Isolation
 
 
 class SandboxSelectionTests(unittest.TestCase):

@@ -7,8 +7,9 @@ import tempfile
 import time
 from pathlib import Path
 
-from .actuator import ActuatorError, Isolation, isolation_evidence, seatbelt_command
+from .actuator import ActuatorError
 from .evidence import sha256_file, sha256_record, sha256_text
+from .sandbox import Isolation, isolation_evidence, seatbelt_command
 
 # `--safe-mode` drops user memory, skills, plugins, hooks, custom agents and
 # settings files, so the actuator only sees the frozen prompt and the worktree.

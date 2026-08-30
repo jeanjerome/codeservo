@@ -231,6 +231,14 @@ reviewer artifacts.
 Gates marked `baseline=false` must reference an external acceptance sensor.
 CodeServo freezes the sensor and its digest before baseline verification, then
 provides its path only to the gate process through `CODESERVO_SENSOR_PATH`.
+Gate processes run under a controller-owned profile that makes the run
+directory read-only, so a gate reads the frozen sensor it was given but cannot
+write anywhere in the record it produces. Its own log files are opened by the
+controller before the gate starts, so they are still written. The controller
+recomputes every frozen sensor digest after the quick and full gates and rejects
+the run if a snapshot changed. Both properties are language-agnostic: they hold
+whatever the gate command runs.
+
 The implementer receives a shallow checkout with no remote, so target repository
 history is absent. It runs inside a controller-owned macOS sandbox profile that
 denies reads and writes to source sensors, frozen sensors, run evidence, state

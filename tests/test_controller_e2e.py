@@ -328,7 +328,7 @@ blocking_severities = ["blocker", "major"]
             self.assertEqual("", remotes.stdout.strip())
             self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(5, evidence["schema_version"])
+            self.assertEqual(6, evidence["schema_version"])
             self.assertEqual(".", evidence["run_dir"])
             self.assertFalse(Path(evidence["state_dir"]).is_absolute())
             self.assertFalse(Path(evidence["worktree"]).is_absolute())
@@ -348,6 +348,10 @@ blocking_severities = ["blocker", "major"]
                     for path in isolation["denied_paths"] + isolation["read_only_paths"]
                 )
             )
+            gate_isolation = evidence["gate_isolation"]
+            self.assertEqual("macos-sandbox-exec", gate_isolation["mechanism"])
+            self.assertEqual([], gate_isolation["denied_paths"])
+            self.assertEqual(["."], gate_isolation["read_only_paths"])
             for gate in evidence["baseline"] + evidence["full_gates"]:
                 self.assertEqual(64, len(gate["stdout_sha256"]))
                 self.assertEqual(64, len(gate["stderr_sha256"]))
