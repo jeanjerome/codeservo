@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .evidence import sha256_record
 from .model import Constitution, Gate
 from .process import run_command
 
@@ -32,18 +33,20 @@ def run_gates(
             ),
             unset_env=("CODESERVO_SENSOR_PATH",),
         )
-        results.append(
-            {
-                "name": result.name,
-                "command": result.command,
-                "passed": result.passed,
-                "exit_code": result.exit_code,
-                "timed_out": result.timed_out,
-                "duration_ms": result.duration_ms,
-                "stdout_path": result.stdout_path,
-                "stderr_path": result.stderr_path,
-            }
-        )
+        record = {
+            "name": result.name,
+            "command": result.command,
+            "passed": result.passed,
+            "exit_code": result.exit_code,
+            "timed_out": result.timed_out,
+            "duration_ms": result.duration_ms,
+            "stdout_path": result.stdout_path,
+            "stdout_sha256": result.stdout_sha256,
+            "stderr_path": result.stderr_path,
+            "stderr_sha256": result.stderr_sha256,
+        }
+        record["result_sha256"] = sha256_record(record)
+        results.append(record)
     return results
 
 

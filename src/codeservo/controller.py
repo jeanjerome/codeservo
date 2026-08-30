@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import json
+import platform
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import __version__
 from .codex import CodexError, run_implementer, run_reviewer
 from .config import load_constitution
-from .evidence import sha256_path, sha256_text, write_json
+from .evidence import (
+    relative_evidence_paths,
+    sha256_json,
+    sha256_path,
+    sha256_text,
+    write_json,
+)
 from .gates import baseline_gates, run_gates
 from .git import (
     common_git_dir,
@@ -34,6 +43,32 @@ def _now() -> str:
 
 def _run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+
+
+def _command_version(command: list[str]) -> str:
+    try:
+        completed = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "unavailable"
+    output = completed.stdout.strip() or completed.stderr.strip()
+    return output.splitlines()[0] if output else "unavailable"
+
+
+def _runtime_metadata(model: str | None, review_model: str | None) -> dict:
+    return {
+        "codeservo_version": __version__,
+        "codex_version": _command_version(["codex", "--version"]),
+        "implementer_model": model or "codex-default",
+        "reviewer_model": review_model or "codex-default",
+        "python_version": platform.python_version(),
+        "git_version": _command_version(["git", "--version"]),
+    }
 
 
 def _resolve_state_dir(repo: Path, state_dir: Path | None) -> Path:
@@ -197,7 +232,7 @@ def run(
     )
 
     evidence: dict = {
-        "schema_version": 3,
+        "schema_version": 4,
         "run_id": run_id,
         "started_at": _now(),
         "repo": str(repo),
@@ -205,6 +240,7 @@ def run(
         "base_commit": base_commit,
         "task_sha256": sha256_text(task.raw_text),
         "constitution_sha256": sha256_text(constitution.raw_text),
+        "runtime": _runtime_metadata(model, review_model),
         "sensors": sensor_evidence,
         "actuator_isolation": {
             "mechanism": (
@@ -224,7 +260,11 @@ def run(
         "worktree": None,
     }
     evidence_path = run_dir / "evidence.json"
-    write_json(evidence_path, evidence)
+
+    def persist() -> None:
+        write_json(evidence_path, relative_evidence_paths(evidence, run_dir))
+
+    persist()
 
     def finish(status: str, reasons: list[str]) -> dict:
         patch = ""
@@ -237,7 +277,7 @@ def run(
         evidence["patch_sha256"] = sha256_text(patch) if patch else None
         evidence["run_dir"] = str(run_dir)
         evidence["worktree"] = str(worktree) if worktree.exists() else None
-        write_json(evidence_path, evidence)
+        persist()
         return evidence
 
     if not is_clean(repo):
@@ -249,7 +289,7 @@ def run(
         out_dir=run_dir / "baseline",
     )
     evidence["baseline"] = baseline
-    write_json(evidence_path, evidence)
+    persist()
     if not all(g["passed"] for g in baseline):
         return finish("REJECTED", ["baseline gate failed"])
     if not is_clean(repo):
@@ -257,7 +297,7 @@ def run(
 
     create_worktree(repo, worktree, base_commit)
     evidence["worktree"] = str(worktree)
-    write_json(evidence_path, evidence)
+    persist()
     feedback = ""
     quick_passed = False
 
@@ -291,7 +331,7 @@ def run(
         except CodexError as exc:
             record["agent_error"] = str(exc)
             evidence["iterations"].append(record)
-            write_json(evidence_path, evidence)
+            persist()
             return finish("REJECTED", [str(exc)])
 
         record["agent"] = agent
@@ -300,7 +340,7 @@ def run(
         )
         if agent["exit_code"] != 0:
             evidence["iterations"].append(record)
-            write_json(evidence_path, evidence)
+            persist()
             return finish("REJECTED", [f"implementer exited with {agent['exit_code']}"])
 
         scope = scope_sensor(worktree, base_commit, constitution.scope)
@@ -324,7 +364,7 @@ def run(
         if iteration_passed:
             record["controller_feedback"] = None
             evidence["iterations"].append(record)
-            write_json(evidence_path, evidence)
+            persist()
             quick_passed = True
             break
 
@@ -341,7 +381,7 @@ def run(
             "text": feedback,
         }
         evidence["iterations"].append(record)
-        write_json(evidence_path, evidence)
+        persist()
 
     if not quick_passed:
         return finish(
@@ -356,7 +396,7 @@ def run(
         sensor_paths=sensor_paths,
     )
     evidence["full_gates"] = full
-    write_json(evidence_path, evidence)
+    persist()
     if not all(g["passed"] for g in full):
         return finish("REJECTED", ["full gate failed"])
 
@@ -366,8 +406,9 @@ def run(
         schema_path = Path(__file__).with_name("review.schema.json")
 
     review_prompt_text = reviewer_prompt(task, constitution)
-    (run_dir / "review" / "prompt.md").parent.mkdir(parents=True, exist_ok=True)
-    (run_dir / "review" / "prompt.md").write_text(review_prompt_text, encoding="utf-8")
+    review_prompt_path = run_dir / "review" / "prompt.md"
+    review_prompt_path.parent.mkdir(parents=True, exist_ok=True)
+    review_prompt_path.write_text(review_prompt_text, encoding="utf-8")
     try:
         review, review_meta = run_reviewer(
             worktree=worktree,
@@ -380,7 +421,15 @@ def run(
     except CodexError as exc:
         return finish("REJECTED", [str(exc)])
 
-    evidence["review"] = {"result": review, "meta": review_meta}
+    evidence["review"] = {
+        "prompt": {
+            "path": str(review_prompt_path),
+            "sha256": sha256_text(review_prompt_text),
+        },
+        "result": review,
+        "result_sha256": sha256_json(review),
+        "meta": review_meta,
+    }
     reasons = _review_decision(
         review, task.criteria, constitution.review.blocking_severities
     )

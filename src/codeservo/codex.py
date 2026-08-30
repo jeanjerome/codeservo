@@ -8,6 +8,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from .evidence import sha256_file, sha256_record
+
 
 class CodexError(RuntimeError):
     pass
@@ -95,13 +97,20 @@ def run_implementer(
                 f"implementer timed out after {timeout_seconds}s"
             ) from timeout_error
 
-    return {
+    result = {
         "exit_code": completed.returncode,
         "duration_ms": int((time.monotonic() - started) * 1000),
         "events_path": str(events),
+        "events_sha256": sha256_file(events),
         "stderr_path": str(stderr_path),
+        "stderr_sha256": sha256_file(stderr_path),
         "last_message_path": str(last_message),
+        "last_message_sha256": (
+            sha256_file(last_message) if last_message.is_file() else None
+        ),
     }
+    result["result_sha256"] = sha256_record(result)
+    return result
 
 
 def run_reviewer(
@@ -146,9 +155,15 @@ def run_reviewer(
         "exit_code": completed.returncode,
         "duration_ms": int((time.monotonic() - started) * 1000),
         "stdout_path": str(stdout_path),
+        "stdout_sha256": sha256_file(stdout_path),
         "stderr_path": str(stderr_path),
+        "stderr_sha256": sha256_file(stderr_path),
         "result_path": str(result_path),
+        "result_sha256": (
+            sha256_file(result_path) if result_path.is_file() else None
+        ),
     }
+    meta["meta_sha256"] = sha256_record(meta)
     if completed.returncode != 0:
         raise CodexError(f"reviewer exited with {completed.returncode}; see {stderr_path}")
     try:

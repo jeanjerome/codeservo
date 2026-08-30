@@ -82,6 +82,9 @@ import pathlib
 import subprocess
 import sys
 args = sys.argv[1:]
+if "--version" in args:
+    print("codex-cli 0.0-test")
+    raise SystemExit(0)
 def value(flag):
     return args[args.index(flag) + 1]
 worktree = pathlib.Path(value("--cd"))
@@ -219,22 +222,36 @@ else:
             self.assertEqual("", remotes.stdout.strip())
             self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(3, evidence["schema_version"])
+            self.assertEqual(4, evidence["schema_version"])
+            self.assertEqual(".", evidence["run_dir"])
+            self.assertFalse(Path(evidence["state_dir"]).is_absolute())
+            self.assertFalse(Path(evidence["worktree"]).is_absolute())
+            self.assertEqual("codex-cli 0.0-test", evidence["runtime"]["codex_version"])
             frozen_sensor = evidence["sensors"]["task-outcome"]
-            self.assertTrue(Path(frozen_sensor["path"]).is_dir())
-            self.assertTrue(Path(frozen_sensor["path"], "README.md").is_file())
+            frozen_sensor_path = Path(result["run_dir"], frozen_sensor["path"])
+            self.assertTrue(frozen_sensor_path.is_dir())
+            self.assertTrue(Path(frozen_sensor_path, "README.md").is_file())
             self.assertEqual(
                 "macos-sandbox-exec",
                 evidence["actuator_isolation"]["mechanism"],
             )
             self.assertIn(
-                str((state_dir / "sensors").resolve()),
+                "../../../sensors",
                 evidence["actuator_isolation"]["denied_paths"],
             )
-            self.assertIn(
-                str((repo / ".git").resolve()),
-                evidence["actuator_isolation"]["denied_paths"],
+            self.assertTrue(
+                all(
+                    not Path(path).is_absolute()
+                    for path in evidence["actuator_isolation"]["denied_paths"]
+                )
             )
+            for gate in evidence["baseline"] + evidence["full_gates"]:
+                self.assertEqual(64, len(gate["stdout_sha256"]))
+                self.assertEqual(64, len(gate["stderr_sha256"]))
+                self.assertEqual(64, len(gate["result_sha256"]))
+            for iteration in evidence["iterations"]:
+                self.assertEqual(64, len(iteration["agent"]["events_sha256"]))
+                self.assertEqual(64, len(iteration["agent"]["result_sha256"]))
             self.assertEqual("ACCEPTED", evidence["status"])
 
 

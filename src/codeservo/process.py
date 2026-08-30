@@ -5,6 +5,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from .evidence import sha256_file
 from .model import CommandResult
 
 
@@ -53,6 +54,8 @@ def run_command(
         duration_ms=duration_ms,
         stdout_path=str(stdout_path),
         stderr_path=str(stderr_path),
+        stdout_sha256=sha256_file(stdout_path),
+        stderr_sha256=sha256_file(stderr_path),
         timed_out=timed_out,
     )
 

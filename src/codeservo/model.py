@@ -49,6 +49,8 @@ class CommandResult:
     duration_ms: int
     stdout_path: str
     stderr_path: str
+    stdout_sha256: str
+    stderr_sha256: str
     timed_out: bool = False
 
     @property

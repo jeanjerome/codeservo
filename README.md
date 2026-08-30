@@ -194,6 +194,11 @@ rewrite the controller's record. `evidence.json` is checkpointed during the
 run. Each iteration records the exact feedback received, prompt hash,
 repository state before and after actuation, repository state observed after
 quick gates, and any feedback generated for the next iteration.
+Paths stored in `evidence.json` are relative to the run directory so a copied
+run remains self-contained. The record includes CodeServo, Codex, model,
+Python, and Git runtime metadata. SHA-256 digests cover frozen sensors, patch
+snapshots, prompts, feedback, gate outcomes and logs, agent events and messages,
+and reviewer artifacts.
 
 Gates marked `baseline=false` must reference an external acceptance sensor.
 CodeServo freezes the sensor and its digest before baseline verification, then
