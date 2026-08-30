@@ -20,7 +20,7 @@ baseline gates
    ↓
 isolated shallow Git checkout
    ↓
-Codex implementer
+actuator implementer
    ↓
 scope sensor + quick gates
    │ fail
@@ -28,7 +28,7 @@ scope sensor + quick gates
    ↓ pass
 full gates
    ↓
-independent read-only Codex review sensor
+independent read-only review sensor
    ↓
 mechanical decision
    ↓
@@ -41,7 +41,7 @@ The implementer never gets to mark itself done. `ACCEPTED` is computed by CodeSe
 
 ## Deliberate V0 limits
 
-- One actuator: Codex CLI.
+- One actuator per run: Claude Code or Codex CLI.
 - One target repository per run.
 - One bounded implementation loop.
 - No auto-commit, auto-merge, PR creation, queue, daemon, UI, memory, multi-agent planning, or learning.
@@ -52,9 +52,9 @@ The implementer never gets to mark itself done. `ACCEPTED` is computed by CodeSe
 
 - Python 3.12+
 - Git
-- Codex CLI installed and authenticated
+- Claude Code or Codex CLI installed and authenticated
 - A clean target Git repository
-- macOS `sandbox-exec` when external acceptance sensors are configured
+- macOS `sandbox-exec`: the controller confines every actuator process
 
 ## Install for development
 
@@ -152,10 +152,34 @@ codeservo run \
   --repo /path/to/project \
   --task ./TASK.md \
   --state-dir /path/to/codeservo-state \
+  --actuator claude \
   --max-iterations 4 \
   --model <implementer-model> \
   --review-model <review-model>
 ```
+
+## Actuators
+
+`--actuator` selects the agent CLI that proposes and reviews the change. It
+accepts `claude` and `codex`, defaults to `$CODESERVO_ACTUATOR`, and falls back
+to `claude`. `--model` and `--review-model` are passed through to that CLI, so
+their accepted values are the ones the selected CLI accepts.
+
+Both backends run without user-level configuration, without session
+persistence, and without MCP servers, so a run depends only on the frozen task,
+the frozen constitution, the controller feedback, and the repository content:
+
+| | implementer | reviewer |
+| --- | --- | --- |
+| `claude` | `--safe-mode`, tools limited to file and shell access, permissions bypassed inside the controller profile | same, tools limited to `Bash,Read`, structured output validated against the review schema |
+| `codex` | `--ephemeral --ignore-user-config` | same, plus the frozen output schema |
+
+Because macOS refuses to apply a seatbelt profile inside another one, a confined
+Codex process runs with `--sandbox danger-full-access` and the controller
+profile becomes its only confinement. Claude Code never sandboxes itself, so the
+controller profile is always its only confinement.
+
+## State directory
 
 `--state-dir` selects where controller-owned sensors, evidence, and temporary
 working trees are stored. It defaults to `~/.codeservo` and must be outside the
@@ -196,20 +220,23 @@ repository state before and after actuation, repository state observed after
 quick gates, and any feedback generated for the next iteration.
 Paths stored in `evidence.json` are relative to the run directory so a copied
 run remains self-contained. The record includes the CodeServo version and
-source commit plus Codex, model, Python, and Git runtime metadata. SHA-256
-digests cover frozen sensors, patch
-snapshots, prompts, feedback, gate outcomes and logs, agent events and messages,
-and reviewer artifacts.
+source commit plus the actuator name and version, the models, and the Python
+and Git versions. SHA-256 digests cover frozen sensors, patch snapshots,
+prompts, feedback, gate outcomes and logs, agent events and messages, and
+reviewer artifacts.
 
 Gates marked `baseline=false` must reference an external acceptance sensor.
 CodeServo freezes the sensor and its digest before baseline verification, then
 provides its path only to the gate process through `CODESERVO_SENSOR_PATH`.
 The implementer receives a shallow checkout with no remote, so target repository
-history is absent. It runs inside an additional macOS sandbox that denies reads
-and writes to source sensors, frozen sensors, run evidence, state repository
-metadata, and the source repository's Git object store. The actuator receives
-only the controller-selected gate output on the next iteration. CodeServo fails
-closed if this isolation is requested where `sandbox-exec` is unavailable.
+history is absent. It runs inside a controller-owned macOS sandbox profile that
+denies reads and writes to source sensors, frozen sensors, run evidence, state
+repository metadata, and the source repository's Git object store, and denies
+every write to the source repository. The reviewer runs under the same profile
+extended with a write denial covering the candidate worktree, so its read-only
+nature is mechanical rather than instructed. The actuator receives only the
+controller-selected gate output on the next iteration. CodeServo fails closed
+where `sandbox-exec` is unavailable.
 
 ## Mechanical acceptance rule
 
@@ -227,6 +254,6 @@ Anything else is `REJECTED`.
 
 ## Why this shape
 
-The target repository owns the desired operating envelope (`.codeservo/constitution.toml`). `TASK.md` supplies a temporary desired delta. Codex is only an actuator. Tests, linters, scope constraints and independent semantic review are sensors. CodeServo is the controller. Git is the state substrate. `evidence.json` is the audit record.
+The target repository owns the desired operating envelope (`.codeservo/constitution.toml`). `TASK.md` supplies a temporary desired delta. The coding agent is only an actuator. Tests, linters, scope constraints and independent semantic review are sensors. CodeServo is the controller. Git is the state substrate. `evidence.json` is the audit record.
 
 That is enough to test V0 without prematurely building a software factory.

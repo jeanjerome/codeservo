@@ -10,6 +10,158 @@ from unittest.mock import patch
 
 from codeservo.controller import run
 
+ISOLATION_PROBE = '''
+def probe_isolation(worktree):
+    """Fail loudly when the controller-owned confinement is not in force."""
+    source_git = subprocess.run(
+        [
+            "git",
+            f"--git-dir={os.environ['CODESERVO_TEST_SOURCE_GIT']}",
+            "show",
+            "HEAD^:historical-sensor.txt",
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if source_git.returncode == 0:
+        sys.stderr.write("source repository history is readable")
+        raise SystemExit(8)
+    worktree_history = subprocess.run(
+        ["git", "show", "HEAD^:historical-sensor.txt"],
+        cwd=worktree,
+        capture_output=True,
+        check=False,
+    )
+    if worktree_history.returncode == 0:
+        sys.stderr.write("historical sensor is readable")
+        raise SystemExit(9)
+    try:
+        source = pathlib.Path(os.environ["CODESERVO_TEST_SOURCE_REPO"])
+        (source / "actuator-write.txt").write_text("written", encoding="utf-8")
+    except OSError:
+        pass
+    else:
+        sys.stderr.write("source repository is writable")
+        raise SystemExit(10)
+
+
+def next_implementation(worktree):
+    app = worktree / "app.py"
+    app.write_text(
+        "def value():\\n    return 1\\n"
+        if "return 0" in app.read_text()
+        else "def value():\\n    return 2\\n"
+    )
+
+
+REVIEW = {
+    "criteria": [
+        {"id": "AC1", "status": "satisfied", "evidence": "app.py returns 2"}
+    ],
+    "findings": [],
+}
+
+
+def probe_read_only(worktree):
+    try:
+        (worktree / "reviewer-write.txt").write_text("written", encoding="utf-8")
+    except OSError:
+        return
+    sys.stderr.write("reviewer can write to the candidate worktree")
+    raise SystemExit(11)
+'''
+
+FAKE_CODEX = f'''#!/usr/bin/env python3
+import json
+import os
+import pathlib
+import subprocess
+import sys
+
+args = sys.argv[1:]
+if "--version" in args:
+    print("codex-cli 0.0-test")
+    raise SystemExit(0)
+
+
+def value(flag):
+    return args[args.index(flag) + 1]
+
+{ISOLATION_PROBE}
+
+worktree = pathlib.Path(value("--cd"))
+out = pathlib.Path(value("--output-last-message"))
+out.parent.mkdir(parents=True, exist_ok=True)
+sys.stdin.read()
+if "--output-schema" in args:
+    probe_read_only(worktree)
+    out.write_text(json.dumps(REVIEW))
+else:
+    probe_isolation(worktree)
+    next_implementation(worktree)
+    out.write_text("implemented")
+    print(json.dumps({{"type": "message", "message": "done"}}))
+'''
+
+FAKE_CLAUDE = f'''#!/usr/bin/env python3
+import json
+import os
+import pathlib
+import subprocess
+import sys
+
+args = sys.argv[1:]
+if "--version" in args:
+    print("0.0-test (Claude Code)")
+    raise SystemExit(0)
+
+
+def value(flag):
+    return args[args.index(flag) + 1]
+
+{ISOLATION_PROBE}
+
+worktree = pathlib.Path.cwd()
+sys.stdin.read()
+if value("--output-format") == "json":
+    probe_read_only(worktree)
+    json.dump(
+        {{
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "num_turns": 2,
+            "session_id": "review-session",
+            "result": json.dumps(REVIEW),
+            "structured_output": REVIEW,
+        }},
+        sys.stdout,
+    )
+else:
+    probe_isolation(worktree)
+    next_implementation(worktree)
+    print(json.dumps({{"type": "system", "subtype": "init"}}))
+    print(
+        json.dumps(
+            {{
+                "type": "result",
+                "subtype": "success",
+                "is_error": False,
+                "num_turns": 3,
+                "session_id": "agent-session",
+                "total_cost_usd": 0.0,
+                "terminal_reason": "completed",
+                "result": "implemented",
+            }}
+        )
+    )
+'''
+
+FAKE_AGENTS = {
+    "codex": ("codex", FAKE_CODEX, "codex-cli 0.0-test"),
+    "claude": ("claude", FAKE_CLAUDE, "0.0-test (Claude Code)"),
+}
+
 
 @unittest.skipUnless(
     sys.platform == "darwin",
@@ -17,6 +169,12 @@ from codeservo.controller import run
 )
 class ControllerE2ETests(unittest.TestCase):
     def test_feedback_loop_converges_and_accepts(self) -> None:
+        for actuator in sorted(FAKE_AGENTS):
+            with self.subTest(actuator=actuator):
+                self._assert_converges(actuator)
+
+    def _assert_converges(self, actuator: str) -> None:
+        binary_name, script, version = FAKE_AGENTS[actuator]
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -73,65 +231,9 @@ blocking_severities = ["blocker", "major"]
                 encoding="utf-8",
             )
 
-            fake_codex = bin_dir / "codex"
-            fake_codex.write_text(
-                '''#!/usr/bin/env python3
-import json
-import os
-import pathlib
-import subprocess
-import sys
-args = sys.argv[1:]
-if "--version" in args:
-    print("codex-cli 0.0-test")
-    raise SystemExit(0)
-def value(flag):
-    return args[args.index(flag) + 1]
-worktree = pathlib.Path(value("--cd"))
-out = pathlib.Path(value("--output-last-message"))
-out.parent.mkdir(parents=True, exist_ok=True)
-sys.stdin.read()
-if value("--sandbox") == "workspace-write":
-    source_history = subprocess.run(
-        [
-            "git",
-            f"--git-dir={os.environ['CODESERVO_TEST_SOURCE_GIT']}",
-            "show",
-            "HEAD^:historical-sensor.txt",
-        ],
-        capture_output=True,
-        check=False,
-    )
-    if source_history.returncode == 0:
-        sys.stderr.write("source repository history is readable")
-        raise SystemExit(8)
-    history = subprocess.run(
-        ["git", "show", "HEAD^:historical-sensor.txt"],
-        cwd=worktree,
-        capture_output=True,
-        check=False,
-    )
-    if history.returncode == 0:
-        sys.stderr.write("historical sensor is readable")
-        raise SystemExit(9)
-    p = worktree / "app.py"
-    current = p.read_text()
-    p.write_text(
-        "def value():\\n    return 1\\n"
-        if "return 0" in current
-        else "def value():\\n    return 2\\n"
-    )
-    out.write_text("implemented")
-    print(json.dumps({"type": "message", "message": "done"}))
-else:
-    out.write_text(json.dumps({
-        "criteria": [{"id": "AC1", "status": "satisfied", "evidence": "app.py returns 2"}],
-        "findings": []
-    }))
-''',
-                encoding="utf-8",
-            )
-            fake_codex.chmod(fake_codex.stat().st_mode | stat.S_IXUSR)
+            fake_agent = bin_dir / binary_name
+            fake_agent.write_text(script, encoding="utf-8")
+            fake_agent.chmod(fake_agent.stat().st_mode | stat.S_IXUSR)
 
             subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
             subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
@@ -160,6 +262,7 @@ else:
             env = {
                 "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
                 "CODESERVO_TEST_SOURCE_GIT": str((repo / ".git").resolve()),
+                "CODESERVO_TEST_SOURCE_REPO": str(repo.resolve()),
             }
             with patch.dict(os.environ, env, clear=False):
                 result = run(
@@ -167,12 +270,15 @@ else:
                     task_path=task,
                     max_iterations=3,
                     state_dir=state_dir,
+                    actuator=actuator,
                 )
 
             self.assertEqual("ACCEPTED", result["status"])
             self.assertEqual(str(state_dir.resolve()), result["state_dir"])
             self.assertTrue(Path(result["run_dir"]).is_relative_to(state_dir.resolve()))
             self.assertTrue(Path(result["worktree"]).is_relative_to(state_dir.resolve()))
+            self.assertFalse((repo / "actuator-write.txt").exists())
+            self.assertFalse(Path(result["worktree"], "reviewer-write.txt").exists())
             self.assertEqual(2, len(result["iterations"]))
             first, second = result["iterations"]
             self.assertFalse(first["quick_gates"][1]["passed"])
@@ -222,27 +328,24 @@ else:
             self.assertEqual("", remotes.stdout.strip())
             self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(4, evidence["schema_version"])
+            self.assertEqual(5, evidence["schema_version"])
             self.assertEqual(".", evidence["run_dir"])
             self.assertFalse(Path(evidence["state_dir"]).is_absolute())
             self.assertFalse(Path(evidence["worktree"]).is_absolute())
-            self.assertEqual("codex-cli 0.0-test", evidence["runtime"]["codex_version"])
+            self.assertEqual(actuator, evidence["runtime"]["actuator"])
+            self.assertEqual(version, evidence["runtime"]["actuator_version"])
             frozen_sensor = evidence["sensors"]["task-outcome"]
             frozen_sensor_path = Path(result["run_dir"], frozen_sensor["path"])
             self.assertTrue(frozen_sensor_path.is_dir())
             self.assertTrue(Path(frozen_sensor_path, "README.md").is_file())
-            self.assertEqual(
-                "macos-sandbox-exec",
-                evidence["actuator_isolation"]["mechanism"],
-            )
-            self.assertIn(
-                "../../../sensors",
-                evidence["actuator_isolation"]["denied_paths"],
-            )
+            isolation = evidence["actuator_isolation"]
+            self.assertEqual("macos-sandbox-exec", isolation["mechanism"])
+            self.assertIn("../../../sensors", isolation["denied_paths"])
+            self.assertTrue(isolation["read_only_paths"])
             self.assertTrue(
                 all(
                     not Path(path).is_absolute()
-                    for path in evidence["actuator_isolation"]["denied_paths"]
+                    for path in isolation["denied_paths"] + isolation["read_only_paths"]
                 )
             )
             for gate in evidence["baseline"] + evidence["full_gates"]:

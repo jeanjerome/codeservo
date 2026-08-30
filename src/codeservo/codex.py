@@ -3,15 +3,15 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 from pathlib import Path
 
+from .actuator import ActuatorError, Isolation, isolation_evidence, seatbelt_command
 from .evidence import sha256_file, sha256_record
 
 
-class CodexError(RuntimeError):
+class CodexError(ActuatorError):
     pass
 
 
@@ -31,21 +31,21 @@ def _base_command(worktree: Path, sandbox: str, model: str | None) -> list[str]:
     return command
 
 
-def _seatbelt_escape(path: Path) -> str:
-    return str(path.resolve()).replace("\\", "\\\\").replace('"', '\\"')
+def _sandbox(isolation: Isolation, native: str) -> str:
+    """Select the sandbox Codex applies to itself.
+
+    macOS refuses to apply a seatbelt profile inside another one, so Codex keeps
+    its own sandbox only while the controller does not confine it. Otherwise the
+    controller-owned profile is the single confinement authority.
+    """
+    return native if isolation.empty else "danger-full-access"
 
 
-def _isolate_command(command: list[str], denied_paths: tuple[Path, ...]) -> list[str]:
-    if not denied_paths:
-        return command
-    if sys.platform != "darwin" or not Path("/usr/bin/sandbox-exec").is_file():
-        raise CodexError("mechanical sensor isolation requires macOS sandbox-exec")
-    denials = "".join(
-        f'(deny file-read* file-write* (subpath "{_seatbelt_escape(path)}"))'
-        for path in denied_paths
+def describe_isolation(isolation: Isolation) -> dict:
+    return isolation_evidence(
+        isolation,
+        "codex-workspace-write" if isolation.empty else "macos-sandbox-exec",
     )
-    policy = f"(version 1)(allow default){denials}"
-    return ["/usr/bin/sandbox-exec", "-p", policy, *command]
 
 
 def run_implementer(
@@ -55,7 +55,7 @@ def run_implementer(
     out_dir: Path,
     model: str | None,
     timeout_seconds: int,
-    denied_paths: tuple[Path, ...] = (),
+    isolation: Isolation = Isolation(),
 ) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     events = out_dir / "events.jsonl"
@@ -67,11 +67,13 @@ def run_implementer(
         temporary_events = temporary_dir / "events.jsonl"
         temporary_stderr = temporary_dir / "stderr.log"
         temporary_last_message = temporary_dir / "last-message.md"
-        command = _base_command(worktree, "workspace-write", model)
+        command = _base_command(
+            worktree, _sandbox(isolation, "workspace-write"), model
+        )
         command.extend(
             ["--json", "--output-last-message", str(temporary_last_message), "-"]
         )
-        command = _isolate_command(command, denied_paths)
+        command = seatbelt_command(command, isolation)
 
         timeout_error: subprocess.TimeoutExpired | None = None
         with temporary_events.open("wb") as stdout, temporary_stderr.open(
@@ -121,35 +123,54 @@ def run_reviewer(
     out_dir: Path,
     model: str | None,
     timeout_seconds: int,
+    isolation: Isolation = Isolation(),
 ) -> tuple[dict, dict]:
     out_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = out_dir / "stdout.log"
     stderr_path = out_dir / "stderr.log"
     result_path = out_dir / "review.json"
-    command = _base_command(worktree, "read-only", model)
-    command.extend(
-        [
-            "--output-schema",
-            str(schema_path),
-            "--output-last-message",
-            str(result_path),
-            "-",
-        ]
+    # A confined reviewer loses its native read-only sandbox, so the
+    # controller-owned profile denies every write to the candidate worktree.
+    review_isolation = (
+        isolation
+        if isolation.empty
+        else Isolation(
+            denied=isolation.denied,
+            read_only=(*isolation.read_only, worktree),
+        )
     )
-
     started = time.monotonic()
-    with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
-        try:
-            completed = subprocess.run(
-                command,
-                input=prompt.encode("utf-8"),
-                stdout=stdout,
-                stderr=stderr,
-                timeout=timeout_seconds,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise CodexError(f"reviewer timed out after {timeout_seconds}s") from exc
+
+    with tempfile.TemporaryDirectory(prefix="codeservo-review-") as temp:
+        temporary_result = Path(temp) / "review.json"
+        command = _base_command(worktree, _sandbox(isolation, "read-only"), model)
+        command.extend(
+            [
+                "--output-schema",
+                str(schema_path),
+                "--output-last-message",
+                str(temporary_result),
+                "-",
+            ]
+        )
+        command = seatbelt_command(command, review_isolation)
+
+        with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+            try:
+                completed = subprocess.run(
+                    command,
+                    input=prompt.encode("utf-8"),
+                    stdout=stdout,
+                    stderr=stderr,
+                    timeout=timeout_seconds,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise CodexError(
+                    f"reviewer timed out after {timeout_seconds}s"
+                ) from exc
+        if temporary_result.is_file():
+            shutil.copyfile(temporary_result, result_path)
 
     meta = {
         "exit_code": completed.returncode,

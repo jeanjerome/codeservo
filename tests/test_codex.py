@@ -1,56 +1,40 @@
-import subprocess
-import sys
-import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
-from codeservo.codex import CodexError, _isolate_command
+from codeservo.actuator import Isolation
+from codeservo.codex import _base_command, _sandbox, describe_isolation
 
 
-class SensorIsolationTests(unittest.TestCase):
-    @unittest.skipUnless(sys.platform == "darwin", "requires macOS sandbox-exec")
-    def test_denies_sensor_reads_but_allows_other_files(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            sensors = root / "sensors"
-            sensors.mkdir()
-            secret = sensors / "contract.py"
-            secret.write_text("hidden\n", encoding="utf-8")
-            visible = root / "visible.txt"
-            visible.write_text("visible\n", encoding="utf-8")
-            evidence = root / "runs" / "evidence.json"
-            evidence.parent.mkdir()
-            evidence.write_text("unchanged\n", encoding="utf-8")
+class SandboxSelectionTests(unittest.TestCase):
+    def test_keeps_its_own_sandbox_when_the_controller_does_not_confine_it(
+        self,
+    ) -> None:
+        self.assertEqual("workspace-write", _sandbox(Isolation(), "workspace-write"))
+        self.assertEqual("read-only", _sandbox(Isolation(), "read-only"))
 
-            denied = subprocess.run(
-                _isolate_command(["/bin/cat", str(secret)], (sensors,)),
-                capture_output=True,
-                check=False,
-            )
-            allowed = subprocess.run(
-                _isolate_command(["/bin/cat", str(visible)], (sensors,)),
-                capture_output=True,
-                check=False,
-            )
-            denied_write = subprocess.run(
-                _isolate_command(
-                    ["/usr/bin/touch", str(evidence)], (evidence.parent,)
-                ),
-                capture_output=True,
-                check=False,
-            )
+    def test_delegates_confinement_to_the_controller_profile(self) -> None:
+        confined = Isolation(denied=(Path("sensors"),))
 
-            self.assertNotEqual(0, denied.returncode)
-            self.assertNotEqual(0, denied_write.returncode)
-            self.assertEqual(0, allowed.returncode)
-            self.assertEqual(b"visible\n", allowed.stdout)
-            self.assertEqual("unchanged\n", evidence.read_text(encoding="utf-8"))
+        self.assertEqual("danger-full-access", _sandbox(confined, "workspace-write"))
+        self.assertEqual("danger-full-access", _sandbox(confined, "read-only"))
 
-    def test_fails_closed_without_supported_operating_system(self) -> None:
-        with patch("codeservo.codex.sys.platform", "linux"):
-            with self.assertRaisesRegex(CodexError, "requires macOS sandbox-exec"):
-                _isolate_command(["codex", "exec"], (Path("sensors"),))
+    def test_ignores_user_configuration(self) -> None:
+        command = _base_command(Path("/tmp/worktree"), "workspace-write", None)
+
+        self.assertIn("--ignore-user-config", command)
+        self.assertIn("--ephemeral", command)
+        self.assertEqual("/tmp/worktree", command[command.index("--cd") + 1])
+
+
+class IsolationTests(unittest.TestCase):
+    def test_reports_the_effective_mechanism(self) -> None:
+        self.assertEqual(
+            "codex-workspace-write", describe_isolation(Isolation())["mechanism"]
+        )
+        self.assertEqual(
+            "macos-sandbox-exec",
+            describe_isolation(Isolation(denied=(Path("sensors"),)))["mechanism"],
+        )
 
 
 if __name__ == "__main__":

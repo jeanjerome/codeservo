@@ -6,6 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from .actuator import ACTUATOR_ENV_VAR, ACTUATOR_NAMES, DEFAULT_ACTUATOR
 from .config import ConstitutionError
 from .controller import run
 from .task import TaskError
@@ -38,6 +39,14 @@ def build_parser() -> argparse.ArgumentParser:
     execute.add_argument("--review-model")
     execute.add_argument("--agent-timeout-seconds", type=int, default=1800)
     execute.add_argument(
+        "--actuator",
+        choices=ACTUATOR_NAMES,
+        help=(
+            "agent CLI proposing and reviewing the change "
+            f"(default: ${ACTUATOR_ENV_VAR}, else {DEFAULT_ACTUATOR})"
+        ),
+    )
+    execute.add_argument(
         "--state-dir",
         type=Path,
         help=(
@@ -62,6 +71,7 @@ def main() -> None:
             review_model=args.review_model,
             agent_timeout_seconds=args.agent_timeout_seconds,
             state_dir=args.state_dir,
+            actuator=args.actuator,
         )
     except (ConstitutionError, TaskError, RuntimeError, ValueError) as exc:
         print(f"codeservo: {exc}", file=sys.stderr)

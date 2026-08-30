@@ -8,7 +8,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__
-from .codex import CodexError, run_implementer, run_reviewer
+from .actuator import (
+    Actuator,
+    ActuatorError,
+    Isolation,
+    default_actuator_name,
+    load_actuator,
+)
 from .config import load_constitution
 from .evidence import (
     relative_evidence_paths,
@@ -60,16 +66,19 @@ def _command_version(command: list[str]) -> str:
     return output.splitlines()[0] if output else "unavailable"
 
 
-def _runtime_metadata(model: str | None, review_model: str | None) -> dict:
+def _runtime_metadata(
+    actuator: Actuator, model: str | None, review_model: str | None
+) -> dict:
     source_root = Path(__file__).resolve().parents[2]
     return {
         "codeservo_version": __version__,
         "codeservo_commit": _command_version(
             ["git", "-C", str(source_root), "rev-parse", "HEAD"]
         ),
-        "codex_version": _command_version(["codex", "--version"]),
-        "implementer_model": model or "codex-default",
-        "reviewer_model": review_model or "codex-default",
+        "actuator": actuator.name,
+        "actuator_version": _command_version(list(actuator.version_command)),
+        "implementer_model": model or f"{actuator.name}-default",
+        "reviewer_model": review_model or f"{actuator.name}-default",
         "python_version": platform.python_version(),
         "git_version": _command_version(["git", "--version"]),
     }
@@ -208,7 +217,9 @@ def run(
     review_model: str | None = None,
     agent_timeout_seconds: int = 1800,
     state_dir: Path | None = None,
+    actuator: str | None = None,
 ) -> dict:
+    backend = load_actuator(actuator or default_actuator_name())
     repo = root(repo_path)
     task = load_task(task_path.resolve())
     constitution = load_constitution(repo)
@@ -224,19 +235,18 @@ def run(
     frozen_task.write_text(task.raw_text, encoding="utf-8")
     frozen_constitution.write_text(constitution.raw_text, encoding="utf-8")
     sensor_paths, sensor_evidence = _freeze_sensors(state_root, run_dir, constitution)
-    actuator_denied_paths = (
-        (
+    isolation = Isolation(
+        denied=(
             state_root / "runs",
             state_root / "sensors",
             state_root / ".git",
             common_git_dir(repo),
-        )
-        if sensor_paths
-        else ()
+        ),
+        read_only=(repo,),
     )
 
     evidence: dict = {
-        "schema_version": 4,
+        "schema_version": 5,
         "run_id": run_id,
         "started_at": _now(),
         "repo": str(repo),
@@ -244,19 +254,9 @@ def run(
         "base_commit": base_commit,
         "task_sha256": sha256_text(task.raw_text),
         "constitution_sha256": sha256_text(constitution.raw_text),
-        "runtime": _runtime_metadata(model, review_model),
+        "runtime": _runtime_metadata(backend, model, review_model),
         "sensors": sensor_evidence,
-        "actuator_isolation": {
-            "mechanism": (
-                "macos-sandbox-exec"
-                if actuator_denied_paths
-                else "codex-workspace-write"
-            ),
-            "denied_paths": [
-                str(path.resolve()) for path in actuator_denied_paths
-            ],
-            "user_config_ignored": True,
-        },
+        "actuator_isolation": backend.describe_isolation(isolation),
         "status": "RUNNING",
         "iterations": [],
         "decision": {"reasons": []},
@@ -324,15 +324,15 @@ def run(
             },
         }
         try:
-            agent = run_implementer(
+            agent = backend.implement(
                 worktree=worktree,
                 prompt=prompt,
                 out_dir=iteration_dir / "agent",
                 model=model,
                 timeout_seconds=agent_timeout_seconds,
-                denied_paths=actuator_denied_paths,
+                isolation=isolation,
             )
-        except CodexError as exc:
+        except ActuatorError as exc:
             record["agent_error"] = str(exc)
             evidence["iterations"].append(record)
             persist()
@@ -414,15 +414,16 @@ def run(
     review_prompt_path.parent.mkdir(parents=True, exist_ok=True)
     review_prompt_path.write_text(review_prompt_text, encoding="utf-8")
     try:
-        review, review_meta = run_reviewer(
+        review, review_meta = backend.review(
             worktree=worktree,
             prompt=review_prompt_text,
             schema_path=schema_path,
             out_dir=run_dir / "review",
             model=review_model,
             timeout_seconds=agent_timeout_seconds,
+            isolation=isolation,
         )
-    except CodexError as exc:
+    except ActuatorError as exc:
         return finish("REJECTED", [str(exc)])
 
     evidence["review"] = {

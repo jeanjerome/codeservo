@@ -72,7 +72,7 @@ def relative_evidence_paths(payload: Any, run_dir: Path) -> Any:
 
         path_key = key in {"path", "repo", "run_dir", "state_dir", "worktree"}
         path_key = path_key or bool(key and key.endswith("_path"))
-        path_key = path_key or key == "denied_paths"
+        path_key = path_key or key in {"denied_paths", "read_only_paths"}
         if not path_key:
             return value
 
