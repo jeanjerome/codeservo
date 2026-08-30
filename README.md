@@ -223,8 +223,12 @@ repository state before and after actuation, repository state observed after
 quick gates, and any feedback generated for the next iteration.
 Paths stored in `evidence.json` are relative to the run directory so a copied
 run remains self-contained. The record includes the CodeServo version and
-source commit plus the actuator name and version, the models, and the Python
-and Git versions. SHA-256 digests cover frozen sensors, patch snapshots,
+source commit plus the actuator name and version, the requested models, and the
+Python and Git versions. Each Claude Code session additionally records the model
+identifier it resolved to and the tokens every model spent, because a model
+alias moves over time while two runs have to stay comparable. A reviewer session
+reports its usage but no resolved identifier, since its single-object output
+carries no session header. SHA-256 digests cover frozen sensors, patch snapshots,
 prompts, feedback, gate outcomes and logs, agent events and messages, and
 reviewer artifacts.
 

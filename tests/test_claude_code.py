@@ -9,6 +9,7 @@ from codeservo.claude_code import (
     REVIEWER_TOOLS,
     _base_command,
     _inline_schema,
+    _models,
     _review_result,
     describe_isolation,
 )
@@ -113,6 +114,38 @@ class ReviewResultTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ClaudeCodeError, "schema-shaped output"):
             _review_result(stdout_path, stderr_path)
+
+
+class ModelRecordTests(unittest.TestCase):
+    def test_reports_the_resolved_model_and_everything_that_spent_tokens(self) -> None:
+        events = [
+            {"type": "system", "subtype": "init", "model": "claude-opus-5"},
+            {
+                "type": "result",
+                "modelUsage": {
+                    "claude-opus-5": {"outputTokens": 24898, "costUSD": 1.56},
+                    "claude-haiku-4-5-20251001": {
+                        "outputTokens": 15,
+                        "costUSD": 0.0024,
+                    },
+                },
+            },
+        ]
+
+        models = _models(events)
+
+        self.assertEqual("claude-opus-5", models["session_model"])
+        self.assertEqual(
+            {"output_tokens": 24898, "cost_usd": 1.56},
+            models["usage"]["claude-opus-5"],
+        )
+        self.assertEqual(15, models["usage"]["claude-haiku-4-5-20251001"]["output_tokens"])
+
+    def test_reports_no_model_when_the_session_names_none(self) -> None:
+        models = _models([{"type": "result", "result": "done"}])
+
+        self.assertIsNone(models["session_model"])
+        self.assertEqual({}, models["usage"])
 
 
 class IsolationTests(unittest.TestCase):

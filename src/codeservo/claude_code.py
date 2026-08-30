@@ -59,8 +59,17 @@ def _inline_schema(schema_path: Path) -> str:
 
 
 def _events(path: Path) -> list[dict]:
+    """Read a stream of events, or the single object a `json` run produces."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    else:
+        return [payload] if isinstance(payload, dict) else []
+
     events: list[dict] = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
@@ -78,6 +87,33 @@ def _result_event(events: list[dict]) -> dict | None:
         if event.get("type") == "result":
             return event
     return None
+
+
+def _models(events: list[dict]) -> dict:
+    """Report the models a session ran on.
+
+    The command line carries an alias such as `opus`, which moves over time. The
+    session reports the identifier it resolved to, and its usage record names
+    every model that spent tokens, so a run stays comparable to another one.
+    """
+    session_model = next(
+        (
+            event.get("model")
+            for event in events
+            if event.get("type") == "system" and event.get("subtype") == "init"
+        ),
+        None,
+    )
+    usage = (_result_event(events) or {}).get("modelUsage")
+    spent = {}
+    if isinstance(usage, dict):
+        for name, record in usage.items():
+            if isinstance(record, dict):
+                spent[name] = {
+                    "output_tokens": record.get("outputTokens"),
+                    "cost_usd": record.get("costUSD"),
+                }
+    return {"session_model": session_model, "usage": spent}
 
 
 def _session(result: dict | None) -> dict:
@@ -142,7 +178,8 @@ def run_implementer(
                 f"implementer timed out after {timeout_seconds}s"
             ) from timeout_error
 
-    result = _result_event(_events(events_path))
+    events = _events(events_path)
+    result = _result_event(events)
     message = str(result.get("result", "")) if result else ""
     last_message.write_text(message, encoding="utf-8")
 
@@ -151,6 +188,7 @@ def run_implementer(
         "exit_code": completed.returncode,
         "duration_ms": int((time.monotonic() - started) * 1000),
         "session": _session(result),
+        "models": _models(events),
         "events_path": str(events_path),
         "events_sha256": sha256_file(events_path),
         "stderr_path": str(stderr_path),
@@ -232,6 +270,7 @@ def run_reviewer(
         "duration_ms": int((time.monotonic() - started) * 1000),
         "schema_sha256": sha256_file(schema_path),
         "session": _session(_result_event(_events(stdout_path))),
+        "models": _models(_events(stdout_path)),
         "stdout_path": str(stdout_path),
         "stdout_sha256": sha256_file(stdout_path),
         "stderr_path": str(stderr_path),

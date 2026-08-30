@@ -255,7 +255,7 @@ def run(
     gate_isolation = Isolation(read_only=(run_dir,))
 
     evidence: dict = {
-        "schema_version": 6,
+        "schema_version": 7,
         "run_id": run_id,
         "started_at": _now(),
         "repo": str(repo),

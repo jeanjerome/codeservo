@@ -138,7 +138,7 @@ if value("--output-format") == "json":
 else:
     probe_isolation(worktree)
     next_implementation(worktree)
-    print(json.dumps({{"type": "system", "subtype": "init"}}))
+    print(json.dumps({{"type": "system", "subtype": "init", "model": "test-model"}}))
     print(
         json.dumps(
             {{
@@ -150,6 +150,7 @@ else:
                 "total_cost_usd": 0.0,
                 "terminal_reason": "completed",
                 "result": "implemented",
+                "modelUsage": {{"test-model": {{"outputTokens": 12, "costUSD": 0.0}}}},
             }}
         )
     )
@@ -283,7 +284,7 @@ class ControllerE2ETests(unittest.TestCase):
             self.assertEqual("", remotes.stdout.strip())
             self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(6, evidence["schema_version"])
+            self.assertEqual(7, evidence["schema_version"])
             self.assertEqual(".", evidence["run_dir"])
             self.assertFalse(Path(evidence["state_dir"]).is_absolute())
             self.assertFalse(Path(evidence["worktree"]).is_absolute())
@@ -311,6 +312,10 @@ class ControllerE2ETests(unittest.TestCase):
                 self.assertEqual(64, len(gate["stdout_sha256"]))
                 self.assertEqual(64, len(gate["stderr_sha256"]))
                 self.assertEqual(64, len(gate["result_sha256"]))
+            if actuator == "claude":
+                models = evidence["iterations"][0]["agent"]["models"]
+                self.assertEqual("test-model", models["session_model"])
+                self.assertEqual(12, models["usage"]["test-model"]["output_tokens"])
             for iteration in evidence["iterations"]:
                 self.assertEqual(64, len(iteration["agent"]["events_sha256"]))
                 self.assertEqual(64, len(iteration["agent"]["result_sha256"]))
