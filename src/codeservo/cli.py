@@ -37,6 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
     execute.add_argument("--model")
     execute.add_argument("--review-model")
     execute.add_argument("--agent-timeout-seconds", type=int, default=1800)
+    execute.add_argument(
+        "--state-dir",
+        type=Path,
+        help="store run evidence and worktrees outside the target repository",
+    )
     return parser
 
 
@@ -53,6 +58,7 @@ def main() -> None:
             model=args.model,
             review_model=args.review_model,
             agent_timeout_seconds=args.agent_timeout_seconds,
+            state_dir=args.state_dir,
         )
     except (ConstitutionError, TaskError, RuntimeError, ValueError) as exc:
         print(f"codeservo: {exc}", file=sys.stderr)

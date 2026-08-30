@@ -26,6 +26,17 @@ def _run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
 
 
+def _resolve_state_dir(repo: Path, state_dir: Path | None) -> Path:
+    root_dir = (
+        state_dir.expanduser().resolve()
+        if state_dir is not None
+        else (Path.home() / ".codeservo").resolve()
+    )
+    if root_dir == repo or root_dir.is_relative_to(repo):
+        raise ControlFailure("state directory must be outside the target repository")
+    return root_dir
+
+
 def _write_patch_snapshot(path: Path, worktree: Path, base_commit: str) -> dict:
     patch = make_patch(worktree, base_commit)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -95,15 +106,16 @@ def run(
     model: str | None = None,
     review_model: str | None = None,
     agent_timeout_seconds: int = 1800,
+    state_dir: Path | None = None,
 ) -> dict:
     repo = root(repo_path)
     task = load_task(task_path.resolve())
     constitution = load_constitution(repo)
     base_commit = head(repo)
     run_id = _run_id()
-    home = Path.home() / ".codeservo"
-    run_dir = home / "runs" / repo.name / run_id
-    worktree = home / "worktrees" / repo.name / run_id
+    state_root = _resolve_state_dir(repo, state_dir)
+    run_dir = state_root / "runs" / repo.name / run_id
+    worktree = state_root / "worktrees" / repo.name / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
 
     frozen_task = run_dir / "TASK.md"
@@ -116,6 +128,7 @@ def run(
         "run_id": run_id,
         "started_at": _now(),
         "repo": str(repo),
+        "state_dir": str(state_root),
         "base_commit": base_commit,
         "task_sha256": sha256_text(task.raw_text),
         "constitution_sha256": sha256_text(constitution.raw_text),

@@ -142,15 +142,18 @@ Optional:
 codeservo run \
   --repo /path/to/project \
   --task ./TASK.md \
+  --state-dir /path/to/codeservo-state \
   --max-iterations 4 \
   --model <implementer-model> \
   --review-model <review-model>
 ```
 
-A run produces immutable-ish external artifacts under:
+`--state-dir` selects where controller-owned evidence and temporary worktrees are stored. It defaults to `~/.codeservo` and must be outside the target repository.
+
+A run produces immutable-ish external artifacts under the selected state directory:
 
 ```text
-~/.codeservo/
+<state-dir>/
 ├── worktrees/<repo>/<run-id>/
 └── runs/<repo>/<run-id>/
     ├── TASK.md

@@ -17,10 +17,9 @@ class ControllerE2ETests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
-            home = root / "home"
+            state_dir = root / "state"
             bin_dir = root / "bin"
             repo.mkdir()
-            home.mkdir()
             bin_dir.mkdir()
             (repo / ".codeservo").mkdir()
 
@@ -103,13 +102,20 @@ else:
             subprocess.run(["git", "commit", "-qm", "initial"], cwd=repo, check=True)
 
             env = {
-                "HOME": str(home),
                 "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
             }
             with patch.dict(os.environ, env, clear=False):
-                result = run(repo_path=repo, task_path=task, max_iterations=3)
+                result = run(
+                    repo_path=repo,
+                    task_path=task,
+                    max_iterations=3,
+                    state_dir=state_dir,
+                )
 
             self.assertEqual("ACCEPTED", result["status"])
+            self.assertEqual(str(state_dir.resolve()), result["state_dir"])
+            self.assertTrue(Path(result["run_dir"]).is_relative_to(state_dir.resolve()))
+            self.assertTrue(Path(result["worktree"]).is_relative_to(state_dir.resolve()))
             self.assertEqual(2, len(result["iterations"]))
             first, second = result["iterations"]
             self.assertFalse(first["quick_gates"][1]["passed"])
