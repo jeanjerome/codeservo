@@ -165,9 +165,12 @@ accepts `claude` and `codex`, defaults to `$CODESERVO_ACTUATOR`, and falls back
 to `claude`. `--model` and `--review-model` are passed through to that CLI, so
 their accepted values are the ones the selected CLI accepts.
 
-Both backends run without user-level configuration, without session
-persistence, and without MCP servers, so a run depends only on the frozen task,
-the frozen constitution, the controller feedback, and the repository content:
+Both backends run without session persistence and without MCP servers, so a run
+depends on the frozen task, the frozen constitution, the controller feedback,
+and the repository content. Claude Code additionally runs with user memory,
+settings, hooks, skills and custom commands disabled; plugin and subagent
+definitions installed on the machine stay registered, but the actuator tool set
+excludes the tools that would reach them.
 
 | | implementer | reviewer |
 | --- | --- | --- |
