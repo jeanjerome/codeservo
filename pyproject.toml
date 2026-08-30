@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "codeservo"
+version = "0.0.1"
+description = "A deterministic control loop around AI-generated software changes."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [{ name = "CodeServo contributors" }]
+dependencies = []
+
+[project.scripts]
+codeservo = "codeservo.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/codeservo"]
+include = [
+  "src/codeservo/constitution.example.toml",
+  "src/codeservo/review.schema.json",
+]

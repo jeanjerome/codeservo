@@ -1,0 +1,30 @@
+version = 1
+
+[scope]
+protected = [".codeservo/**", ".github/workflows/**"]
+max_changed_files = 20
+max_diff_lines = 800
+
+[[gate]]
+name = "lint"
+phase = "quick"
+command = "make lint"
+timeout_seconds = 120
+baseline = true
+
+[[gate]]
+name = "unit"
+phase = "quick"
+command = "make test-unit"
+timeout_seconds = 300
+baseline = true
+
+[[gate]]
+name = "full"
+phase = "full"
+command = "make check"
+timeout_seconds = 900
+baseline = true
+
+[review]
+blocking_severities = ["blocker", "major"]
