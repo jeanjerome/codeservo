@@ -39,6 +39,9 @@ ACCEPTED / REJECTED
 
 The implementer never gets to mark itself done. `ACCEPTED` is computed by CodeServo from explicit evidence.
 
+`FINDINGS.md` records what the experiments run through this controller
+established, what they did not, and what follows for its design.
+
 ## Deliberate V0 limits
 
 - One actuator per run: Claude Code or Codex CLI.
