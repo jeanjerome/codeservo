@@ -45,6 +45,62 @@ command = "true"
         self.assertEqual(1, len(constitution.gates_for("quick")))
         self.assertEqual(1, len(constitution.gates_for("full")))
 
+    def test_requires_external_sensor_for_nonbaseline_gate(self) -> None:
+        repo = self._write(
+            '''
+[[gate]]
+name = "acceptance"
+phase = "quick"
+command = "false"
+baseline = false
+
+[[gate]]
+name = "full"
+phase = "full"
+command = "true"
+'''
+        )
+
+        with self.assertRaisesRegex(ConstitutionError, "external sensor"):
+            load_constitution(repo)
+
+    def test_external_sensor_cannot_run_during_baseline(self) -> None:
+        repo = self._write(
+            '''
+[[gate]]
+name = "acceptance"
+phase = "quick"
+command = "false"
+sensor = "example/acceptance"
+
+[[gate]]
+name = "full"
+phase = "full"
+command = "true"
+'''
+        )
+
+        with self.assertRaisesRegex(ConstitutionError, "requires baseline=false"):
+            load_constitution(repo)
+
+    def test_rejects_gate_name_that_can_escape_log_directory(self) -> None:
+        repo = self._write(
+            '''
+[[gate]]
+name = "../acceptance"
+phase = "quick"
+command = "true"
+
+[[gate]]
+name = "full"
+phase = "full"
+command = "true"
+'''
+        )
+
+        with self.assertRaisesRegex(ConstitutionError, "invalid gate name"):
+            load_constitution(repo)
+
 
 if __name__ == "__main__":
     unittest.main()

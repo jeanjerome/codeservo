@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -33,19 +34,34 @@ def load_constitution(repo: Path) -> Constitution:
     names: set[str] = set()
     for item in gate_items:
         name = str(item["name"])
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name) is None:
+            raise ConstitutionError(f"invalid gate name: {name}")
         if name in names:
             raise ConstitutionError(f"duplicate gate name: {name}")
         names.add(name)
         phase = str(item["phase"])
         if phase not in {"quick", "full"}:
             raise ConstitutionError(f"gate {name}: phase must be quick or full")
+        baseline = bool(item.get("baseline", True))
+        sensor = str(item["sensor"]) if "sensor" in item else None
+        if sensor is not None and not sensor.strip():
+            raise ConstitutionError(f"gate {name}: sensor reference cannot be empty")
+        if not baseline and sensor is None:
+            raise ConstitutionError(
+                f"gate {name}: baseline=false requires an external sensor"
+            )
+        if baseline and sensor is not None:
+            raise ConstitutionError(
+                f"gate {name}: external sensor requires baseline=false"
+            )
         gates.append(
             Gate(
                 name=name,
                 phase=phase,  # type: ignore[arg-type]
                 command=str(item["command"]),
                 timeout_seconds=int(item.get("timeout_seconds", 300)),
-                baseline=bool(item.get("baseline", True)),
+                baseline=baseline,
+                sensor=sensor,
             )
         )
 

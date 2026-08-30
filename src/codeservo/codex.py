@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
+import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -19,10 +22,28 @@ def _base_command(worktree: Path, sandbox: str, model: str | None) -> list[str]:
         "--sandbox",
         sandbox,
         "--ephemeral",
+        "--ignore-user-config",
     ]
     if model:
         command.extend(["--model", model])
     return command
+
+
+def _seatbelt_escape(path: Path) -> str:
+    return str(path.resolve()).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _isolate_command(command: list[str], denied_paths: tuple[Path, ...]) -> list[str]:
+    if not denied_paths:
+        return command
+    if sys.platform != "darwin" or not Path("/usr/bin/sandbox-exec").is_file():
+        raise CodexError("mechanical sensor isolation requires macOS sandbox-exec")
+    denials = "".join(
+        f'(deny file-read* file-write* (subpath "{_seatbelt_escape(path)}"))'
+        for path in denied_paths
+    )
+    policy = f"(version 1)(allow default){denials}"
+    return ["/usr/bin/sandbox-exec", "-p", policy, *command]
 
 
 def run_implementer(
@@ -32,27 +53,47 @@ def run_implementer(
     out_dir: Path,
     model: str | None,
     timeout_seconds: int,
+    denied_paths: tuple[Path, ...] = (),
 ) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     events = out_dir / "events.jsonl"
     stderr_path = out_dir / "stderr.log"
     last_message = out_dir / "last-message.md"
-    command = _base_command(worktree, "workspace-write", model)
-    command.extend(["--json", "--output-last-message", str(last_message), "-"])
-
     started = time.monotonic()
-    with events.open("wb") as stdout, stderr_path.open("wb") as stderr:
-        try:
-            completed = subprocess.run(
-                command,
-                input=prompt.encode("utf-8"),
-                stdout=stdout,
-                stderr=stderr,
-                timeout=timeout_seconds,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise CodexError(f"implementer timed out after {timeout_seconds}s") from exc
+    with tempfile.TemporaryDirectory(prefix="codeservo-agent-") as temp:
+        temporary_dir = Path(temp)
+        temporary_events = temporary_dir / "events.jsonl"
+        temporary_stderr = temporary_dir / "stderr.log"
+        temporary_last_message = temporary_dir / "last-message.md"
+        command = _base_command(worktree, "workspace-write", model)
+        command.extend(
+            ["--json", "--output-last-message", str(temporary_last_message), "-"]
+        )
+        command = _isolate_command(command, denied_paths)
+
+        timeout_error: subprocess.TimeoutExpired | None = None
+        with temporary_events.open("wb") as stdout, temporary_stderr.open(
+            "wb"
+        ) as stderr:
+            try:
+                completed = subprocess.run(
+                    command,
+                    input=prompt.encode("utf-8"),
+                    stdout=stdout,
+                    stderr=stderr,
+                    timeout=timeout_seconds,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                timeout_error = exc
+        shutil.copyfile(temporary_events, events)
+        shutil.copyfile(temporary_stderr, stderr_path)
+        if temporary_last_message.is_file():
+            shutil.copyfile(temporary_last_message, last_message)
+        if timeout_error is not None:
+            raise CodexError(
+                f"implementer timed out after {timeout_seconds}s"
+            ) from timeout_error
 
     return {
         "exit_code": completed.returncode,

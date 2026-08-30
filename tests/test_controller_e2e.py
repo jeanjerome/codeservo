@@ -11,7 +11,10 @@ from unittest.mock import patch
 from codeservo.controller import run
 
 
-@unittest.skipIf(os.name == "nt", "fake Codex executable uses a POSIX shebang")
+@unittest.skipUnless(
+    sys.platform == "darwin",
+    "external sensor isolation requires macOS sandbox-exec",
+)
 class ControllerE2ETests(unittest.TestCase):
     def test_feedback_loop_converges_and_accepts(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -22,9 +25,16 @@ class ControllerE2ETests(unittest.TestCase):
             repo.mkdir()
             bin_dir.mkdir()
             (repo / ".codeservo").mkdir()
+            sensor = state_dir / "sensors" / "test" / "task-outcome"
+            sensor.mkdir(parents=True)
+            (sensor / "README.md").write_text(
+                "Controller-owned test sensor.\n", encoding="utf-8"
+            )
 
             (repo / ".gitignore").write_text("__pycache__/\n*.pyc\n", encoding="utf-8")
             (repo / "app.py").write_text("def value():\n    return 0\n", encoding="utf-8")
+            historical_sensor = repo / "historical-sensor.txt"
+            historical_sensor.write_text("must stay hidden\n", encoding="utf-8")
             (repo / ".codeservo" / "constitution.toml").write_text(
                 f'''version = 1
 
@@ -42,8 +52,9 @@ baseline = true
 [[gate]]
 name = "task-outcome"
 phase = "quick"
-command = "grep -q 'return 2' app.py"
+command = 'test -f "$CODESERVO_SENSOR_PATH/README.md" && grep -q "return 2" app.py'
 baseline = false
+sensor = "test/task-outcome"
 
 [[gate]]
 name = "full"
@@ -66,7 +77,9 @@ blocking_severities = ["blocker", "major"]
             fake_codex.write_text(
                 '''#!/usr/bin/env python3
 import json
+import os
 import pathlib
+import subprocess
 import sys
 args = sys.argv[1:]
 def value(flag):
@@ -76,6 +89,28 @@ out = pathlib.Path(value("--output-last-message"))
 out.parent.mkdir(parents=True, exist_ok=True)
 sys.stdin.read()
 if value("--sandbox") == "workspace-write":
+    source_history = subprocess.run(
+        [
+            "git",
+            f"--git-dir={os.environ['CODESERVO_TEST_SOURCE_GIT']}",
+            "show",
+            "HEAD^:historical-sensor.txt",
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if source_history.returncode == 0:
+        sys.stderr.write("source repository history is readable")
+        raise SystemExit(8)
+    history = subprocess.run(
+        ["git", "show", "HEAD^:historical-sensor.txt"],
+        cwd=worktree,
+        capture_output=True,
+        check=False,
+    )
+    if history.returncode == 0:
+        sys.stderr.write("historical sensor is readable")
+        raise SystemExit(9)
     p = worktree / "app.py"
     current = p.read_text()
     p.write_text(
@@ -99,10 +134,29 @@ else:
             subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
             subprocess.run(["git", "config", "user.name", "test"], cwd=repo, check=True)
             subprocess.run(["git", "add", "."], cwd=repo, check=True)
-            subprocess.run(["git", "commit", "-qm", "initial"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-qm", "historical sensor"],
+                cwd=repo,
+                check=True,
+            )
+            historical_blob = subprocess.run(
+                ["git", "rev-parse", "HEAD:historical-sensor.txt"],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
+            historical_sensor.unlink()
+            subprocess.run(["git", "add", "-u"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-qm", "clean baseline"],
+                cwd=repo,
+                check=True,
+            )
 
             env = {
                 "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
+                "CODESERVO_TEST_SOURCE_GIT": str((repo / ".git").resolve()),
             }
             with patch.dict(os.environ, env, clear=False):
                 result = run(
@@ -141,8 +195,46 @@ else:
                 for state_name in ("input_state", "actuator_state", "observed_state"):
                     self.assertTrue(Path(iteration[state_name]["path"]).is_file())
             self.assertTrue(Path(result["run_dir"], "change.patch").is_file())
+            shallow_count = subprocess.run(
+                ["git", "rev-list", "--count", "HEAD"],
+                cwd=result["worktree"],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            remotes = subprocess.run(
+                ["git", "remote"],
+                cwd=result["worktree"],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            historical_object = subprocess.run(
+                ["git", "cat-file", "-e", historical_blob],
+                cwd=result["worktree"],
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual("1", shallow_count.stdout.strip())
+            self.assertEqual("", remotes.stdout.strip())
+            self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(2, evidence["schema_version"])
+            self.assertEqual(3, evidence["schema_version"])
+            frozen_sensor = evidence["sensors"]["task-outcome"]
+            self.assertTrue(Path(frozen_sensor["path"]).is_dir())
+            self.assertTrue(Path(frozen_sensor["path"], "README.md").is_file())
+            self.assertEqual(
+                "macos-sandbox-exec",
+                evidence["actuator_isolation"]["mechanism"],
+            )
+            self.assertIn(
+                str((state_dir / "sensors").resolve()),
+                evidence["actuator_isolation"]["denied_paths"],
+            )
+            self.assertIn(
+                str((repo / ".git").resolve()),
+                evidence["actuator_isolation"]["denied_paths"],
+            )
             self.assertEqual("ACCEPTED", evidence["status"])
 
 

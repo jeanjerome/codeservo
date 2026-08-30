@@ -1,14 +1,24 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .codex import CodexError, run_implementer, run_reviewer
 from .config import load_constitution
-from .evidence import sha256_text, write_json
+from .evidence import sha256_path, sha256_text, write_json
 from .gates import baseline_gates, run_gates
-from .git import create_worktree, head, is_clean, make_patch, root, scope_sensor
+from .git import (
+    common_git_dir,
+    create_worktree,
+    head,
+    is_clean,
+    make_patch,
+    root,
+    scope_sensor,
+)
+from .model import Constitution
 from .process import tail
 from .prompts import implementer_prompt, reviewer_prompt
 from .task import load_task
@@ -45,6 +55,58 @@ def _write_patch_snapshot(path: Path, worktree: Path, base_commit: str) -> dict:
         "path": str(path),
         "sha256": sha256_text(patch),
     }
+
+
+def _freeze_sensors(
+    state_root: Path, run_dir: Path, constitution: Constitution
+) -> tuple[dict[str, Path], dict[str, dict]]:
+    sensor_root = (state_root / "sensors").resolve()
+    paths: dict[str, Path] = {}
+    evidence: dict[str, dict] = {}
+    for gate in constitution.gates:
+        if gate.sensor is None:
+            continue
+        reference = Path(gate.sensor)
+        unresolved_source = sensor_root / reference
+        source = unresolved_source.resolve()
+        if (
+            reference == Path(".")
+            or reference.is_absolute()
+            or not source.is_relative_to(sensor_root)
+        ):
+            raise ControlFailure(
+                f"gate {gate.name}: sensor must stay under {sensor_root}"
+            )
+        if not source.exists():
+            raise ControlFailure(f"gate {gate.name}: missing external sensor {source}")
+        lexical_sources = (unresolved_source, *unresolved_source.parents)
+        if any(
+            path.is_relative_to(sensor_root) and path.is_symlink()
+            for path in lexical_sources
+        ) or any(path.is_symlink() for path in source.rglob("*")):
+            raise ControlFailure(
+                f"gate {gate.name}: sensor cannot contain symbolic links"
+            )
+
+        target = run_dir / "sensors" / gate.name
+        if source.is_dir():
+            shutil.copytree(
+                source,
+                target,
+                ignore=shutil.ignore_patterns(
+                    "__pycache__", ".pytest_cache", "*.pyc", ".DS_Store"
+                ),
+            )
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+        paths[gate.name] = target
+        evidence[gate.name] = {
+            "path": str(target),
+            "reference": gate.sensor,
+            "sha256": sha256_path(target),
+        }
+    return paths, evidence
 
 
 def _gate_feedback(results: list[dict]) -> str:
@@ -122,9 +184,20 @@ def run(
     frozen_constitution = run_dir / "constitution.toml"
     frozen_task.write_text(task.raw_text, encoding="utf-8")
     frozen_constitution.write_text(constitution.raw_text, encoding="utf-8")
+    sensor_paths, sensor_evidence = _freeze_sensors(state_root, run_dir, constitution)
+    actuator_denied_paths = (
+        (
+            state_root / "runs",
+            state_root / "sensors",
+            state_root / ".git",
+            common_git_dir(repo),
+        )
+        if sensor_paths
+        else ()
+    )
 
     evidence: dict = {
-        "schema_version": 2,
+        "schema_version": 3,
         "run_id": run_id,
         "started_at": _now(),
         "repo": str(repo),
@@ -132,6 +205,18 @@ def run(
         "base_commit": base_commit,
         "task_sha256": sha256_text(task.raw_text),
         "constitution_sha256": sha256_text(constitution.raw_text),
+        "sensors": sensor_evidence,
+        "actuator_isolation": {
+            "mechanism": (
+                "macos-sandbox-exec"
+                if actuator_denied_paths
+                else "codex-workspace-write"
+            ),
+            "denied_paths": [
+                str(path.resolve()) for path in actuator_denied_paths
+            ],
+            "user_config_ignored": True,
+        },
         "status": "RUNNING",
         "iterations": [],
         "decision": {"reasons": []},
@@ -158,7 +243,11 @@ def run(
     if not is_clean(repo):
         return finish("REJECTED", ["source repository is not clean"])
 
-    baseline = run_gates(repo=repo, gates=baseline_gates(constitution), out_dir=run_dir / "baseline")
+    baseline = run_gates(
+        repo=repo,
+        gates=baseline_gates(constitution),
+        out_dir=run_dir / "baseline",
+    )
     evidence["baseline"] = baseline
     write_json(evidence_path, evidence)
     if not all(g["passed"] for g in baseline):
@@ -197,6 +286,7 @@ def run(
                 out_dir=iteration_dir / "agent",
                 model=model,
                 timeout_seconds=agent_timeout_seconds,
+                denied_paths=actuator_denied_paths,
             )
         except CodexError as exc:
             record["agent_error"] = str(exc)
@@ -218,6 +308,7 @@ def run(
             repo=worktree,
             gates=constitution.gates_for("quick"),
             out_dir=iteration_dir / "quick",
+            sensor_paths=sensor_paths,
         )
         record["observed_state"] = _write_patch_snapshot(
             iteration_dir / "observed.patch", worktree, base_commit
@@ -253,12 +344,16 @@ def run(
         write_json(evidence_path, evidence)
 
     if not quick_passed:
-        return finish("REJECTED", [f"quick gates did not converge within {max_iterations} iterations"])
+        return finish(
+            "REJECTED",
+            [f"quick gates did not converge within {max_iterations} iterations"],
+        )
 
     full = run_gates(
         repo=worktree,
         gates=constitution.gates_for("full"),
         out_dir=run_dir / "full",
+        sensor_paths=sensor_paths,
     )
     evidence["full_gates"] = full
     write_json(evidence_path, evidence)
@@ -286,5 +381,7 @@ def run(
         return finish("REJECTED", [str(exc)])
 
     evidence["review"] = {"result": review, "meta": review_meta}
-    reasons = _review_decision(review, task.criteria, constitution.review.blocking_severities)
+    reasons = _review_decision(
+        review, task.criteria, constitution.review.blocking_severities
+    )
     return finish("ACCEPTED" if not reasons else "REJECTED", reasons)

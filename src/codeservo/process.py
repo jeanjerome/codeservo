@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -14,11 +15,18 @@ def run_command(
     cwd: Path,
     out_dir: Path,
     timeout_seconds: int,
+    env: dict[str, str] | None = None,
+    unset_env: tuple[str, ...] = (),
 ) -> CommandResult:
     out_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = out_dir / f"{name}.stdout.log"
     stderr_path = out_dir / f"{name}.stderr.log"
     started = time.monotonic()
+    process_env = os.environ.copy()
+    for variable in unset_env:
+        process_env.pop(variable, None)
+    if env:
+        process_env.update(env)
     exit_code: int | None = None
     timed_out = False
 
@@ -31,6 +39,7 @@ def run_command(
                 stderr=stderr,
                 timeout=timeout_seconds,
                 check=False,
+                env=process_env,
             )
             exit_code = completed.returncode
         except subprocess.TimeoutExpired:

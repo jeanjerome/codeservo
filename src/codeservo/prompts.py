@@ -1,7 +1,42 @@
 from __future__ import annotations
 
+import json
+
 from .model import Constitution
 from .task import Task
+
+
+def _actuator_constitution(constitution: Constitution) -> str:
+    lines = [
+        "version = 1",
+        "",
+        "[scope]",
+        f"protected = {json.dumps(list(constitution.scope.protected))}",
+        f"max_changed_files = {constitution.scope.max_changed_files}",
+        f"max_diff_lines = {constitution.scope.max_diff_lines}",
+    ]
+    for gate in constitution.gates:
+        command = gate.command if gate.sensor is None else "<controller-owned sensor>"
+        lines.extend(
+            [
+                "",
+                "[[gate]]",
+                f"name = {json.dumps(gate.name)}",
+                f"phase = {json.dumps(gate.phase)}",
+                f"command = {json.dumps(command)}",
+                f"timeout_seconds = {gate.timeout_seconds}",
+                f"baseline = {str(gate.baseline).lower()}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "[review]",
+            "blocking_severities = "
+            + json.dumps(list(constitution.review.blocking_severities)),
+        ]
+    )
+    return "\n".join(lines)
 
 
 def implementer_prompt(task: Task, constitution: Constitution, feedback: str) -> str:
@@ -20,9 +55,9 @@ TASK
 ====
 {task.raw_text}
 
-FROZEN REPOSITORY CONSTITUTION
-==============================
-{constitution.raw_text}
+ACTUATOR VIEW OF FROZEN REPOSITORY CONSTITUTION
+================================================
+{_actuator_constitution(constitution)}
 
 CONTROLLER FEEDBACK FROM THE PREVIOUS ITERATION
 ===============================================

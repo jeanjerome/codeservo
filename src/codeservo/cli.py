@@ -40,7 +40,10 @@ def build_parser() -> argparse.ArgumentParser:
     execute.add_argument(
         "--state-dir",
         type=Path,
-        help="store run evidence and worktrees outside the target repository",
+        help=(
+            "store sensors, run evidence, and working trees outside the target "
+            "repository"
+        ),
     )
     return parser
 

@@ -14,6 +14,7 @@ class Gate:
     command: str
     timeout_seconds: int = 300
     baseline: bool = True
+    sensor: str | None = None
 
 
 @dataclass(frozen=True)

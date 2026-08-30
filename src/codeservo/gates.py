@@ -11,15 +11,26 @@ def run_gates(
     repo: Path,
     gates: tuple[Gate, ...],
     out_dir: Path,
+    sensor_paths: dict[str, Path] | None = None,
 ) -> list[dict]:
     results: list[dict] = []
+    sensors = sensor_paths or {}
     for gate in gates:
+        sensor_path = sensors.get(gate.name)
+        if gate.sensor is not None and sensor_path is None:
+            raise ValueError(f"missing frozen sensor for gate {gate.name}")
         result = run_command(
             name=gate.name,
             command=gate.command,
             cwd=repo,
             out_dir=out_dir,
             timeout_seconds=gate.timeout_seconds,
+            env=(
+                {"CODESERVO_SENSOR_PATH": str(sensor_path)}
+                if sensor_path is not None
+                else None
+            ),
+            unset_env=("CODESERVO_SENSOR_PATH",),
         )
         results.append(
             {

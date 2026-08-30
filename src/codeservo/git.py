@@ -32,9 +32,26 @@ def is_clean(repo: Path) -> bool:
     return not git(repo, "status", "--porcelain").strip()
 
 
+def common_git_dir(repo: Path) -> Path:
+    path = Path(git(repo, "rev-parse", "--git-common-dir").strip())
+    return path.resolve() if path.is_absolute() else (repo / path).resolve()
+
+
 def create_worktree(repo: Path, destination: Path, commit: str) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    git(repo, "worktree", "add", "--detach", str(destination), commit)
+    git(
+        repo,
+        "clone",
+        "--no-local",
+        "--depth",
+        "1",
+        "--single-branch",
+        repo.as_uri(),
+        str(destination),
+    )
+    if head(destination) != commit:
+        raise GitError("isolated checkout does not match the frozen base commit")
+    git(destination, "remote", "remove", "origin")
 
 
 def changed_files(worktree: Path, base_commit: str) -> list[str]:

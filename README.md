@@ -18,7 +18,7 @@ clean repository + frozen constitution
    ↓
 baseline gates
    ↓
-isolated Git worktree
+isolated shallow Git checkout
    ↓
 Codex implementer
    ↓
@@ -54,6 +54,7 @@ The implementer never gets to mark itself done. `ACCEPTED` is computed by CodeSe
 - Git
 - Codex CLI installed and authenticated
 - A clean target Git repository
+- macOS `sandbox-exec` when external acceptance sensors are configured
 
 ## Install for development
 
@@ -104,6 +105,14 @@ command = "make check"
 timeout_seconds = 900
 baseline = true
 
+[[gate]]
+name = "acceptance"
+phase = "quick"
+command = "pytest -q \"$CODESERVO_SENSOR_PATH\""
+timeout_seconds = 300
+baseline = false
+sensor = "my-project/health-contract"
+
 [review]
 blocking_severities = ["blocker", "major"]
 ```
@@ -148,16 +157,21 @@ codeservo run \
   --review-model <review-model>
 ```
 
-`--state-dir` selects where controller-owned evidence and temporary worktrees are stored. It defaults to `~/.codeservo` and must be outside the target repository.
+`--state-dir` selects where controller-owned sensors, evidence, and temporary
+working trees are stored. It defaults to `~/.codeservo` and must be outside the
+target repository. Sensor references in the constitution resolve below
+`<state-dir>/sensors/`.
 
 A run produces immutable-ish external artifacts under the selected state directory:
 
 ```text
 <state-dir>/
+├── sensors/<repo>/<sensor>/
 ├── worktrees/<repo>/<run-id>/
 └── runs/<repo>/<run-id>/
     ├── TASK.md
     ├── constitution.toml
+    ├── sensors/                 # frozen sensor snapshot
     ├── baseline/
     ├── iterations/
     │   ├── 01/
@@ -175,9 +189,21 @@ A run produces immutable-ish external artifacts under the selected state directo
     └── evidence.json
 ```
 
-The evidence directory is outside the target worktree so the actuator cannot rewrite the controller's record. `evidence.json` is checkpointed during the run. Each iteration records the exact feedback received, prompt hash, repository state before and after actuation, repository state observed after quick gates, and any feedback generated for the next iteration.
+The evidence directory is outside the target worktree so the actuator cannot
+rewrite the controller's record. `evidence.json` is checkpointed during the
+run. Each iteration records the exact feedback received, prompt hash,
+repository state before and after actuation, repository state observed after
+quick gates, and any feedback generated for the next iteration.
 
-Gates marked `baseline=false` are independent acceptance sensors. The implementer prompt instructs the actuator not to inspect or run them; their output reaches the actuator only through controller feedback.
+Gates marked `baseline=false` must reference an external acceptance sensor.
+CodeServo freezes the sensor and its digest before baseline verification, then
+provides its path only to the gate process through `CODESERVO_SENSOR_PATH`.
+The implementer receives a shallow checkout with no remote, so target repository
+history is absent. It runs inside an additional macOS sandbox that denies reads
+and writes to source sensors, frozen sensors, run evidence, state repository
+metadata, and the source repository's Git object store. The actuator receives
+only the controller-selected gate output on the next iteration. CodeServo fails
+closed if this isolation is requested where `sandbox-exec` is unavailable.
 
 ## Mechanical acceptance rule
 
