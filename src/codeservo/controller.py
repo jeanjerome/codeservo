@@ -152,6 +152,19 @@ def _freeze_sensors(
     return paths, evidence
 
 
+def _review_schema_path(source_root: Path | None = None) -> Path:
+    """Locate the frozen review schema.
+
+    An installed wheel carries no repository-level `templates/`, so the package
+    keeps its own copy of the schema next to the module.
+    """
+    root = source_root if source_root is not None else Path(__file__).resolve().parents[2]
+    repository_copy = root / "templates" / "review.schema.json"
+    if repository_copy.is_file():
+        return repository_copy
+    return Path(__file__).with_name("review.schema.json")
+
+
 def _altered_sensors(
     sensor_paths: dict[str, Path], sensor_evidence: dict[str, dict]
 ) -> list[str]:
@@ -432,11 +445,7 @@ def run(
     if reasons:
         return finish("REJECTED", reasons)
 
-    schema_path = Path(__file__).resolve().parents[2] / "templates" / "review.schema.json"
-    # Installed wheels do not contain repository-level templates; fall back to package copy.
-    if not schema_path.exists():
-        schema_path = Path(__file__).with_name("review.schema.json")
-
+    schema_path = _review_schema_path()
     review_prompt_text = reviewer_prompt(task, constitution)
     review_prompt_path = run_dir / "review" / "prompt.md"
     review_prompt_path.parent.mkdir(parents=True, exist_ok=True)
