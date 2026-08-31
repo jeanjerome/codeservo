@@ -176,6 +176,55 @@ def _altered_sensors(
     )
 
 
+def _observed_tail(path: str, locations: tuple[Path, ...]) -> str:
+    """Bounded gate output with controller-owned locations removed.
+
+    The reviewer is told what a gate emitted, never where the controller keeps
+    the record or the candidate.
+    """
+    text = tail(path)
+    # Longest first, so a location nested in another is redacted whole.
+    for location in sorted(locations, key=lambda item: len(str(item)), reverse=True):
+        text = text.replace(str(location), "<redacted>")
+    return text
+
+
+def _observations(
+    constitution: Constitution,
+    quick: list[dict],
+    full: list[dict],
+    locations: tuple[Path, ...],
+) -> dict:
+    """The successful gate measurements handed to the read-only reviewer.
+
+    Classification comes from the frozen constitution, so a repository gate
+    cannot present itself as an external acceptance sensor by naming itself one.
+    """
+    sensors = {gate.name: gate.sensor for gate in constitution.gates}
+    gates: list[dict] = []
+    for phase, results in (("quick", quick), ("full", full)):
+        for result in results:
+            sensor = sensors.get(result["name"])
+            gates.append(
+                {
+                    "phase": phase,
+                    "name": result["name"],
+                    "kind": "repository_gate" if sensor is None else "external_sensor",
+                    "sensor": sensor,
+                    "passed": result["passed"],
+                    "exit_code": result["exit_code"],
+                    "timed_out": result["timed_out"],
+                    "duration_ms": result["duration_ms"],
+                    "stdout_sha256": result["stdout_sha256"],
+                    "stderr_sha256": result["stderr_sha256"],
+                    "result_sha256": result["result_sha256"],
+                    "stdout_tail": _observed_tail(result["stdout_path"], locations),
+                    "stderr_tail": _observed_tail(result["stderr_path"], locations),
+                }
+            )
+    return {"schema_version": 1, "gates": gates}
+
+
 def _gate_feedback(results: list[dict]) -> str:
     chunks: list[str] = []
     for result in results:
@@ -327,7 +376,7 @@ def run(
     evidence["worktree"] = str(worktree)
     persist()
     feedback = ""
-    quick_passed = False
+    accepted_quick: list[dict] | None = None
 
     for iteration in range(1, max_iterations + 1):
         iteration_dir = run_dir / "iterations" / f"{iteration:02d}"
@@ -403,7 +452,7 @@ def run(
             record["controller_feedback"] = None
             evidence["iterations"].append(record)
             persist()
-            quick_passed = True
+            accepted_quick = quick
             break
 
         feedback_parts = []
@@ -421,7 +470,7 @@ def run(
         evidence["iterations"].append(record)
         persist()
 
-    if not quick_passed:
+    if accepted_quick is None:
         return finish(
             "REJECTED",
             [f"quick gates did not converge within {max_iterations} iterations"],
@@ -445,11 +494,32 @@ def run(
     if reasons:
         return finish("REJECTED", reasons)
 
+    # Deterministic runtime evidence the read-only reviewer cannot produce
+    # itself, built only once every gate passed and every sensor is intact.
+    observations = _observations(
+        constitution, accepted_quick, full, (run_dir, worktree)
+    )
+    # Serialized once: the prompted bytes are the hashed bytes.
+    observations_json = json.dumps(
+        observations, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+
     schema_path = _review_schema_path()
-    review_prompt_text = reviewer_prompt(task, constitution)
+    review_prompt_text = reviewer_prompt(task, constitution, observations_json)
     review_prompt_path = run_dir / "review" / "prompt.md"
     review_prompt_path.parent.mkdir(parents=True, exist_ok=True)
     review_prompt_path.write_text(review_prompt_text, encoding="utf-8")
+    # Recorded before the reviewer runs, so a reviewer failure cannot erase the
+    # observations it was given.
+    evidence["review"] = {
+        "prompt": {
+            "path": str(review_prompt_path),
+            "sha256": sha256_text(review_prompt_text),
+        },
+        "observations": observations,
+        "observations_sha256": sha256_text(observations_json),
+    }
+    persist()
     try:
         review, review_meta = backend.review(
             worktree=worktree,
@@ -463,15 +533,13 @@ def run(
     except (ActuatorError, SandboxError) as exc:
         return finish("REJECTED", [str(exc)])
 
-    evidence["review"] = {
-        "prompt": {
-            "path": str(review_prompt_path),
-            "sha256": sha256_text(review_prompt_text),
-        },
-        "result": review,
-        "result_sha256": sha256_json(review),
-        "meta": review_meta,
-    }
+    evidence["review"].update(
+        {
+            "result": review,
+            "result_sha256": sha256_json(review),
+            "meta": review_meta,
+        }
+    )
     reasons = _review_decision(
         review, task.criteria, constitution.review.blocking_severities
     )

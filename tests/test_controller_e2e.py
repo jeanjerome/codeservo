@@ -6,7 +6,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness import TASK_TEXT, Case, commit_repository, constitution
+from codeservo.evidence import sha256_text
+from harness import TASK_TEXT, Case, build_case, commit_repository, constitution
+
+
+def canonical(payload: dict) -> str:
+    """The canonical JSON the controller is expected to prompt and hash."""
+    return json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+
 
 ISOLATION_PROBE = '''
 def probe_isolation(worktree):
@@ -232,6 +241,89 @@ class ControllerE2ETests(unittest.TestCase):
             with self.subTest(actuator=actuator):
                 self._assert_converges(actuator)
 
+    def test_bounds_gate_observations_and_hides_controller_locations(self) -> None:
+        chatty_sensor = (
+            "for i in $(seq 1 300); do echo \"line $i\"; done; "
+            "echo \"sensor at $CODESERVO_SENSOR_PATH\"; "
+            "grep -q \"return 2\" app.py"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            case = build_case(
+                Path(temp),
+                implementer="implement(ACCEPTABLE)",
+                constitution_text=constitution(sensor_command=chatty_sensor),
+            )
+
+            result = case.run()
+
+            self.assertEqual("ACCEPTED", result["status"])
+            prompt = Path(result["run_dir"], "review", "prompt.md").read_text(
+                encoding="utf-8"
+            )
+            observed = {
+                gate["name"]: gate
+                for gate in result["review"]["observations"]["gates"]
+            }
+            emitted = observed["task-outcome"]["stdout_tail"].splitlines()
+
+            self.assertEqual(120, len(emitted))
+            self.assertEqual("line 182", emitted[0])
+            self.assertEqual("sensor at <redacted>/sensors/task-outcome", emitted[-1])
+            self.assertNotIn(result["run_dir"], prompt)
+            self.assertNotIn(result["worktree"], prompt)
+            self.assertNotIn("line 181", prompt)
+
+    def test_records_the_observations_before_the_reviewer_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            case = build_case(
+                Path(temp),
+                implementer="implement(ACCEPTABLE)",
+                reviewer="raise SystemExit(4)",
+            )
+
+            result = case.run()
+
+            self.assertEqual("REJECTED", result["status"])
+            evidence = json.loads(
+                Path(result["run_dir"], "evidence.json").read_text(encoding="utf-8")
+            )
+            review = evidence["review"]
+            # The reviewer failed after it was handed the bundle, which cannot
+            # erase what it received.
+            self.assertNotIn("result", review)
+            self.assertEqual(64, len(review["prompt"]["sha256"]))
+            self.assertEqual(
+                ["syntax", "task-outcome", "full"],
+                [gate["name"] for gate in review["observations"]["gates"]],
+            )
+            self.assertEqual(
+                sha256_text(canonical(review["observations"])),
+                review["observations_sha256"],
+            )
+
+    def test_a_red_gate_stops_the_run_before_any_observation(self) -> None:
+        stale = "grep -q 'return 0' app.py"
+        for phase, constitution_text in (
+            ("quick", constitution(quick_command=stale)),
+            ("full", constitution(full_command=stale)),
+        ):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as temp:
+                case = build_case(
+                    Path(temp),
+                    implementer="implement(ACCEPTABLE)",
+                    constitution_text=constitution_text,
+                )
+
+                result = case.run()
+
+                self.assertEqual("REJECTED", result["status"])
+                self.assertNotIn("review", result)
+                evidence = json.loads(
+                    Path(result["run_dir"], "evidence.json").read_text(encoding="utf-8")
+                )
+                self.assertNotIn("review", evidence)
+                self.assertFalse(Path(result["run_dir"], "review").exists())
+
     def _assert_converges(self, actuator: str) -> None:
         binary_name, script, version = FAKE_AGENTS[actuator]
         with tempfile.TemporaryDirectory() as temp:
@@ -380,6 +472,56 @@ class ControllerE2ETests(unittest.TestCase):
                 self.assertEqual(64, len(iteration["agent"]["events_sha256"]))
                 self.assertEqual(64, len(iteration["agent"]["result_sha256"]))
             self.assertEqual("ACCEPTED", evidence["status"])
+            self._assert_observations(result, evidence)
+
+    def _assert_observations(self, result: dict, evidence: dict) -> None:
+        """The reviewer received exactly the bundle the controller recorded."""
+        review_prompt = Path(result["run_dir"], "review", "prompt.md").read_text(
+            encoding="utf-8"
+        )
+        after = review_prompt.partition("BEGIN CONTROLLER OBSERVATIONS JSON\n")[2]
+        embedded = after.partition("\nEND CONTROLLER OBSERVATIONS JSON")[0]
+        observations = evidence["review"]["observations"]
+
+        self.assertEqual(observations, json.loads(embedded))
+        self.assertEqual(canonical(observations), embedded)
+        # The recorded digest covers exactly the bytes the reviewer was given.
+        self.assertEqual(
+            sha256_text(embedded), evidence["review"]["observations_sha256"]
+        )
+        self.assertEqual(1, observations["schema_version"])
+        self.assertEqual(
+            [
+                ("quick", "syntax", "repository_gate", None),
+                ("quick", "task-outcome", "external_sensor", "test/task-outcome"),
+                ("full", "full", "repository_gate", None),
+            ],
+            [
+                (gate["phase"], gate["name"], gate["kind"], gate["sensor"])
+                for gate in observations["gates"]
+            ],
+        )
+        for gate in observations["gates"]:
+            self.assertTrue(gate["passed"])
+            self.assertEqual(0, gate["exit_code"])
+            self.assertFalse(gate["timed_out"])
+            self.assertEqual(64, len(gate["result_sha256"]))
+            self.assertEqual([], [key for key in gate if key.endswith("_path")])
+            self.assertLessEqual(len(gate["stdout_tail"].splitlines()), 120)
+            self.assertLessEqual(len(gate["stderr_tail"].splitlines()), 120)
+
+        serialized = json.dumps(observations)
+        self.assertNotIn(result["run_dir"], serialized)
+        self.assertNotIn(result["worktree"], serialized)
+        self.assertNotIn("SENSOR_PATH", serialized)
+
+        for iteration in evidence["iterations"]:
+            implementer = Path(
+                result["run_dir"], iteration["prompt"]["path"]
+            ).read_text(encoding="utf-8")
+            self.assertNotIn("CONTROLLER OBSERVATIONS", implementer)
+            self.assertNotIn("test/task-outcome", implementer)
+            self.assertNotIn("stdout_tail", implementer)
 
 
 if __name__ == "__main__":

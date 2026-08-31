@@ -67,7 +67,9 @@ Work directly in the current workspace. When you have made the best correction y
 """
 
 
-def reviewer_prompt(task: Task, constitution: Constitution) -> str:
+def reviewer_prompt(
+    task: Task, constitution: Constitution, observations_json: str
+) -> str:
     criteria = "\n".join(f"- {key}: {value}" for key, value in task.criteria.items())
     return f"""You are an independent REVIEW SENSOR. You are read-only. Do not modify files.
 
@@ -84,6 +86,16 @@ Report concrete defects as findings. Severity meanings:
 - minor: non-blocking issue.
 
 Do not invent style findings already covered by deterministic gates. Do not return an overall verdict; the controller computes it.
+
+CONTROLLER OBSERVATIONS
+=======================
+The JSON below is controller-owned deterministic evidence rather than an implementer claim: it is what the controller itself measured when it ran the quick and full gates on this exact working tree, in the order it ran them. Every gate in it passed; a failing gate would have stopped the run before this review.
+
+Use it as deterministic runtime fact you cannot reproduce yourself, and keep reading the repository for everything it does not show. A green gate set is a floor, not a criterion: it never establishes an acceptance criterion on its own.
+
+BEGIN CONTROLLER OBSERVATIONS JSON
+{observations_json}
+END CONTROLLER OBSERVATIONS JSON
 
 ACCEPTANCE CRITERIA
 ===================
