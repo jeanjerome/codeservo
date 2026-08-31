@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .actuator import ActuatorError
 from .evidence import sha256_file, sha256_record, sha256_text
+from .models import DEFAULT_SPEED
 from .sandbox import Isolation, isolation_evidence, seatbelt_command
 
 # `--safe-mode` drops user memory, skills, plugins, hooks, custom agents and
@@ -23,12 +24,18 @@ HERMETIC_FLAGS = (
 IMPLEMENTER_TOOLS = "Bash,Read,Write,Edit,NotebookEdit"
 REVIEWER_TOOLS = "Bash,Read"
 
+# `--safe-mode` drops every settings source the user owns, so the only document
+# `--settings` can point at is this one, which CodeServo writes itself.
+FAST_MODE_SETTINGS = {"fastMode": True}
+
 
 class ClaudeCodeError(ActuatorError):
     pass
 
 
-def _base_command(*, model: str | None, tools: str) -> list[str]:
+def _base_command(
+    *, model: str | None, tools: str, effort: str | None = None
+) -> list[str]:
     command = [
         "claude",
         *HERMETIC_FLAGS,
@@ -41,7 +48,35 @@ def _base_command(*, model: str | None, tools: str) -> list[str]:
     ]
     if model:
         command.extend(["--model", model])
+    if effort:
+        command.extend(["--effort", effort])
     return command
+
+
+def _implementer_command(
+    *,
+    model: str | None,
+    effort: str | None,
+    speed: str,
+    settings_dir: Path,
+) -> tuple[list[str], dict]:
+    """The implementer command and the profile values it carries.
+
+    The fast tier is a settings document rather than a flag, and that document
+    lives only as long as the run, so the returned record keeps its content
+    instead of a path that stops existing.
+    """
+    command = _base_command(model=model, tools=IMPLEMENTER_TOOLS, effort=effort)
+    command.extend(["--output-format", "stream-json", "--verbose"])
+    native: dict = {}
+    if effort:
+        native["--effort"] = effort
+    if speed == "fast":
+        settings_path = settings_dir / "settings.json"
+        settings_path.write_text(json.dumps(FAST_MODE_SETTINGS), encoding="utf-8")
+        command.extend(["--settings", str(settings_path)])
+        native["--settings"] = dict(FAST_MODE_SETTINGS)
+    return command, native
 
 
 def _inline_schema(schema_path: Path) -> str:
@@ -129,6 +164,20 @@ def _session(result: dict | None) -> dict:
     }
 
 
+def _observed(events: list[dict]) -> dict:
+    """The inference profile the session reported about itself.
+
+    The init event names the model the alias resolved to. Claude Code reports
+    neither a reasoning effort nor a speed tier in its stream, so both stay
+    unknown rather than repeating what was asked for.
+    """
+    return {
+        "model": _models(events)["session_model"],
+        "effort": None,
+        "speed": None,
+    }
+
+
 def describe_isolation(isolation: Isolation) -> dict:
     return isolation_evidence(isolation, "macos-sandbox-exec")
 
@@ -141,19 +190,22 @@ def run_implementer(
     model: str | None,
     timeout_seconds: int,
     isolation: Isolation = Isolation(),
+    effort: str | None = None,
+    speed: str = DEFAULT_SPEED,
 ) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     events_path = out_dir / "events.jsonl"
     stderr_path = out_dir / "stderr.log"
     last_message = out_dir / "last-message.md"
-    command = _base_command(model=model, tools=IMPLEMENTER_TOOLS)
-    command.extend(["--output-format", "stream-json", "--verbose"])
     started = time.monotonic()
 
     with tempfile.TemporaryDirectory(prefix="codeservo-agent-") as temp:
         temporary_dir = Path(temp)
         temporary_events = temporary_dir / "events.jsonl"
         temporary_stderr = temporary_dir / "stderr.log"
+        command, native = _implementer_command(
+            model=model, effort=effort, speed=speed, settings_dir=temporary_dir
+        )
 
         timeout_error: subprocess.TimeoutExpired | None = None
         with temporary_events.open("wb") as stdout, temporary_stderr.open(
@@ -189,6 +241,8 @@ def run_implementer(
         "duration_ms": int((time.monotonic() - started) * 1000),
         "session": _session(result),
         "models": _models(events),
+        "native": native,
+        "observed": _observed(events),
         "events_path": str(events_path),
         "events_sha256": sha256_file(events_path),
         "stderr_path": str(stderr_path),

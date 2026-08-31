@@ -28,6 +28,7 @@ from .git import (
     scope_sensor,
 )
 from .model import Constitution
+from .models import DEFAULT_SPEED, PROFILE_UNSUPPORTED, validate_profile
 from .process import tail
 from .prompts import implementer_prompt, reviewer_prompt
 from .sandbox import Isolation, SandboxError, isolation_evidence
@@ -39,7 +40,7 @@ class ControlFailure(RuntimeError):
 
 
 # The shape of evidence.json. The observation bundle versions its own shape.
-EVIDENCE_SCHEMA_VERSION = 8
+EVIDENCE_SCHEMA_VERSION = 9
 
 
 def _now() -> str:
@@ -84,6 +85,41 @@ def _runtime_metadata(
         "python_version": platform.python_version(),
         "git_version": _command_version(["git", "--version"]),
     }
+
+
+def _inference(
+    backend: str, model: str | None, effort: str | None, speed: str
+) -> dict:
+    """Freeze the requested inference profile before anything actuates.
+
+    The request is recorded as it was resolved, next to what the local
+    inventory can say about it. Nothing the backend answers is filled in here,
+    so a substitution can never be read back as the configuration asked for.
+    """
+    return {
+        "implementer": {
+            "requested": {
+                "backend": backend,
+                "model": model,
+                "effort": effort,
+                "speed": speed,
+            },
+            "validation": validate_profile(
+                backend=backend, model=model, effort=effort, speed=speed
+            ),
+            "native": None,
+            "observed": {"model": None, "effort": None, "speed": None},
+            "provenance": "incomplete",
+        }
+    }
+
+
+def _record_actuation(profile: dict, agent: dict) -> None:
+    """Keep the profile of the last actuation, replacing any earlier one."""
+    observed = agent["observed"]
+    profile["native"] = agent["native"]
+    profile["observed"] = observed
+    profile["provenance"] = "complete" if observed["model"] else "incomplete"
 
 
 def _resolve_state_dir(repo: Path, state_dir: Path | None) -> Path:
@@ -293,8 +329,11 @@ def run(
     agent_timeout_seconds: int = 1800,
     state_dir: Path | None = None,
     actuator: str | None = None,
+    effort: str | None = None,
+    speed: str = DEFAULT_SPEED,
 ) -> dict:
     backend = load_actuator(actuator or default_actuator_name())
+    inference = _inference(backend.name, model, effort, speed)
     repo = root(repo_path)
     task = load_task(task_path.resolve())
     constitution = load_constitution(repo)
@@ -333,6 +372,7 @@ def run(
         "task_sha256": sha256_text(task.raw_text),
         "constitution_sha256": sha256_text(constitution.raw_text),
         "runtime": _runtime_metadata(backend, model, review_model),
+        "inference": inference,
         "sensors": sensor_evidence,
         "actuator_isolation": backend.describe_isolation(isolation),
         "gate_isolation": isolation_evidence(gate_isolation, "macos-sandbox-exec"),
@@ -362,6 +402,14 @@ def run(
         evidence["worktree"] = str(worktree) if worktree.exists() else None
         persist()
         return evidence
+
+    # The profile is a control input, so a request the inventory contradicts
+    # ends the run here: no checkout and no agent process ever exists for it.
+    validation = inference["implementer"]["validation"]
+    if validation["status"] == PROFILE_UNSUPPORTED:
+        return finish(
+            "REJECTED", [f"configuration error: {validation['reason']}"]
+        )
 
     if not is_clean(repo):
         return finish("REJECTED", ["source repository is not clean"])
@@ -411,6 +459,8 @@ def run(
                 model=model,
                 timeout_seconds=agent_timeout_seconds,
                 isolation=isolation,
+                effort=effort,
+                speed=speed,
             )
         except (ActuatorError, SandboxError) as exc:
             record["agent_error"] = str(exc)
@@ -419,6 +469,7 @@ def run(
             return finish("REJECTED", [str(exc)])
 
         record["agent"] = agent
+        _record_actuation(inference["implementer"], agent)
         record["actuator_state"] = _write_patch_snapshot(
             iteration_dir / "actuator.patch", worktree, base_commit
         )

@@ -13,7 +13,9 @@ from codeservo.controller import (
     ControlFailure,
     _altered_sensors,
     _command_version,
+    _inference,
     _observations,
+    _record_actuation,
     _resolve_state_dir,
     _review_schema_path,
     _runtime_metadata,
@@ -36,6 +38,95 @@ OBSERVATION_FIELDS = {
     "stdout_tail",
     "stderr_tail",
 }
+
+
+class InferenceProfileTests(unittest.TestCase):
+    """The requested profile is frozen before anything actuates."""
+
+    def _implementer(self, **overrides) -> dict:
+        request = {
+            "backend": "claude",
+            "model": "opus",
+            "effort": "high",
+            "speed": "standard",
+        }
+        request.update(overrides)
+        return _inference(**request)["implementer"]
+
+    def test_freezes_the_four_requested_fields(self) -> None:
+        implementer = self._implementer(speed="fast")
+
+        self.assertEqual(
+            {
+                "backend": "claude",
+                "model": "opus",
+                "effort": "high",
+                "speed": "fast",
+            },
+            implementer["requested"],
+        )
+
+    def test_records_an_absent_effort_as_null(self) -> None:
+        self.assertIsNone(self._implementer(effort=None)["requested"]["effort"])
+
+    def test_holds_nothing_the_backend_has_not_answered_yet(self) -> None:
+        implementer = self._implementer()
+
+        self.assertIsNone(implementer["native"])
+        self.assertEqual(
+            {"model": None, "effort": None, "speed": None}, implementer["observed"]
+        )
+        self.assertEqual("incomplete", implementer["provenance"])
+        # A backend with no verified cache cannot contradict the request.
+        self.assertEqual("unverified", implementer["validation"]["status"])
+        self.assertEqual(
+            {"status", "reason", "inventory_source"}, set(implementer["validation"])
+        )
+
+
+class ActuationRecordTests(unittest.TestCase):
+    def _profile(self) -> dict:
+        return {
+            "native": {"--effort": "max"},
+            "observed": {"model": "claude-opus-5", "effort": None, "speed": None},
+            "provenance": "complete",
+        }
+
+    def test_reports_a_known_model_as_complete(self) -> None:
+        profile = {"native": None, "observed": {}, "provenance": "incomplete"}
+
+        _record_actuation(
+            profile,
+            {
+                "native": {"model_reasoning_effort": "high"},
+                "observed": {
+                    "model": "gpt-5.6-sol",
+                    "effort": "high",
+                    "speed": None,
+                },
+            },
+        )
+
+        self.assertEqual({"model_reasoning_effort": "high"}, profile["native"])
+        self.assertEqual("gpt-5.6-sol", profile["observed"]["model"])
+        self.assertEqual("complete", profile["provenance"])
+
+    def test_keeps_no_value_from_an_earlier_actuation(self) -> None:
+        profile = self._profile()
+
+        _record_actuation(
+            profile,
+            {
+                "native": {},
+                "observed": {"model": None, "effort": None, "speed": None},
+            },
+        )
+
+        self.assertEqual({}, profile["native"])
+        self.assertEqual(
+            {"model": None, "effort": None, "speed": None}, profile["observed"]
+        )
+        self.assertEqual("incomplete", profile["provenance"])
 
 
 class StateDirectoryTests(unittest.TestCase):
@@ -240,7 +331,7 @@ class RuntimeIdentityTests(unittest.TestCase):
         return Path(codeservo.__file__).resolve().parents[2]
 
     def test_declares_the_shape_the_record_has(self) -> None:
-        self.assertEqual(8, EVIDENCE_SCHEMA_VERSION)
+        self.assertEqual(9, EVIDENCE_SCHEMA_VERSION)
 
     def test_declares_the_controller_version_in_one_place(self) -> None:
         pyproject = self._source_root() / "pyproject.toml"

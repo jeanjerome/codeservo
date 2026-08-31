@@ -24,6 +24,42 @@ class CliTests(unittest.TestCase):
 
         self.assertIsNone(args.actuator)
 
+    def test_run_defaults_to_no_effort_and_the_standard_speed(self) -> None:
+        args = build_parser().parse_args(["run", "--task", "TASK.md"])
+
+        self.assertIsNone(args.effort)
+        self.assertEqual("standard", args.speed)
+
+    def test_run_selects_the_inference_profile(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run",
+                "--task",
+                "TASK.md",
+                "--actuator",
+                "claude",
+                "--model",
+                "opus",
+                "--effort",
+                "xhigh",
+                "--speed",
+                "fast",
+            ]
+        )
+
+        self.assertEqual("claude", args.actuator)
+        self.assertEqual("opus", args.model)
+        self.assertEqual("xhigh", args.effort)
+        self.assertEqual("fast", args.speed)
+
+    def test_run_accepts_no_speed_tier_it_cannot_apply(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            build_parser().parse_args(
+                ["run", "--task", "TASK.md", "--speed", "priority"]
+            )
+
+        self.assertNotEqual(0, raised.exception.code)
+
 
 class ModelsCommandTests(unittest.TestCase):
     def test_models_reports_every_backend_by_default(self) -> None:

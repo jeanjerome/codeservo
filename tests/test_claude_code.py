@@ -8,8 +8,10 @@ from codeservo.claude_code import (
     IMPLEMENTER_TOOLS,
     REVIEWER_TOOLS,
     _base_command,
+    _implementer_command,
     _inline_schema,
     _models,
+    _observed,
     _review_result,
     describe_isolation,
 )
@@ -45,6 +47,91 @@ class CommandTests(unittest.TestCase):
 
     def test_omits_the_model_flag_when_unset(self) -> None:
         self.assertNotIn("--model", _base_command(model=None, tools=REVIEWER_TOOLS))
+
+    def test_passes_a_requested_effort_under_the_flag_the_cli_accepts(self) -> None:
+        command = _base_command(model=None, tools=IMPLEMENTER_TOOLS, effort="xhigh")
+
+        self.assertEqual("xhigh", command[command.index("--effort") + 1])
+
+    def test_leaves_the_backend_default_when_no_effort_is_requested(self) -> None:
+        self.assertNotIn(
+            "--effort", _base_command(model=None, tools=IMPLEMENTER_TOOLS)
+        )
+
+    def test_the_reviewer_command_carries_no_profile(self) -> None:
+        command = _base_command(model="opus", tools=REVIEWER_TOOLS)
+
+        self.assertNotIn("--effort", command)
+        self.assertNotIn("--settings", command)
+
+
+class ImplementerProfileTests(unittest.TestCase):
+    def _built(self, **overrides) -> tuple[list[str], dict, Path]:
+        request = {"model": "opus", "effort": None, "speed": "standard"}
+        request.update(overrides)
+        directory = Path(tempfile.mkdtemp())
+        command, native = _implementer_command(settings_dir=directory, **request)
+        return command, native, directory
+
+    def test_the_standard_speed_adds_no_settings_document(self) -> None:
+        command, native, directory = self._built(effort="high")
+
+        self.assertNotIn("--settings", command)
+        self.assertEqual({"--effort": "high"}, native)
+        self.assertEqual([], sorted(directory.iterdir()))
+
+    def test_the_fast_speed_points_at_a_document_codeservo_writes(self) -> None:
+        command, native, directory = self._built(effort="high", speed="fast")
+        settings_path = Path(command[command.index("--settings") + 1])
+
+        self.assertTrue(settings_path.is_relative_to(directory))
+        self.assertEqual(
+            {"fastMode": True},
+            json.loads(settings_path.read_text(encoding="utf-8")),
+        )
+        # The document outlives no run, so the record keeps its content.
+        self.assertEqual(
+            {"--effort": "high", "--settings": {"fastMode": True}}, native
+        )
+        self.assertNotIn(str(settings_path), json.dumps(native))
+
+    def test_keeps_the_hermetic_flags_and_adds_no_other_settings_source(
+        self,
+    ) -> None:
+        command, _, _ = self._built(effort="max", speed="fast")
+
+        for flag in (
+            "--print",
+            "--safe-mode",
+            "--strict-mcp-config",
+            "--disable-slash-commands",
+            "--no-session-persistence",
+        ):
+            self.assertIn(flag, command)
+        self.assertEqual(1, command.count("--settings"))
+
+    def test_records_nothing_when_no_profile_was_requested(self) -> None:
+        command, native, _ = self._built()
+
+        self.assertEqual({}, native)
+        self.assertNotIn("--effort", command)
+        self.assertNotIn("--settings", command)
+
+
+class ObservedProfileTests(unittest.TestCase):
+    def test_reports_the_model_the_session_resolved(self) -> None:
+        events = [{"type": "system", "subtype": "init", "model": "claude-opus-5"}]
+
+        self.assertEqual(
+            {"model": "claude-opus-5", "effort": None, "speed": None},
+            _observed(events),
+        )
+
+    def test_leaves_unreported_values_unknown(self) -> None:
+        self.assertEqual(
+            {"model": None, "effort": None, "speed": None},
+            _observed([{"type": "result", "result": "done"}]),
+        )
 
 
 class SchemaTests(unittest.TestCase):

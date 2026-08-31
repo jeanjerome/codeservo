@@ -9,14 +9,33 @@ from pathlib import Path
 
 from .actuator import ActuatorError
 from .evidence import sha256_file, sha256_record
+from .models import DEFAULT_SPEED
 from .sandbox import Isolation, isolation_evidence, seatbelt_command
+
+# The two configuration keys Codex accepts for the inference profile, and the
+# event-stream fields it answers with. The names differ on purpose: a key sets
+# the request, a field reports what the session ran on.
+EFFORT_KEY = "model_reasoning_effort"
+SPEED_KEY = "service_tier"
+FAST_SPEED_VALUE = "priority"
+OBSERVED_FIELDS = {
+    "model": "model",
+    "effort": "reasoning_effort",
+    "speed": "service_tier",
+}
 
 
 class CodexError(ActuatorError):
     pass
 
 
-def _base_command(worktree: Path, sandbox: str, model: str | None) -> list[str]:
+def _base_command(
+    worktree: Path,
+    sandbox: str,
+    model: str | None,
+    effort: str | None = None,
+    speed: str = DEFAULT_SPEED,
+) -> list[str]:
     command = [
         "codex",
         "exec",
@@ -29,7 +48,57 @@ def _base_command(worktree: Path, sandbox: str, model: str | None) -> list[str]:
     ]
     if model:
         command.extend(["--model", model])
+    if effort:
+        command.extend(["-c", f"{EFFORT_KEY}={effort}"])
+    if speed == "fast":
+        command.extend(["-c", f"{SPEED_KEY}={FAST_SPEED_VALUE}"])
     return command
+
+
+def _native_profile(effort: str | None, speed: str) -> dict:
+    """The configuration keys the command actually carried, and their values."""
+    native: dict = {}
+    if effort:
+        native[EFFORT_KEY] = effort
+    if speed == "fast":
+        native[SPEED_KEY] = FAST_SPEED_VALUE
+    return native
+
+
+def _events(path: Path) -> list[dict]:
+    events: list[dict] = []
+    text = path.read_text(encoding="utf-8", errors="replace")
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def _observed(events: list[dict]) -> dict:
+    """The inference profile the session reported about itself.
+
+    Codex answers with `reasoning_effort` and `service_tier`, which are not the
+    configuration keys that asked for them, so the stream is read under its own
+    names. A field the stream never carries stays unknown, and the last report
+    wins because it describes the session as it ended.
+    """
+    observed: dict = {name: None for name in OBSERVED_FIELDS}
+    for event in events:
+        for scope in (event, event.get("msg")):
+            if not isinstance(scope, dict):
+                continue
+            for name, field in OBSERVED_FIELDS.items():
+                reported = scope.get(field)
+                if isinstance(reported, str) and reported:
+                    observed[name] = reported
+    return observed
 
 
 def _sandbox(isolation: Isolation, native: str) -> str:
@@ -57,6 +126,8 @@ def run_implementer(
     model: str | None,
     timeout_seconds: int,
     isolation: Isolation = Isolation(),
+    effort: str | None = None,
+    speed: str = DEFAULT_SPEED,
 ) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     events = out_dir / "events.jsonl"
@@ -69,7 +140,7 @@ def run_implementer(
         temporary_stderr = temporary_dir / "stderr.log"
         temporary_last_message = temporary_dir / "last-message.md"
         command = _base_command(
-            worktree, _sandbox(isolation, "workspace-write"), model
+            worktree, _sandbox(isolation, "workspace-write"), model, effort, speed
         )
         command.extend(
             ["--json", "--output-last-message", str(temporary_last_message), "-"]
@@ -103,6 +174,8 @@ def run_implementer(
     result = {
         "exit_code": completed.returncode,
         "duration_ms": int((time.monotonic() - started) * 1000),
+        "native": _native_profile(effort, speed),
+        "observed": _observed(_events(events)),
         "events_path": str(events),
         "events_sha256": sha256_file(events),
         "stderr_path": str(stderr_path),

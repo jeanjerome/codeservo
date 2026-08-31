@@ -10,6 +10,8 @@ from .actuator import ACTUATOR_ENV_VAR, ACTUATOR_NAMES, DEFAULT_ACTUATOR
 from .config import ConstitutionError
 from .controller import run
 from .models import (
+    DEFAULT_SPEED,
+    SPEED_NAMES,
     ModelSelectionError,
     build_inventory,
     render_document,
@@ -76,6 +78,19 @@ def build_parser() -> argparse.ArgumentParser:
     execute.add_argument("--max-iterations", type=int, default=4)
     execute.add_argument("--model")
     execute.add_argument("--review-model")
+    execute.add_argument(
+        "--effort",
+        help=(
+            "reasoning effort the implementer backend applies "
+            "(levels are backend-specific; unset leaves the backend default)"
+        ),
+    )
+    execute.add_argument(
+        "--speed",
+        choices=SPEED_NAMES,
+        default=DEFAULT_SPEED,
+        help=f"speed tier the implementer backend applies (default: {DEFAULT_SPEED})",
+    )
     execute.add_argument("--agent-timeout-seconds", type=int, default=1800)
     execute.add_argument(
         "--actuator",
@@ -133,6 +148,8 @@ def main() -> None:
             agent_timeout_seconds=args.agent_timeout_seconds,
             state_dir=args.state_dir,
             actuator=args.actuator,
+            effort=args.effort,
+            speed=args.speed,
         )
     except (ConstitutionError, TaskError, RuntimeError, ValueError) as exc:
         print(f"codeservo: {exc}", file=sys.stderr)

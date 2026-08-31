@@ -23,6 +23,19 @@ SOURCE_UNAVAILABLE = "unavailable"
 STATUS_ADVERTISED = "advertised"
 STATUS_INELIGIBLE = "ineligible"
 
+# The speed tiers a run may request. `standard` is what a backend applies when
+# no tier is asked for, so it is also the documented default.
+SPEED_NAMES = ("standard", "fast")
+DEFAULT_SPEED = "standard"
+
+# How the requested profile compares to the local inventory. `unsupported` is
+# the only refusal: it needs an inventory that lists the model and contradicts
+# the request. Everything the inventory cannot settle stays `unverified`,
+# because a cache that does not list a model is not an authority on access.
+PROFILE_SUPPORTED = "supported"
+PROFILE_UNSUPPORTED = "unsupported"
+PROFILE_UNVERIFIED = "unverified"
+
 # The reason never quotes the provider document, so no value the cache holds
 # beyond the projected fields reaches the inventory.
 NOT_LISTED_REASON = "the backend cache does not offer this model for selection"
@@ -90,10 +103,10 @@ def _efforts(levels: Any) -> list[str] | None:
 
 def _speeds(tiers: Any) -> list[str] | None:
     if tiers is None:
-        return ["standard"]
+        return [DEFAULT_SPEED]
     if not isinstance(tiers, list):
         return None
-    return ["standard", "fast"] if "fast" in tiers else ["standard"]
+    return list(SPEED_NAMES) if "fast" in tiers else [DEFAULT_SPEED]
 
 
 def _project_codex_entry(
@@ -198,6 +211,77 @@ def _select_model(backend: dict, model: str) -> dict:
             f"unknown model for {backend['backend']}: {model}{detail}"
         )
     return {**backend, "models": matching}
+
+
+def _profile(status: str, reason: str, source: str) -> dict:
+    return {"status": status, "reason": reason, "inventory_source": source}
+
+
+def validate_profile(
+    *,
+    backend: str,
+    model: str | None,
+    effort: str | None,
+    speed: str = DEFAULT_SPEED,
+    env: Mapping[str, str] | None = None,
+) -> dict:
+    """Compare a requested inference profile to the local inventory.
+
+    The comparison reads the same projected cache the `models` command reports,
+    so it stays a local reading and never becomes an authority on what an
+    account may use: only a cache that lists the model can contradict the
+    request, and it contradicts it only about the effort or the speed it
+    itself declares.
+    """
+    environment = os.environ if env is None else env
+    if backend not in BACKEND_NAMES:
+        raise ModelSelectionError(f"unknown backend: {backend}")
+
+    projected = READERS[backend](environment)
+    source = projected["source"]
+    if source == SOURCE_UNAVAILABLE:
+        return _profile(
+            PROFILE_UNVERIFIED,
+            f"the {backend} inventory is unavailable: "
+            f"{projected['unavailable_reason']}",
+            source,
+        )
+    if model is None:
+        return _profile(
+            PROFILE_UNVERIFIED,
+            f"no model was requested, so {backend} applies its own default",
+            source,
+        )
+
+    entry = next(
+        (line for line in projected["models"] if line["model"] == model), None
+    )
+    if entry is None:
+        return _profile(
+            PROFILE_UNVERIFIED,
+            f"the {backend} inventory does not list {model}",
+            source,
+        )
+
+    requested = [("effort", effort, entry["efforts"])] if effort is not None else []
+    requested.append(("speed", speed, entry["speeds"]))
+    missing = [
+        f"{name} {value}"
+        for name, value, listed in requested
+        if value not in listed
+    ]
+    if missing:
+        return _profile(
+            PROFILE_UNSUPPORTED,
+            f"the {backend} inventory lists {model} without {' or '.join(missing)}",
+            source,
+        )
+    carried = ", ".join(f"{name} {value}" for name, value, _ in requested)
+    return _profile(
+        PROFILE_SUPPORTED,
+        f"the {backend} inventory lists {model} with {carried}",
+        source,
+    )
 
 
 def build_inventory(

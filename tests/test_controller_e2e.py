@@ -5,9 +5,32 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from codeservo import claude_code
 from codeservo.evidence import sha256_text
 from harness import TASK_TEXT, Case, build_case, commit_repository, constitution
+
+
+def codex_cache(model: str, efforts: list[str], fast: bool) -> str:
+    """A local Codex cache shaped like the one the `models` command projects."""
+    return json.dumps(
+        {
+            "fetched_at": "2026-08-31T21:49:12.689027Z",
+            "client_version": "0.151.0",
+            "models": [
+                {
+                    "slug": model,
+                    "display_name": model.upper(),
+                    "supported_reasoning_levels": [
+                        {"effort": effort} for effort in efforts
+                    ],
+                    "visibility": "list",
+                    "additional_speed_tiers": ["fast"] if fast else [],
+                }
+            ],
+        }
+    )
 
 
 def canonical(payload: dict) -> str:
@@ -301,6 +324,133 @@ class ControllerE2ETests(unittest.TestCase):
                 review["observations_sha256"],
             )
 
+    def test_records_the_requested_profile_before_the_first_actuation(self) -> None:
+        frozen: list[dict] = []
+        actuate = claude_code.run_implementer
+
+        def observe(**arguments):
+            # The record already on disk when the actuator is about to start.
+            run_dir = arguments["out_dir"].parents[2]
+            frozen.append(
+                json.loads((run_dir / "evidence.json").read_text(encoding="utf-8"))
+            )
+            return actuate(**arguments)
+
+        with tempfile.TemporaryDirectory() as temp:
+            case = build_case(Path(temp), implementer="implement(ACCEPTABLE)")
+
+            with patch.object(claude_code, "run_implementer", observe):
+                result = case.run(model="opus", effort="high", speed="fast")
+
+            self.assertEqual("ACCEPTED", result["status"])
+            before = frozen[0]["inference"]["implementer"]
+            self.assertEqual(
+                {
+                    "backend": "claude",
+                    "model": "opus",
+                    "effort": "high",
+                    "speed": "fast",
+                },
+                before["requested"],
+            )
+            self.assertEqual("unverified", before["validation"]["status"])
+            self.assertIsNone(before["native"])
+            self.assertEqual(
+                {"model": None, "effort": None, "speed": None}, before["observed"]
+            )
+            self.assertEqual("incomplete", before["provenance"])
+
+            after = result["inference"]["implementer"]
+            self.assertEqual(before["requested"], after["requested"])
+            # What the settings document holds, not the path it briefly had.
+            self.assertEqual(
+                {"--effort": "high", "--settings": {"fastMode": True}},
+                after["native"],
+            )
+            # The session named no model, and the requested one is not borrowed.
+            self.assertEqual(
+                {"model": None, "effort": None, "speed": None}, after["observed"]
+            )
+            self.assertEqual("incomplete", after["provenance"])
+
+    def _codex_case(self, root: Path, *, efforts: list[str], fast: bool):
+        """A run whose backend has a local inventory the controller can read."""
+        case = build_case(root, implementer="implement(ACCEPTABLE)")
+        agent = case.bin_dir / "codex"
+        agent.write_text(FAKE_CODEX, encoding="utf-8")
+        agent.chmod(agent.stat().st_mode | stat.S_IXUSR)
+        codex_home = root / "codex"
+        codex_home.mkdir()
+        (codex_home / "models_cache.json").write_text(
+            codex_cache("gpt-5.6-sol", efforts, fast), encoding="utf-8"
+        )
+        return case, {
+            "CODEX_HOME": str(codex_home),
+            "CODESERVO_TEST_SOURCE_GIT": str((case.repo / ".git").resolve()),
+            "CODESERVO_TEST_SOURCE_REPO": str(case.repo.resolve()),
+        }
+
+    def test_an_unsupported_profile_ends_the_run_before_any_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            case, env = self._codex_case(
+                Path(temp), efforts=["low", "medium", "high"], fast=False
+            )
+
+            result = case.run(
+                env=env,
+                actuator="codex",
+                model="gpt-5.6-sol",
+                effort="ultra",
+                speed="fast",
+            )
+
+            self.assertEqual("REJECTED", result["status"])
+            self.assertIsNone(result["worktree"])
+            self.assertEqual([], result["iterations"])
+            self.assertNotIn("baseline", result)
+            self.assertFalse(Path(result["run_dir"], "iterations").exists())
+            self.assertIn("configuration error", result["decision"]["reasons"][0])
+
+            evidence = json.loads(
+                Path(result["run_dir"], "evidence.json").read_text(encoding="utf-8")
+            )
+            implementer = evidence["inference"]["implementer"]
+            validation = implementer["validation"]
+            self.assertEqual("unsupported", validation["status"])
+            self.assertEqual("backend-cache", validation["inventory_source"])
+            self.assertIn("effort ultra", validation["reason"])
+            self.assertIn("speed fast", validation["reason"])
+            self.assertEqual("ultra", implementer["requested"]["effort"])
+            self.assertIsNone(implementer["native"])
+            self.assertIsNone(evidence["worktree"])
+
+    def test_a_supported_profile_reaches_the_actuator(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            case, env = self._codex_case(
+                Path(temp), efforts=["low", "medium", "high"], fast=True
+            )
+
+            result = case.run(
+                env=env,
+                actuator="codex",
+                model="gpt-5.6-sol",
+                effort="high",
+                speed="fast",
+                max_iterations=3,
+            )
+
+            self.assertEqual("ACCEPTED", result["status"])
+            implementer = result["inference"]["implementer"]
+            self.assertEqual("supported", implementer["validation"]["status"])
+            self.assertEqual(
+                "backend-cache", implementer["validation"]["inventory_source"]
+            )
+            self.assertIsNotNone(result["worktree"])
+            self.assertEqual(
+                {"model_reasoning_effort": "high", "service_tier": "priority"},
+                implementer["native"],
+            )
+
     def test_a_red_gate_stops_the_run_before_any_observation(self) -> None:
         stale = "grep -q 'return 0' app.py"
         for phase, constitution_text in (
@@ -376,9 +526,14 @@ class ControllerE2ETests(unittest.TestCase):
                 env={
                     "CODESERVO_TEST_SOURCE_GIT": str((repo / ".git").resolve()),
                     "CODESERVO_TEST_SOURCE_REPO": str(repo.resolve()),
+                    # No local cache, so the profile stays unverified whatever
+                    # this machine happens to hold.
+                    "CODEX_HOME": str(root / "absent-codex"),
                 },
                 actuator=actuator,
                 max_iterations=3,
+                effort="high",
+                speed="fast",
             )
 
             self.assertEqual("ACCEPTED", result["status"])
@@ -436,7 +591,7 @@ class ControllerE2ETests(unittest.TestCase):
             self.assertEqual("", remotes.stdout.strip())
             self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(8, evidence["schema_version"])
+            self.assertEqual(9, evidence["schema_version"])
             self.assertEqual(".", evidence["run_dir"])
             self.assertFalse(Path(evidence["state_dir"]).is_absolute())
             self.assertFalse(Path(evidence["worktree"]).is_absolute())
@@ -471,8 +626,45 @@ class ControllerE2ETests(unittest.TestCase):
             for iteration in evidence["iterations"]:
                 self.assertEqual(64, len(iteration["agent"]["events_sha256"]))
                 self.assertEqual(64, len(iteration["agent"]["result_sha256"]))
+            self._assert_inference(actuator, evidence)
             self.assertEqual("ACCEPTED", evidence["status"])
             self._assert_observations(result, evidence)
+
+    def _assert_inference(self, actuator: str, evidence: dict) -> None:
+        """The profile the run requested, sent and observed, for one backend."""
+        implementer = evidence["inference"]["implementer"]
+
+        self.assertEqual(
+            {
+                "backend": actuator,
+                "model": None,
+                "effort": "high",
+                "speed": "fast",
+            },
+            implementer["requested"],
+        )
+        self.assertEqual("unverified", implementer["validation"]["status"])
+        if actuator == "claude":
+            self.assertEqual(
+                {"--effort": "high", "--settings": {"fastMode": True}},
+                implementer["native"],
+            )
+            self.assertEqual("test-model", implementer["observed"]["model"])
+            self.assertEqual("complete", implementer["provenance"])
+        else:
+            self.assertEqual(
+                {"model_reasoning_effort": "high", "service_tier": "priority"},
+                implementer["native"],
+            )
+            self.assertIsNone(implementer["observed"]["model"])
+            self.assertEqual("incomplete", implementer["provenance"])
+        # Neither field survives from an earlier iteration of the same run.
+        last = evidence["iterations"][-1]["agent"]
+        self.assertEqual(2, len(evidence["iterations"]))
+        self.assertEqual(last["native"], implementer["native"])
+        self.assertEqual(last["observed"], implementer["observed"])
+        self.assertIsNone(implementer["observed"]["effort"])
+        self.assertIsNone(implementer["observed"]["speed"])
 
     def _assert_observations(self, result: dict, evidence: dict) -> None:
         """The reviewer received exactly the bundle the controller recorded."""
