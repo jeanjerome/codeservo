@@ -65,6 +65,9 @@ def protected_gate_record() -> Path:
         path = _descriptor_path(descriptor)
         if path is not None:
             candidates.append(path.resolve().parent)
+    # Gate-owned records keep priority. A read-only reviewer has no such
+    # descriptor, but its current repository is itself a protected anchor.
+    candidates.append(Path.cwd().resolve())
 
     for candidate in candidates:
         try:
