@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import tempfile
@@ -5,7 +6,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from codeservo.sandbox import Isolation, SandboxError, isolation_evidence, seatbelt_command
+from codeservo.sandbox import (
+    Isolation,
+    SandboxError,
+    isolation_evidence,
+    seatbelt_command,
+    seatbelt_profile,
+)
+from isolation_harness import already_confined, nested_seatbelt_exit_code
 
 
 class SeatbeltTests(unittest.TestCase):
@@ -28,6 +36,16 @@ class SeatbeltTests(unittest.TestCase):
             evidence.parent.mkdir()
             evidence.write_text("unchanged\n", encoding="utf-8")
             isolation = Isolation(denied=(sensors, evidence.parent))
+
+            if already_confined():
+                self.assertEqual(os.EX_OSERR, nested_seatbelt_exit_code())
+                profile = seatbelt_profile(isolation)
+                self.assertIn("deny file-read* file-write*", profile)
+                self.assertIn(str(sensors.resolve()), profile)
+                self.assertIn(str(evidence.parent.resolve()), profile)
+                self.assertEqual("visible\n", visible.read_text(encoding="utf-8"))
+                self.assertEqual("unchanged\n", evidence.read_text(encoding="utf-8"))
+                return
 
             denied = subprocess.run(
                 seatbelt_command(["/bin/cat", str(secret)], isolation),
@@ -59,6 +77,14 @@ class SeatbeltTests(unittest.TestCase):
             tracked = source / "app.py"
             tracked.write_text("value = 1\n", encoding="utf-8")
             isolation = Isolation(read_only=(source,))
+
+            if already_confined():
+                self.assertEqual(os.EX_OSERR, nested_seatbelt_exit_code())
+                profile = seatbelt_profile(isolation)
+                self.assertIn("deny file-write*", profile)
+                self.assertIn(str(source.resolve()), profile)
+                self.assertEqual("value = 1\n", tracked.read_text(encoding="utf-8"))
+                return
 
             read = subprocess.run(
                 seatbelt_command(["/bin/cat", str(tracked)], isolation),

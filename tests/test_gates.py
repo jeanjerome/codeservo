@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 from codeservo.gates import run_gates
 from codeservo.model import Gate
-from codeservo.sandbox import Isolation
+from codeservo.sandbox import Isolation, seatbelt_profile
+from isolation_harness import already_confined, nested_seatbelt_exit_code
 
 
 class GateEnvironmentTests(unittest.TestCase):
@@ -68,6 +69,16 @@ class GateConfinementTests(unittest.TestCase):
                 ),
             )
 
+            if already_confined():
+                self.assertEqual(os.EX_OSERR, nested_seatbelt_exit_code())
+                profile = seatbelt_profile(Isolation(read_only=(run_dir,)))
+                self.assertIn("deny file-write*", profile)
+                self.assertIn(str(run_dir.resolve()), profile)
+                self.assertEqual(
+                    "assert True\n", (sensor / "contract.py").read_text(encoding="utf-8")
+                )
+                return
+
             results = run_gates(
                 repo=root,
                 gates=gates,
@@ -100,6 +111,14 @@ class GateConfinementTests(unittest.TestCase):
                 baseline=False,
                 sensor="example/acceptance",
             )
+
+            if already_confined():
+                self.assertEqual(os.EX_OSERR, nested_seatbelt_exit_code())
+                profile = seatbelt_profile(Isolation(read_only=(run_dir,)))
+                self.assertIn("deny file-write*", profile)
+                self.assertIn(str(run_dir.resolve()), profile)
+                self.assertEqual("assert True\n", contract.read_text(encoding="utf-8"))
+                return
 
             results = run_gates(
                 repo=root,

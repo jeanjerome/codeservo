@@ -67,6 +67,10 @@ def probe_read_only(worktree):
         return
     sys.stderr.write("reviewer can write to the candidate worktree")
     raise SystemExit(11)
+
+
+def should_probe_isolation():
+    return os.environ.get("CODESERVO_TEST_NESTED_SEATBELT") != "1"
 '''
 
 FAKE_CODEX = f'''#!/usr/bin/env python3
@@ -92,10 +96,12 @@ out = pathlib.Path(value("--output-last-message"))
 out.parent.mkdir(parents=True, exist_ok=True)
 sys.stdin.read()
 if "--output-schema" in args:
-    probe_read_only(worktree)
+    if should_probe_isolation():
+        probe_read_only(worktree)
     out.write_text(json.dumps(REVIEW))
 else:
-    probe_isolation(worktree)
+    if should_probe_isolation():
+        probe_isolation(worktree)
     next_implementation(worktree)
     out.write_text("implemented")
     print(json.dumps({{"type": "message", "message": "done"}}))
@@ -122,7 +128,8 @@ def value(flag):
 worktree = pathlib.Path.cwd()
 sys.stdin.read()
 if value("--output-format") == "json":
-    probe_read_only(worktree)
+    if should_probe_isolation():
+        probe_read_only(worktree)
     json.dump(
         {{
             "type": "result",
@@ -136,7 +143,8 @@ if value("--output-format") == "json":
         sys.stdout,
     )
 else:
-    probe_isolation(worktree)
+    if should_probe_isolation():
+        probe_isolation(worktree)
     next_implementation(worktree)
     print(json.dumps({{"type": "system", "subtype": "init", "model": "test-model"}}))
     print(

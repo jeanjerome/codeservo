@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from codeservo.controller import run
+from isolation_harness import controller_test_isolation
 
 TASK_TEXT = "# Task\n\n## Acceptance criteria\n- [AC1] `value()` returns `2`.\n"
 SENSOR_COMMAND = 'test -f "$CODESERVO_SENSOR_PATH/README.md" && grep -q "return 2" app.py'
@@ -157,8 +158,9 @@ class Case:
         }
         arguments.update(overrides)
         path = str(self.bin_dir) + os.pathsep + os.environ.get("PATH", "")
-        with patch.dict(os.environ, {"PATH": path, **(env or {})}, clear=False):
-            return run(**arguments)
+        with controller_test_isolation():
+            with patch.dict(os.environ, {"PATH": path, **(env or {})}, clear=False):
+                return run(**arguments)
 
 
 def build_case(
