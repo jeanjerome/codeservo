@@ -9,6 +9,13 @@ from pathlib import Path
 from .actuator import ACTUATOR_ENV_VAR, ACTUATOR_NAMES, DEFAULT_ACTUATOR
 from .config import ConstitutionError
 from .controller import run
+from .models import (
+    ModelSelectionError,
+    build_inventory,
+    render_document,
+    render_listing,
+    write_inventory,
+)
 from .task import TaskError
 
 
@@ -21,6 +28,38 @@ def _init_repo(repo: Path) -> int:
     template = Path(__file__).with_name("constitution.example.toml")
     shutil.copyfile(template, target)
     print(target)
+    return 0
+
+
+def _models(
+    actuator: str | None,
+    model: str | None,
+    as_json: bool,
+    state_dir: Path | None,
+) -> int:
+    """Report the models a backend advertises locally.
+
+    The report reads provider caches and nothing else: no agent starts, no
+    cache is refreshed, and an unreadable cache leaves the exit status at 0.
+    """
+    try:
+        document = build_inventory(actuator=actuator, model=model)
+    except ModelSelectionError as exc:
+        print(f"codeservo: {exc}", file=sys.stderr)
+        return 2
+
+    text = render_document(document)
+    try:
+        path = write_inventory(state_dir, text)
+    except OSError as exc:
+        print(f"codeservo: cannot write the inventory: {exc}", file=sys.stderr)
+        return 2
+
+    if as_json:
+        sys.stdout.write(text)
+    else:
+        sys.stdout.write(render_listing(document))
+        print(f"inventory: {path}")
     return 0
 
 
@@ -54,6 +93,24 @@ def build_parser() -> argparse.ArgumentParser:
             "repository"
         ),
     )
+
+    models = sub.add_parser(
+        "models", help="report the models a backend advertises on this machine"
+    )
+    models.add_argument(
+        "--actuator",
+        choices=ACTUATOR_NAMES,
+        help="report one backend instead of every known one",
+    )
+    models.add_argument("--model", help="report one model of the selected backend")
+    models.add_argument(
+        "--json", action="store_true", help="write the inventory document to stdout"
+    )
+    models.add_argument(
+        "--state-dir",
+        type=Path,
+        help="store the inventory outside the target repository",
+    )
     return parser
 
 
@@ -61,6 +118,10 @@ def main() -> None:
     args = build_parser().parse_args()
     if args.command == "init":
         raise SystemExit(_init_repo(Path(args.repo).resolve()))
+    if args.command == "models":
+        raise SystemExit(
+            _models(args.actuator, args.model, args.json, args.state_dir)
+        )
 
     try:
         result = run(
