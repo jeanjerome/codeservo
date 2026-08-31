@@ -13,7 +13,11 @@ from codeservo.sandbox import (
     seatbelt_command,
     seatbelt_profile,
 )
-from isolation_harness import already_confined, nested_seatbelt_exit_code
+from isolation_harness import (
+    already_confined,
+    nested_seatbelt_exit_code,
+    protected_gate_record,
+)
 
 
 class SeatbeltTests(unittest.TestCase):
@@ -39,6 +43,7 @@ class SeatbeltTests(unittest.TestCase):
 
             if already_confined():
                 self.assertEqual(os.EX_OSERR, nested_seatbelt_exit_code())
+                self.assertTrue(protected_gate_record().is_dir())
                 profile = seatbelt_profile(isolation)
                 self.assertIn("deny file-read* file-write*", profile)
                 self.assertIn(str(sensors.resolve()), profile)
@@ -80,6 +85,7 @@ class SeatbeltTests(unittest.TestCase):
 
             if already_confined():
                 self.assertEqual(os.EX_OSERR, nested_seatbelt_exit_code())
+                self.assertTrue(protected_gate_record().is_dir())
                 profile = seatbelt_profile(isolation)
                 self.assertIn("deny file-write*", profile)
                 self.assertIn(str(source.resolve()), profile)

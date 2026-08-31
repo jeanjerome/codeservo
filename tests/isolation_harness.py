@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
+import fcntl
 from contextlib import ExitStack, contextmanager
 from functools import lru_cache
+import os
+from pathlib import Path
+import subprocess
+import sys
 from unittest.mock import patch
 
 
 NESTED_TEST_ENV = "CODESERVO_TEST_NESTED_SEATBELT"
+GATE_RECORD_ENV = "CODESERVO_TEST_GATE_RECORD"
 
 
 @lru_cache(maxsize=1)
@@ -39,6 +42,48 @@ def _without_additional_seatbelt(command: list[str], _isolation: object) -> list
     return command
 
 
+def _descriptor_path(descriptor: int) -> Path | None:
+    try:
+        raw = fcntl.fcntl(descriptor, fcntl.F_GETPATH, bytes(1024))
+    except OSError:
+        return None
+    value = raw.split(bytes(1), 1)[0]
+    return Path(value.decode()) if value else None
+
+
+def protected_gate_record() -> Path:
+    """Return a readable directory that the active outer profile protects."""
+
+    if not already_confined():
+        raise AssertionError("test process is not inside an existing seatbelt")
+
+    candidates: list[Path] = []
+    configured = os.environ.get(GATE_RECORD_ENV)
+    if configured:
+        candidates.append(Path(configured).resolve())
+    for descriptor in (1, 2):
+        path = _descriptor_path(descriptor)
+        if path is not None:
+            candidates.append(path.resolve().parent)
+
+    for candidate in candidates:
+        try:
+            tuple(candidate.iterdir())
+        except OSError:
+            continue
+        probe = candidate / f"codeservo-test-write-probe-{os.getpid()}"
+        try:
+            probe.write_text("forbidden\n", encoding="utf-8")
+        except OSError:
+            if probe.exists():
+                raise AssertionError(f"failed write left a file behind: {probe}")
+            return candidate
+        else:
+            probe.unlink()
+
+    raise AssertionError("no readable, write-protected gate record was found")
+
+
 @contextmanager
 def controller_test_isolation():
     """Exercise controller logic without nesting seatbelt in a confined gate.
@@ -52,6 +97,7 @@ def controller_test_isolation():
         yield False
         return
 
+    gate_record = protected_gate_record()
     with ExitStack() as stack:
         stack.enter_context(
             patch("codeservo.process.seatbelt_command", _without_additional_seatbelt)
@@ -65,5 +111,13 @@ def controller_test_isolation():
                 _without_additional_seatbelt,
             )
         )
-        stack.enter_context(patch.dict(os.environ, {NESTED_TEST_ENV: "1"}))
+        stack.enter_context(
+            patch.dict(
+                os.environ,
+                {
+                    NESTED_TEST_ENV: "1",
+                    GATE_RECORD_ENV: str(gate_record),
+                },
+            )
+        )
         yield True

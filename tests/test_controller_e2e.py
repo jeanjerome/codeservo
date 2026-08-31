@@ -69,8 +69,45 @@ def probe_read_only(worktree):
     raise SystemExit(11)
 
 
-def should_probe_isolation():
-    return os.environ.get("CODESERVO_TEST_NESTED_SEATBELT") != "1"
+def probe_gate_record(worktree):
+    record = pathlib.Path(os.environ["CODESERVO_TEST_GATE_RECORD"])
+    try:
+        next(record.iterdir())
+    except (OSError, StopIteration):
+        sys.stderr.write("gate record is not readable")
+        raise SystemExit(12)
+    probe = record / "actuator-write-{}.txt".format(os.getpid())
+    try:
+        probe.write_text("written", encoding="utf-8")
+    except OSError:
+        pass
+    else:
+        probe.unlink()
+        sys.stderr.write("gate record is writable")
+        raise SystemExit(13)
+    worktree_history = subprocess.run(
+        ["git", "show", "HEAD^:historical-sensor.txt"],
+        cwd=worktree,
+        capture_output=True,
+        check=False,
+    )
+    if worktree_history.returncode == 0:
+        sys.stderr.write("historical sensor is readable")
+        raise SystemExit(14)
+
+
+def probe_implementer_isolation(worktree):
+    if os.environ.get("CODESERVO_TEST_NESTED_SEATBELT") == "1":
+        probe_gate_record(worktree)
+    else:
+        probe_isolation(worktree)
+
+
+def probe_reviewer_isolation(worktree):
+    if os.environ.get("CODESERVO_TEST_NESTED_SEATBELT") == "1":
+        probe_gate_record(worktree)
+    else:
+        probe_read_only(worktree)
 '''
 
 FAKE_CODEX = f'''#!/usr/bin/env python3
@@ -96,12 +133,10 @@ out = pathlib.Path(value("--output-last-message"))
 out.parent.mkdir(parents=True, exist_ok=True)
 sys.stdin.read()
 if "--output-schema" in args:
-    if should_probe_isolation():
-        probe_read_only(worktree)
+    probe_reviewer_isolation(worktree)
     out.write_text(json.dumps(REVIEW))
 else:
-    if should_probe_isolation():
-        probe_isolation(worktree)
+    probe_implementer_isolation(worktree)
     next_implementation(worktree)
     out.write_text("implemented")
     print(json.dumps({{"type": "message", "message": "done"}}))
@@ -128,8 +163,7 @@ def value(flag):
 worktree = pathlib.Path.cwd()
 sys.stdin.read()
 if value("--output-format") == "json":
-    if should_probe_isolation():
-        probe_read_only(worktree)
+    probe_reviewer_isolation(worktree)
     json.dump(
         {{
             "type": "result",
@@ -143,8 +177,7 @@ if value("--output-format") == "json":
         sys.stdout,
     )
 else:
-    if should_probe_isolation():
-        probe_isolation(worktree)
+    probe_implementer_isolation(worktree)
     next_implementation(worktree)
     print(json.dumps({{"type": "system", "subtype": "init", "model": "test-model"}}))
     print(
