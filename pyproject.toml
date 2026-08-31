@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "codeservo"
-version = "0.0.1"
+version = "0.1.0"
 description = "A deterministic control loop around AI-generated software changes."
 readme = "README.md"
 requires-python = ">=3.12"
