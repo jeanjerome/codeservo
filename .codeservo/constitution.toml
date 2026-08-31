@@ -13,12 +13,12 @@ timeout_seconds = 300
 baseline = true
 
 [[gate]]
-name = "review-observations"
+name = "record-identity"
 phase = "quick"
 command = "python3.12 -m unittest discover -s \"$CODESERVO_SENSOR_PATH\" -v"
 timeout_seconds = 600
 baseline = false
-sensor = "codeservo/004-review-observations"
+sensor = "codeservo/005-record-identity"
 
 [[gate]]
 name = "compile"
