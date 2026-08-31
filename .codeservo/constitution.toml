@@ -13,12 +13,12 @@ timeout_seconds = 300
 baseline = true
 
 [[gate]]
-name = "record-identity"
+name = "pixi-bootstrap"
 phase = "quick"
 command = "python3.12 -m unittest discover -s \"$CODESERVO_SENSOR_PATH\" -v"
-timeout_seconds = 600
+timeout_seconds = 900
 baseline = false
-sensor = "codeservo/005-record-identity"
+sensor = "codeservo/001-pixi-bootstrap"
 
 [[gate]]
 name = "compile"
