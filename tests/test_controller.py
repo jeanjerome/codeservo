@@ -1,14 +1,22 @@
 import json
+import subprocess
+import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
+import codeservo
+from codeservo.actuator import Actuator
 from codeservo.controller import (
+    EVIDENCE_SCHEMA_VERSION,
     ControlFailure,
     _altered_sensors,
+    _command_version,
     _observations,
     _resolve_state_dir,
     _review_schema_path,
+    _runtime_metadata,
 )
 from codeservo.evidence import sha256_file, sha256_path
 from codeservo.model import Constitution, Gate, ReviewPolicy, ScopePolicy
@@ -216,6 +224,72 @@ class ReviewSchemaTests(unittest.TestCase):
 
         self.assertNotEqual(packaged, repository_copy)
         self.assertEqual(sha256_file(packaged), sha256_file(repository_copy))
+
+
+class RuntimeIdentityTests(unittest.TestCase):
+    def _actuator(self) -> Actuator:
+        return Actuator(
+            name="fake",
+            version_command=(sys.executable, "-c", "print('fake 9.9')"),
+            implement=lambda *args, **kwargs: {},
+            review=lambda *args, **kwargs: ({}, {}),
+            describe_isolation=lambda *args, **kwargs: {},
+        )
+
+    def _source_root(self) -> Path:
+        return Path(codeservo.__file__).resolve().parents[2]
+
+    def test_declares_the_shape_the_record_has(self) -> None:
+        self.assertEqual(8, EVIDENCE_SCHEMA_VERSION)
+
+    def test_declares_the_controller_version_in_one_place(self) -> None:
+        pyproject = self._source_root() / "pyproject.toml"
+        if not pyproject.is_file():
+            self.skipTest("controller does not run from a source checkout")
+        declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+
+        self.assertIn("version", declared["project"]["dynamic"])
+        self.assertNotIn("version", declared["project"])
+        self.assertEqual(
+            "src/codeservo/__init__.py",
+            declared["tool"]["hatch"]["version"]["path"],
+        )
+
+    def test_reports_the_single_declared_controller_version(self) -> None:
+        runtime = _runtime_metadata(self._actuator(), None, None)
+
+        self.assertEqual(codeservo.__version__, runtime["codeservo_version"])
+
+    def test_reports_the_commit_of_the_controller_checkout(self) -> None:
+        checkout = subprocess.run(
+            ["git", "-C", str(self._source_root()), "rev-parse", "HEAD"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if checkout.returncode != 0:
+            self.skipTest("controller does not run from a Git checkout")
+
+        runtime = _runtime_metadata(self._actuator(), None, None)
+
+        self.assertEqual(checkout.stdout.strip(), runtime["codeservo_commit"])
+        self.assertEqual(40, len(runtime["codeservo_commit"]))
+
+    def test_keeps_the_answer_of_a_successful_lookup(self) -> None:
+        self.assertEqual(
+            "fake 9.9",
+            _command_version([sys.executable, "-c", "print('fake 9.9')"]),
+        )
+
+    def test_reports_a_failed_lookup_as_unavailable(self) -> None:
+        failing = [
+            sys.executable,
+            "-c",
+            "import sys; print('fatal: not a git repository', file=sys.stderr);"
+            " sys.exit(128)",
+        ]
+
+        self.assertEqual("unavailable", _command_version(failing))
 
 
 if __name__ == "__main__":

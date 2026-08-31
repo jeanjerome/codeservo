@@ -38,6 +38,10 @@ class ControlFailure(RuntimeError):
     pass
 
 
+# The shape of evidence.json. The observation bundle versions its own shape.
+EVIDENCE_SCHEMA_VERSION = 8
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -56,6 +60,9 @@ def _command_version(command: list[str]) -> str:
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
+        return "unavailable"
+    # A command that failed reports a diagnostic, not the value asked for.
+    if completed.returncode != 0:
         return "unavailable"
     output = completed.stdout.strip() or completed.stderr.strip()
     return output.splitlines()[0] if output else "unavailable"
@@ -317,7 +324,7 @@ def run(
     gate_isolation = Isolation(read_only=(run_dir,))
 
     evidence: dict = {
-        "schema_version": 7,
+        "schema_version": EVIDENCE_SCHEMA_VERSION,
         "run_id": run_id,
         "started_at": _now(),
         "repo": str(repo),

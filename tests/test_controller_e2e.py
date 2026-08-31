@@ -436,7 +436,7 @@ class ControllerE2ETests(unittest.TestCase):
             self.assertEqual("", remotes.stdout.strip())
             self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(7, evidence["schema_version"])
+            self.assertEqual(8, evidence["schema_version"])
             self.assertEqual(".", evidence["run_dir"])
             self.assertFalse(Path(evidence["state_dir"]).is_absolute())
             self.assertFalse(Path(evidence["worktree"]).is_absolute())
