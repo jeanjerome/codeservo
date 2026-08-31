@@ -1,0 +1,31 @@
+version = 1
+
+[scope]
+protected = [".codeservo/**", ".github/workflows/**"]
+max_changed_files = 12
+max_diff_lines = 3000
+
+[[gate]]
+name = "unit"
+phase = "quick"
+command = "python3.12 -m unittest discover -s tests -v"
+timeout_seconds = 300
+baseline = true
+
+[[gate]]
+name = "pixi-bootstrap"
+phase = "quick"
+command = "python3.12 -m unittest discover -s \"$CODESERVO_SENSOR_PATH\" -v"
+timeout_seconds = 900
+baseline = false
+sensor = "codeservo/001-pixi-bootstrap"
+
+[[gate]]
+name = "compile"
+phase = "full"
+command = "python3.12 -m compileall -q src tests"
+timeout_seconds = 120
+baseline = true
+
+[review]
+blocking_severities = ["blocker", "major"]
