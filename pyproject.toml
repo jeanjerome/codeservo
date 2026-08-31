@@ -24,3 +24,17 @@ include = [
   "src/codeservo/constitution.example.toml",
   "src/codeservo/review.schema.json",
 ]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64"]
+requires-pixi = ">=0.77,<0.78"
+
+[tool.pixi.dependencies]
+python = "3.12.*"
+
+[tool.pixi.pypi-dependencies]
+codeservo = { path = ".", editable = true }
+
+[tool.pixi.tasks]
+test = "python -m unittest discover -s tests -v"
