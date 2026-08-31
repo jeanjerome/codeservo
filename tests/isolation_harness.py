@@ -94,7 +94,14 @@ def controller_test_isolation():
     """
 
     if not already_confined():
-        yield False
+        with patch.dict(
+            os.environ,
+            {
+                NESTED_TEST_ENV: "",
+                GATE_RECORD_ENV: "",
+            },
+        ):
+            yield False
         return
 
     gate_record = protected_gate_record()

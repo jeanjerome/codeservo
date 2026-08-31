@@ -96,15 +96,34 @@ def probe_gate_record(worktree):
         raise SystemExit(14)
 
 
+def use_gate_record_probe():
+    if os.environ.get("CODESERVO_TEST_NESTED_SEATBELT") != "1":
+        return False
+    nested = subprocess.run(
+        [
+            "/usr/bin/sandbox-exec",
+            "-p",
+            "(version 1)(allow default)",
+            "/usr/bin/true",
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if nested.returncode != os.EX_OSERR:
+        sys.stderr.write("confined test mode requested without an outer seatbelt")
+        raise SystemExit(15)
+    return True
+
+
 def probe_implementer_isolation(worktree):
-    if os.environ.get("CODESERVO_TEST_NESTED_SEATBELT") == "1":
+    if use_gate_record_probe():
         probe_gate_record(worktree)
     else:
         probe_isolation(worktree)
 
 
 def probe_reviewer_isolation(worktree):
-    if os.environ.get("CODESERVO_TEST_NESTED_SEATBELT") == "1":
+    if use_gate_record_probe():
         probe_gate_record(worktree)
     else:
         probe_read_only(worktree)
