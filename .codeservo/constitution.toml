@@ -8,7 +8,7 @@ max_diff_lines = 3000
 [[gate]]
 name = "unit"
 phase = "quick"
-command = "python3.12 -m unittest discover -s tests -v"
+command = "PYTHONPATH=\"$PWD/src\" python3.12 -m unittest discover -s tests -v"
 timeout_seconds = 300
 baseline = true
 
