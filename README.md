@@ -3,7 +3,8 @@
 **AI changes the code. The controller decides whether to accept it.**
 
 CodeServo is a deliberately small experiment in **Software Engineering as a Control System**.
-It is not another coding agent. It wraps a coding agent in a deterministic control loop whose source of truth is the target repository.
+It is not another coding agent. It is an agent harness, with one difference: the harness decides.
+It wraps a coding agent in a deterministic control loop whose source of truth is the target repository.
 
 It grew out of [Vibe coding: how to stay in control of AI-generated
 code](https://scalastic.io/en/vibe-coding-ai-software-quality/), which argues
