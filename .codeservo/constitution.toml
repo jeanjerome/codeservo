@@ -2,7 +2,7 @@ version = 1
 
 [scope]
 protected = [".codeservo/**", ".github/workflows/**"]
-max_changed_files = 12
+max_changed_files = 14
 max_diff_lines = 3000
 
 [[gate]]
@@ -13,12 +13,12 @@ timeout_seconds = 300
 baseline = true
 
 [[gate]]
-name = "event-journal"
+name = "structured-observations"
 phase = "quick"
 command = "python3.12 -m unittest discover -s \"$CODESERVO_SENSOR_PATH\" -v"
-timeout_seconds = 900
+timeout_seconds = 1200
 baseline = false
-sensor = "codeservo/014-event-journal"
+sensor = "codeservo/015-structured-observations"
 
 [[gate]]
 name = "compile"
