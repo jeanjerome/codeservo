@@ -13,12 +13,12 @@ timeout_seconds = 300
 baseline = true
 
 [[gate]]
-name = "measured-budgets"
+name = "budget-boundaries"
 phase = "quick"
 command = "python3.12 -m unittest discover -s \"$CODESERVO_SENSOR_PATH\" -v"
 timeout_seconds = 1200
 baseline = false
-sensor = "codeservo/020-measured-budgets"
+sensor = "codeservo/021-budget-boundaries"
 
 [[gate]]
 name = "compile"
