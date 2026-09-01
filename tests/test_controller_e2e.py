@@ -8,8 +8,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 from codeservo import claude_code, codex
-from codeservo.evidence import sha256_text
-from harness import TASK_TEXT, Case, build_case, commit_repository, constitution
+from codeservo.evidence import sha256_file, sha256_text
+from harness import (
+    COMPILE_COMMAND,
+    PIXI_PACKAGES,
+    PIXI_TASK,
+    TASK_TEXT,
+    Case,
+    build_case,
+    commit_repository,
+    constitution,
+)
 
 
 def codex_cache(model: str, efforts: list[str], fast: bool) -> str:
@@ -782,7 +791,9 @@ class ControllerE2ETests(unittest.TestCase):
             self.assertEqual("", remotes.stdout.strip())
             self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(10, evidence["schema_version"])
+            self.assertEqual(11, evidence["schema_version"])
+            # A constitution declaring no provider keeps shell gates.
+            self.assertEqual({"provider": "none"}, evidence["environment"])
             self.assertEqual(".", evidence["run_dir"])
             self.assertFalse(Path(evidence["state_dir"]).is_absolute())
             self.assertFalse(Path(evidence["worktree"]).is_absolute())
@@ -929,6 +940,173 @@ class ControllerE2ETests(unittest.TestCase):
             self.assertNotIn("CONTROLLER OBSERVATIONS", implementer)
             self.assertNotIn("test/task-outcome", implementer)
             self.assertNotIn("stdout_tail", implementer)
+
+
+class ExecutionEnvironmentE2ETests(unittest.TestCase):
+    """A run that measures through a declared execution environment."""
+
+    def _case(self, root: Path, *, task: str = PIXI_TASK, **overrides) -> Case:
+        return build_case(
+            root,
+            implementer="implement(ACCEPTABLE)",
+            provider=True,
+            constitution_text=constitution(execution="default", quick_task=task),
+            **overrides,
+        )
+
+    def _run(self, case: Case, log: Path, **overrides) -> dict:
+        return case.run(env={"CODESERVO_TEST_PIXI_LOG": str(log)}, **overrides)
+
+    def _invocations(self, log: Path) -> list[list[str]]:
+        if not log.exists():
+            return []
+        return [json.loads(line) for line in log.read_text().splitlines()]
+
+    def test_freezes_the_environment_and_measures_through_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            case = self._case(root)
+            log = root / "pixi.log"
+
+            result = self._run(case, log)
+
+            self.assertEqual("ACCEPTED", result["status"])
+            evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
+            environment = evidence["environment"]
+            self.assertEqual("pixi", environment["provider"])
+            self.assertEqual("0.77.1-test", environment["provider_version"])
+            self.assertEqual("pyproject.toml", environment["manifest_path"])
+            self.assertEqual("pixi.lock", environment["lock_path"])
+            self.assertEqual("default", environment["environment"])
+            self.assertEqual("test-platform", environment["platform"])
+            self.assertEqual([PIXI_TASK], environment["declared_tasks"])
+            # The digests are of the source repository at the base commit.
+            self.assertEqual(
+                sha256_file(case.repo / "pyproject.toml"),
+                environment["manifest_sha256"],
+            )
+            self.assertEqual(
+                sha256_file(case.repo / "pixi.lock"), environment["lock_sha256"]
+            )
+            stored = Path(result["run_dir"], environment["packages_path"])
+            self.assertEqual("environment/packages.json", environment["packages_path"])
+            self.assertEqual(PIXI_PACKAGES, json.loads(stored.read_text()))
+            self.assertEqual(sha256_file(stored), environment["packages_sha256"])
+            self.assertEqual(len(PIXI_PACKAGES), environment["package_count"])
+            # Nothing the description says about the operator is recorded.
+            for private in ("/operator", "cache_dir", "auth_dir", "config_locations"):
+                self.assertNotIn(
+                    private, Path(result["run_dir"], "evidence.json").read_text()
+                )
+
+    def test_each_gate_names_the_manifest_of_the_tree_it_measures(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            case = self._case(root)
+            log = root / "pixi.log"
+
+            result = self._run(case, log)
+
+            def command(name: str, gates: list[dict]) -> str:
+                return next(gate["command"] for gate in gates if gate["name"] == name)
+
+            worktree = Path(result["worktree"])
+            repo = Path(result["repo"])
+            baseline = command("syntax", result["baseline"])
+            quick = command("syntax", result["iterations"][-1]["quick_gates"])
+            self.assertEqual(
+                "pixi run --as-is --clean-env --no-config"
+                f" --manifest-path '{repo / 'pyproject.toml'}'"
+                f" --environment 'default' '{PIXI_TASK}'",
+                baseline,
+            )
+            self.assertEqual(
+                "pixi run --as-is --clean-env --no-config"
+                f" --manifest-path '{worktree / 'pyproject.toml'}'"
+                f" --environment 'default' '{PIXI_TASK}'",
+                quick,
+            )
+            self.assertNotIn(str(worktree), baseline)
+            self.assertNotIn(str(repo), quick)
+            # A shell gate is built and run exactly as it is without a provider.
+            self.assertEqual(
+                COMPILE_COMMAND, command("full", result["full_gates"])
+            )
+            self.assertNotIn(
+                "pixi",
+                command("task-outcome", result["iterations"][-1]["quick_gates"]),
+            )
+
+    def test_never_asks_the_provider_to_write_the_lockfile(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            case = self._case(root)
+            log = root / "pixi.log"
+
+            self._run(case, log)
+
+            invocations = self._invocations(log)
+            self.assertTrue(invocations)
+            self.assertEqual(
+                ["list", "info"],
+                [call[0] for call in invocations if call[0] != "run"],
+            )
+
+    def test_refuses_a_lockfile_that_disagrees_with_the_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            case = self._case(root, stale_lock=True)
+            log = root / "pixi.log"
+            manifest = sha256_file(case.repo / "pyproject.toml")
+            lock = sha256_file(case.repo / "pixi.lock")
+
+            result = self._run(case, log)
+
+            self.assertEqual("REJECTED", result["status"])
+            self.assertEqual(1, len(result["decision"]["reasons"]))
+            self.assertIn("pixi.lock", result["decision"]["reasons"][0])
+            # Before the baseline, and before any checkout.
+            self.assertNotIn("baseline", result)
+            self.assertIsNone(result["worktree"])
+            self.assertEqual([], result["iterations"])
+            # The frozen control input is byte-identical afterwards.
+            self.assertEqual(manifest, sha256_file(case.repo / "pyproject.toml"))
+            self.assertEqual(lock, sha256_file(case.repo / "pixi.lock"))
+            self.assertEqual(["list"], [call[0] for call in self._invocations(log)])
+            environment = result["environment"]
+            self.assertEqual(manifest, environment["manifest_sha256"])
+            self.assertNotIn("packages_path", environment)
+
+    def test_refuses_a_task_the_environment_does_not_declare(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            case = self._case(root, task="absent-task")
+            log = root / "pixi.log"
+
+            result = self._run(case, log)
+
+            self.assertEqual("REJECTED", result["status"])
+            self.assertIn("absent-task", result["decision"]["reasons"][0])
+            self.assertNotIn("baseline", result)
+            self.assertIsNone(result["worktree"])
+            # No provider task ever ran.
+            self.assertEqual(
+                ["list", "info"], [call[0] for call in self._invocations(log)]
+            )
+
+    def test_a_run_without_a_provider_never_invokes_one(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            case = build_case(
+                root, implementer="implement(ACCEPTABLE)", provider=True
+            )
+            log = root / "pixi.log"
+
+            result = self._run(case, log)
+
+            self.assertEqual("ACCEPTED", result["status"])
+            self.assertEqual({"provider": "none"}, result["environment"])
+            self.assertEqual([], self._invocations(log))
 
 
 if __name__ == "__main__":

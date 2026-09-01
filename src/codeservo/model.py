@@ -8,10 +8,26 @@ Phase = Literal["quick", "full"]
 
 
 @dataclass(frozen=True)
+class ExecutionEnvironment:
+    """The resolved execution environment a run measures through.
+
+    Every path is relative to the repository root, so the same declaration
+    names the source repository during the baseline and the isolated checkout
+    afterwards, and the record stays readable wherever it is copied.
+    """
+
+    provider: str
+    manifest: str
+    lock: str
+    environment: str = "default"
+
+
+@dataclass(frozen=True)
 class Gate:
     name: str
     phase: Phase
-    command: str
+    command: str | None = None
+    task: str | None = None
     timeout_seconds: int = 300
     baseline: bool = True
     sensor: str | None = None
@@ -36,6 +52,7 @@ class Constitution:
     scope: ScopePolicy
     gates: tuple[Gate, ...]
     review: ReviewPolicy
+    execution: ExecutionEnvironment | None = None
 
     def gates_for(self, phase: Phase) -> tuple[Gate, ...]:
         return tuple(g for g in self.gates if g.phase == phase)

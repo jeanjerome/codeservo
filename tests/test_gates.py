@@ -5,14 +5,66 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from codeservo.gates import run_gates
-from codeservo.model import Gate
+from codeservo.gates import gate_command, run_gates
+from codeservo.model import ExecutionEnvironment, Gate
 from codeservo.sandbox import Isolation, seatbelt_profile
+from harness import PIXI_TASK, write_provider
 from isolation_harness import (
     already_confined,
     nested_seatbelt_exit_code,
     protected_gate_record,
 )
+
+
+EXECUTION = ExecutionEnvironment(
+    provider="pixi",
+    manifest="pyproject.toml",
+    lock="pixi.lock",
+    environment="default",
+)
+
+
+class GateCommandTests(unittest.TestCase):
+    """A gate becomes a command against the tree that gate measures."""
+
+    def test_a_shell_gate_is_its_command_and_nothing_else(self) -> None:
+        gate = Gate(name="unit", phase="quick", command="make test")
+
+        self.assertEqual(
+            "make test", gate_command(gate, tree=Path("/tree"), execution=EXECUTION)
+        )
+        self.assertEqual(
+            "make test", gate_command(gate, tree=Path("/tree"), execution=None)
+        )
+
+    def test_a_task_gate_names_the_manifest_of_the_tree_it_measures(self) -> None:
+        gate = Gate(name="unit", phase="quick", task="test-unit")
+
+        source = gate_command(gate, tree=Path("/source"), execution=EXECUTION)
+        checkout = gate_command(gate, tree=Path("/checkout"), execution=EXECUTION)
+
+        self.assertIn("--manifest-path '/source/pyproject.toml'", source)
+        self.assertIn("--manifest-path '/checkout/pyproject.toml'", checkout)
+        self.assertNotIn("/checkout", source)
+        self.assertNotIn("/source", checkout)
+
+    def test_the_constitution_supplies_the_task_and_nothing_around_it(self) -> None:
+        gate = Gate(name="unit", phase="quick", task="test-unit")
+
+        command = gate_command(gate, tree=Path("/tree"), execution=EXECUTION)
+
+        self.assertEqual(
+            "pixi run --as-is --clean-env --no-config"
+            " --manifest-path '/tree/pyproject.toml'"
+            " --environment 'default' 'test-unit'",
+            command,
+        )
+
+    def test_refuses_a_task_gate_with_no_declared_provider(self) -> None:
+        gate = Gate(name="unit", phase="quick", task="test-unit")
+
+        with self.assertRaisesRegex(ValueError, "requires an execution provider"):
+            gate_command(gate, tree=Path("/tree"), execution=None)
 
 
 class GateEnvironmentTests(unittest.TestCase):
@@ -47,6 +99,39 @@ class GateEnvironmentTests(unittest.TestCase):
                 )
 
             self.assertTrue(all(result["passed"] for result in results))
+
+    def test_runs_a_task_gate_through_the_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            write_provider(bin_dir, root)
+            (root / "app.py").write_text("value = 2\n", encoding="utf-8")
+            gates = (
+                Gate(name="task", phase="quick", task=PIXI_TASK),
+                Gate(name="shell", phase="quick", command="test -f app.py"),
+            )
+
+            path = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+            with patch.dict(os.environ, {"PATH": path}, clear=False):
+                results = run_gates(
+                    repo=root,
+                    gates=gates,
+                    out_dir=root / "logs",
+                    execution=EXECUTION,
+                )
+
+            task, shell = results
+            self.assertTrue(task["passed"], Path(task["stderr_path"]).read_text())
+            self.assertTrue(shell["passed"])
+            # A shell gate is built and run exactly as it was before.
+            self.assertEqual("test -f app.py", shell["command"])
+            self.assertEqual(
+                f"pixi run --as-is --clean-env --no-config"
+                f" --manifest-path '{root / 'pyproject.toml'}'"
+                f" --environment 'default' '{PIXI_TASK}'",
+                task["command"],
+            )
 
 
 @unittest.skipUnless(sys.platform == "darwin", "requires macOS sandbox-exec")

@@ -104,6 +104,8 @@ def constitution(
     full_command: str = COMPILE_COMMAND,
     sensor_command: str | None = SENSOR_COMMAND,
     max_changed_files: int = 5,
+    execution: str | None = None,
+    quick_task: str | None = None,
 ) -> str:
     text = f"""version = 1
 
@@ -111,11 +113,24 @@ def constitution(
 protected = [".codeservo/**"]
 max_changed_files = {max_changed_files}
 max_diff_lines = 100
-
+"""
+    if execution is not None:
+        text += f"""
+[execution]
+provider = "pixi"
+manifest = "pyproject.toml"
+environment = "{execution}"
+"""
+    quick = (
+        f'task = "{quick_task}"'
+        if quick_task is not None
+        else f'command = "{quick_command}"'
+    )
+    text += f"""
 [[gate]]
 name = "syntax"
 phase = "quick"
-command = "{quick_command}"
+{quick}
 baseline = true
 
 [[gate]]
@@ -169,6 +184,8 @@ def build_case(
     implementer: str,
     reviewer: str = "emit_review(SATISFIED)",
     constitution_text: str | None = None,
+    provider: bool = False,
+    stale_lock: bool = False,
 ) -> Case:
     repo = root / "repo"
     state_dir = root / "state"
@@ -183,6 +200,8 @@ def build_case(
 
     (repo / ".gitignore").write_text("__pycache__/\n*.pyc\n", encoding="utf-8")
     (repo / "app.py").write_text("def value():\n    return 0\n", encoding="utf-8")
+    if provider:
+        write_provider(bin_dir, repo, stale_lock=stale_lock)
     (repo / ".codeservo" / "constitution.toml").write_text(
         constitution_text if constitution_text is not None else constitution(),
         encoding="utf-8",
@@ -209,3 +228,148 @@ def commit_repository(repo: Path, message: str = "baseline") -> None:
         subprocess.run(["git", "config", "user.name", "test"], cwd=repo, check=True)
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-qm", message], cwd=repo, check=True)
+
+
+# --- Execution provider fixtures ------------------------------------------
+#
+# A stand-in for pixi. It answers the three commands the controller runs, and
+# refuses the one it must never run, so a run can be driven end to end without
+# an installed provider or a solved environment.
+
+PIXI_TASK = "check-syntax"
+PIXI_PACKAGES = [
+    {"name": "python", "version": "3.12.0", "kind": "conda"},
+    {"name": "hatchling", "version": "1.25.0", "kind": "conda"},
+]
+# Locations belonging to the operator, never to a run.
+PIXI_OPERATOR_PATHS = {
+    "cache_dir": "/operator/cache",
+    "auth_dir": "/operator/credentials",
+    "config_locations": ["/operator/config.toml"],
+    "global_info": {"bin_dir": "/operator/bin"},
+}
+
+_PIXI_SCRIPT = '''"""A stand-in for pixi, answering from the manifest it names."""
+import json
+import os
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+PACKAGES = ''' + repr(PIXI_PACKAGES) + '''
+OPERATOR = ''' + repr(PIXI_OPERATOR_PATHS) + '''
+
+args = sys.argv[1:]
+subcommand = args[0] if args else ""
+
+log = os.environ.get("CODESERVO_TEST_PIXI_LOG")
+if log:
+    with open(log, "a", encoding="utf-8") as stream:
+        stream.write(json.dumps(args) + "\\n")
+
+
+def flag(name, default=""):
+    return args[args.index(name) + 1] if name in args else default
+
+
+def require(*options):
+    missing = [option for option in options if option not in args]
+    if missing:
+        sys.stderr.write("missing options: " + " ".join(missing) + "\\n")
+        raise SystemExit(96)
+
+
+manifest = Path(flag("--manifest-path"))
+
+
+def workspace():
+    return tomllib.loads(manifest.read_text(encoding="utf-8")).get("tool", {}).get(
+        "pixi", {}
+    )
+
+
+def tasks_of(environment):
+    pixi = workspace()
+    tasks = dict(pixi.get("tasks", {}))
+    for feature in pixi.get("environments", {}).get(environment, []):
+        tasks.update(pixi.get("feature", {}).get(feature, {}).get("tasks", {}))
+    return tasks
+
+
+def environments():
+    return ["default", *workspace().get("environments", {})]
+
+
+if subcommand == "lock":
+    sys.stderr.write("pixi lock rewrites the lockfile and must never run\\n")
+    raise SystemExit(97)
+
+if subcommand == "list":
+    require("--json", "--locked", "--no-install", "--no-config")
+    lock = manifest.parent / "pixi.lock"
+    if "stale" in lock.read_text(encoding="utf-8"):
+        sys.stderr.write("Error:   x lock file not up-to-date with the workspace\\n")
+        raise SystemExit(1)
+    json.dump(PACKAGES, sys.stdout)
+    raise SystemExit(0)
+
+if subcommand == "info":
+    require("--json", "--no-config")
+    description = {
+        "version": "0.77.1-test",
+        "platform": "test-platform",
+        "environments_info": [
+            {"name": name, "tasks": sorted(tasks_of(name))}
+            for name in environments()
+        ],
+    }
+    description.update(OPERATOR)
+    json.dump(description, sys.stdout)
+    raise SystemExit(0)
+
+if subcommand == "run":
+    require("--as-is", "--clean-env", "--no-config")
+    environment = flag("--environment")
+    if environment not in environments():
+        sys.stderr.write("unknown environment " + environment + "\\n")
+        raise SystemExit(1)
+    task = args[-1]
+    # An unknown task is not an error: the name is executed as a program.
+    command = tasks_of(environment).get(task, task)
+    print("pixi run " + task + " in " + str(manifest))
+    sys.stdout.flush()
+    raise SystemExit(subprocess.run(command, shell=True).returncode)
+
+sys.stderr.write("unexpected subcommand " + subcommand + "\\n")
+raise SystemExit(95)
+'''
+
+
+def pixi_manifest() -> str:
+    """A workspace declaring one task in the default environment."""
+    return f"""[tool.pixi.workspace]
+platforms = ["test-platform"]
+
+[tool.pixi.tasks]
+{PIXI_TASK} = "{sys.executable} -m py_compile app.py"
+
+[tool.pixi.feature.extra.tasks]
+extra-check = "{sys.executable} -c 'pass'"
+
+[tool.pixi.environments]
+gates = ["extra"]
+"""
+
+
+def pixi_lock(*, stale: bool = False) -> str:
+    return "version: 6\n" + ("environments: stale\n" if stale else "environments: {}\n")
+
+
+def write_provider(bin_dir: Path, repo: Path, *, stale_lock: bool = False) -> None:
+    """Install the stand-in provider and the workspace it answers about."""
+    (repo / "pyproject.toml").write_text(pixi_manifest(), encoding="utf-8")
+    (repo / "pixi.lock").write_text(pixi_lock(stale=stale_lock), encoding="utf-8")
+    provider = bin_dir / "pixi"
+    provider.write_text(f"#!{sys.executable}\n" + _PIXI_SCRIPT, encoding="utf-8")
+    provider.chmod(provider.stat().st_mode | stat.S_IXUSR)

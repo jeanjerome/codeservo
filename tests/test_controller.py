@@ -12,18 +12,28 @@ import codeservo
 from codeservo.actuator import Actuator
 from codeservo.controller import (
     EVIDENCE_SCHEMA_VERSION,
+    NO_ENVIRONMENT,
     ControlFailure,
     _altered_sensors,
     _command_version,
+    _frozen_environment,
     _inference,
     _observations,
     _record_actuation,
     _resolve_state_dir,
+    _resolved_environment,
     _review_schema_path,
     _runtime_metadata,
 )
 from codeservo.evidence import sha256_file, sha256_path
-from codeservo.model import Constitution, Gate, ReviewPolicy, ScopePolicy
+from codeservo.model import (
+    Constitution,
+    ExecutionEnvironment,
+    Gate,
+    ReviewPolicy,
+    ScopePolicy,
+)
+from harness import PIXI_PACKAGES, PIXI_TASK, commit_repository, write_provider
 
 OBSERVATION_FIELDS = {
     "phase",
@@ -258,6 +268,104 @@ class SensorIntegrityTests(unittest.TestCase):
             self.assertEqual(["acceptance"], _altered_sensors(paths, evidence))
 
 
+class ExecutionEnvironmentTests(unittest.TestCase):
+    """The environment is frozen from the base commit, before anything runs."""
+
+    def _repo(self) -> tuple[Path, Path, str]:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        repo = root / "repo"
+        bin_dir = root / "bin"
+        repo.mkdir()
+        bin_dir.mkdir()
+        write_provider(bin_dir, repo)
+        commit_repository(repo)
+        base_commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+        path = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+        patcher = patch.dict(os.environ, {"PATH": path}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return root, repo, base_commit
+
+    def _execution(self) -> ExecutionEnvironment:
+        return ExecutionEnvironment(
+            provider="pixi",
+            manifest="pyproject.toml",
+            lock="pixi.lock",
+            environment="default",
+        )
+
+    def test_a_run_declaring_no_provider_records_none(self) -> None:
+        self.assertEqual({"provider": "none"}, NO_ENVIRONMENT)
+
+    def test_digests_the_two_files_the_base_commit_holds(self) -> None:
+        _, repo, base_commit = self._repo()
+        frozen = _frozen_environment(repo, base_commit, self._execution())
+
+        # A later edit of the working tree cannot change what was frozen.
+        (repo / "pyproject.toml").write_text("[tool.pixi]\n", encoding="utf-8")
+
+        self.assertEqual("pixi", frozen["provider"])
+        self.assertEqual("pyproject.toml", frozen["manifest_path"])
+        self.assertEqual("pixi.lock", frozen["lock_path"])
+        self.assertEqual("default", frozen["environment"])
+        self.assertEqual(
+            _frozen_environment(repo, base_commit, self._execution()), frozen
+        )
+        self.assertNotEqual(
+            sha256_file(repo / "pyproject.toml"), frozen["manifest_sha256"]
+        )
+
+    def test_refuses_a_manifest_the_base_commit_does_not_hold(self) -> None:
+        _, repo, base_commit = self._repo()
+        execution = ExecutionEnvironment(
+            provider="pixi",
+            manifest="untracked.toml",
+            lock="pixi.lock",
+            environment="default",
+        )
+
+        with self.assertRaisesRegex(ControlFailure, "untracked.toml is not committed"):
+            _frozen_environment(repo, base_commit, execution)
+
+    def test_stores_the_inventory_the_lockfile_resolves_to(self) -> None:
+        root, repo, _ = self._repo()
+        run_dir = root / "run"
+
+        resolved = _resolved_environment(
+            repo, run_dir, self._execution(), (PIXI_TASK,)
+        )
+
+        stored = run_dir / "environment" / "packages.json"
+        self.assertEqual("environment/packages.json", resolved["packages_path"])
+        self.assertEqual(PIXI_PACKAGES, json.loads(stored.read_text()))
+        self.assertEqual(sha256_file(stored), resolved["packages_sha256"])
+        self.assertEqual(len(PIXI_PACKAGES), resolved["package_count"])
+        self.assertEqual("0.77.1-test", resolved["provider_version"])
+        self.assertEqual("test-platform", resolved["platform"])
+        self.assertEqual([PIXI_TASK], resolved["declared_tasks"])
+
+    def test_records_nothing_the_description_says_about_the_operator(self) -> None:
+        root, repo, _ = self._repo()
+
+        resolved = _resolved_environment(
+            repo, root / "run", self._execution(), (PIXI_TASK,)
+        )
+
+        serialized = json.dumps(resolved)
+        for private in ("cache_dir", "auth_dir", "config_locations", "global_info"):
+            self.assertNotIn(private, serialized)
+            self.assertNotIn(private, resolved)
+        self.assertNotIn("/operator", serialized)
+
+
 class ObservationBundleTests(unittest.TestCase):
     def _constitution(self) -> Constitution:
         return Constitution(
@@ -426,9 +534,9 @@ class RuntimeIdentityTests(unittest.TestCase):
         return Path(codeservo.__file__).resolve().parents[2]
 
     def test_declares_the_shape_the_record_has(self) -> None:
-        # A second inference role, a second backend identity, and the
-        # confinement the reviewer runs under.
-        self.assertEqual(10, EVIDENCE_SCHEMA_VERSION)
+        # The execution environment a run measures through, frozen next to the
+        # inference profiles and the confinement its two backends run under.
+        self.assertEqual(11, EVIDENCE_SCHEMA_VERSION)
 
     def test_names_both_backends_when_one_serves_both_roles(self) -> None:
         actuator = self._actuator()

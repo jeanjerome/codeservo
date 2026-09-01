@@ -2,10 +2,33 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from . import pixi
 from .evidence import sha256_record
-from .model import Constitution, Gate
+from .model import Constitution, ExecutionEnvironment, Gate
 from .process import run_command
 from .sandbox import Isolation
+
+
+def gate_command(
+    gate: Gate, *, tree: Path, execution: ExecutionEnvironment | None
+) -> str:
+    """The command one gate runs against the tree it measures.
+
+    A task gate names the manifest of that tree and nothing else: the source
+    repository during the baseline, the isolated checkout afterwards. The
+    constitution supplies the task name, never the command line around it.
+    """
+    if gate.task is None:
+        if gate.command is None:
+            raise ValueError(f"gate {gate.name}: declares neither command nor task")
+        return gate.command
+    if execution is None:
+        raise ValueError(f"gate {gate.name}: task requires an execution provider")
+    return pixi.task_command(
+        manifest=tree / execution.manifest,
+        environment=execution.environment,
+        task=gate.task,
+    )
 
 
 def run_gates(
@@ -15,6 +38,7 @@ def run_gates(
     out_dir: Path,
     sensor_paths: dict[str, Path] | None = None,
     isolation: Isolation = Isolation(),
+    execution: ExecutionEnvironment | None = None,
 ) -> list[dict]:
     results: list[dict] = []
     sensors = sensor_paths or {}
@@ -24,7 +48,7 @@ def run_gates(
             raise ValueError(f"missing frozen sensor for gate {gate.name}")
         result = run_command(
             name=gate.name,
-            command=gate.command,
+            command=gate_command(gate, tree=repo, execution=execution),
             cwd=repo,
             out_dir=out_dir,
             timeout_seconds=gate.timeout_seconds,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import platform
 import shutil
@@ -7,11 +8,12 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__
+from . import __version__, pixi
 from .actuator import Actuator, ActuatorError, default_actuator_name, load_actuator
 from .config import load_constitution
 from .evidence import (
     relative_evidence_paths,
+    sha256_file,
     sha256_json,
     sha256_path,
     sha256_text,
@@ -27,7 +29,7 @@ from .git import (
     root,
     scope_sensor,
 )
-from .model import Constitution
+from .model import Constitution, ExecutionEnvironment
 from .models import DEFAULT_SPEED, PROFILE_UNSUPPORTED, validate_profile
 from .process import tail
 from .prompts import implementer_prompt, reviewer_prompt
@@ -40,7 +42,11 @@ class ControlFailure(RuntimeError):
 
 
 # The shape of evidence.json. The observation bundle versions its own shape.
-EVIDENCE_SCHEMA_VERSION = 10
+EVIDENCE_SCHEMA_VERSION = 11
+
+# A run that declares no execution provider measures through whatever the host
+# offers, and says so.
+NO_ENVIRONMENT = {"provider": "none"}
 
 
 def _now() -> str:
@@ -220,6 +226,68 @@ def _freeze_sensors(
             "sha256": sha256_path(target),
         }
     return paths, evidence
+
+
+def _committed_sha256(repo: Path, commit: str, relative: str) -> str:
+    """The digest of one file as the base commit holds it.
+
+    The frozen control input is the source repository at that commit, not a
+    working tree a later step could still touch.
+    """
+    completed = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "blob", f"{commit}:{relative}"],
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise ControlFailure(
+            f"execution environment: {relative} is not committed at {commit}"
+        )
+    return hashlib.sha256(completed.stdout).hexdigest()
+
+
+def _frozen_environment(
+    repo: Path, base_commit: str, execution: ExecutionEnvironment
+) -> dict:
+    """The declaration and the two digests, before any provider command runs."""
+    return {
+        "provider": execution.provider,
+        "manifest_path": execution.manifest,
+        "manifest_sha256": _committed_sha256(repo, base_commit, execution.manifest),
+        "lock_path": execution.lock,
+        "lock_sha256": _committed_sha256(repo, base_commit, execution.lock),
+        "environment": execution.environment,
+    }
+
+
+def _resolved_environment(
+    repo: Path,
+    run_dir: Path,
+    execution: ExecutionEnvironment,
+    tasks: tuple[str, ...],
+) -> dict:
+    """What the lockfile resolves to, and the tasks the environment declares.
+
+    The inventory is stored under the run record, so the packages a
+    measurement ran against stay readable from the evidence alone.
+    """
+    resolved = pixi.freeze(
+        manifest=repo / execution.manifest,
+        lock_path=execution.lock,
+        environment=execution.environment,
+        tasks=tasks,
+    )
+    relative = "environment/packages.json"
+    packages_path = run_dir / relative
+    write_json(packages_path, resolved.packages)
+    return {
+        "provider_version": resolved.version,
+        "platform": resolved.platform,
+        "declared_tasks": list(resolved.tasks),
+        "packages_path": relative,
+        "packages_sha256": sha256_file(packages_path),
+        "package_count": len(resolved.packages),
+    }
 
 
 def _review_schema_path(source_root: Path | None = None) -> Path:
@@ -421,6 +489,7 @@ def run(
         "runtime": _runtime_metadata(backend, review_backend, model, review_model),
         "inference": inference,
         "sensors": sensor_evidence,
+        "environment": dict(NO_ENVIRONMENT),
         "actuator_isolation": backend.describe_isolation(isolation),
         "gate_isolation": isolation_evidence(gate_isolation, "macos-sandbox-exec"),
         "status": "RUNNING",
@@ -464,11 +533,34 @@ def run(
     if not is_clean(repo):
         return finish("REJECTED", ["source repository is not clean"])
 
+    # The environment is a control input, so it is frozen and resolved before
+    # anything is measured: a lockfile that disagrees with the manifest, an
+    # environment that does not exist, or a task no environment declares ends
+    # the run here, with no checkout and no gate ever running.
+    if constitution.execution is not None:
+        declared_tasks = tuple(
+            gate.task for gate in constitution.gates if gate.task is not None
+        )
+        try:
+            evidence["environment"] = _frozen_environment(
+                repo, base_commit, constitution.execution
+            )
+            persist()
+            evidence["environment"].update(
+                _resolved_environment(
+                    repo, run_dir, constitution.execution, declared_tasks
+                )
+            )
+        except (ControlFailure, pixi.ProviderError) as exc:
+            return finish("REJECTED", [str(exc)])
+        persist()
+
     baseline = run_gates(
         repo=repo,
         gates=baseline_gates(constitution),
         out_dir=run_dir / "baseline",
         isolation=gate_isolation,
+        execution=constitution.execution,
     )
     evidence["baseline"] = baseline
     persist()
@@ -535,6 +627,7 @@ def run(
             out_dir=iteration_dir / "quick",
             sensor_paths=sensor_paths,
             isolation=gate_isolation,
+            execution=constitution.execution,
         )
         record["observed_state"] = _write_patch_snapshot(
             iteration_dir / "observed.patch", worktree, base_commit
@@ -590,6 +683,7 @@ def run(
         out_dir=run_dir / "full",
         sensor_paths=sensor_paths,
         isolation=gate_isolation,
+        execution=constitution.execution,
     )
     evidence["full_gates"] = full
     persist()
