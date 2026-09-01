@@ -13,12 +13,12 @@ timeout_seconds = 300
 baseline = true
 
 [[gate]]
-name = "locked-environment"
+name = "immutable-workspace"
 phase = "quick"
 command = "python3.12 -m unittest discover -s \"$CODESERVO_SENSOR_PATH\" -v"
 timeout_seconds = 900
 baseline = false
-sensor = "codeservo/012-locked-environment"
+sensor = "codeservo/013-immutable-workspace"
 
 [[gate]]
 name = "compile"
