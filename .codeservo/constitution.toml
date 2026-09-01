@@ -18,7 +18,7 @@ phase = "quick"
 command = "python3.12 -m unittest discover -s \"$CODESERVO_SENSOR_PATH\" -v"
 timeout_seconds = 900
 baseline = false
-sensor = "codeservo/009-reviewer-profile"
+sensor = "codeservo/010-reviewer-profile-suite"
 
 [[gate]]
 name = "compile"
