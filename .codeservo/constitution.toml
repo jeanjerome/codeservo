@@ -13,12 +13,12 @@ timeout_seconds = 300
 baseline = true
 
 [[gate]]
-name = "reviewer-profile"
+name = "execution-environment"
 phase = "quick"
 command = "python3.12 -m unittest discover -s \"$CODESERVO_SENSOR_PATH\" -v"
 timeout_seconds = 900
 baseline = false
-sensor = "codeservo/010-reviewer-profile-suite"
+sensor = "codeservo/011-execution-environment"
 
 [[gate]]
 name = "compile"
