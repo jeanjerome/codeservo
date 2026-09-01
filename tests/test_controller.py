@@ -1,10 +1,12 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import codeservo
 from codeservo.actuator import Actuator
@@ -40,10 +42,13 @@ OBSERVATION_FIELDS = {
 }
 
 
-class InferenceProfileTests(unittest.TestCase):
-    """The requested profile is frozen before anything actuates."""
+PROFILE_FIELDS = {"requested", "validation", "native", "observed", "provenance"}
 
-    def _implementer(self, **overrides) -> dict:
+
+class InferenceProfileTests(unittest.TestCase):
+    """Both requested profiles are frozen before anything actuates."""
+
+    def _request(self, **overrides) -> dict:
         request = {
             "backend": "claude",
             "model": "opus",
@@ -51,7 +56,97 @@ class InferenceProfileTests(unittest.TestCase):
             "speed": "standard",
         }
         request.update(overrides)
-        return _inference(**request)["implementer"]
+        return request
+
+    def _inference(self, implementer=None, reviewer=None) -> dict:
+        return _inference(
+            implementer=self._request(**(implementer or {})),
+            reviewer=self._request(**(reviewer or {})),
+        )
+
+    def _implementer(self, **overrides) -> dict:
+        return self._inference(implementer=overrides)["implementer"]
+
+    def test_holds_the_two_roles_with_the_same_five_fields(self) -> None:
+        inference = self._inference()
+
+        self.assertEqual({"implementer", "reviewer"}, set(inference))
+        self.assertEqual(PROFILE_FIELDS, set(inference["implementer"]))
+        self.assertEqual(PROFILE_FIELDS, set(inference["reviewer"]))
+
+    def test_freezes_each_role_as_it_was_resolved(self) -> None:
+        inference = self._inference(
+            reviewer={"backend": "codex", "model": "a-model", "speed": "fast"}
+        )
+
+        self.assertEqual(
+            {
+                "backend": "claude",
+                "model": "opus",
+                "effort": "high",
+                "speed": "standard",
+            },
+            inference["implementer"]["requested"],
+        )
+        self.assertEqual(
+            {
+                "backend": "codex",
+                "model": "a-model",
+                "effort": "high",
+                "speed": "fast",
+            },
+            inference["reviewer"]["requested"],
+        )
+
+    def test_records_an_absent_review_effort_as_null(self) -> None:
+        reviewer = self._inference(reviewer={"effort": None})["reviewer"]
+
+        self.assertIsNone(reviewer["requested"]["effort"])
+
+    def test_checks_each_role_against_the_inventory_of_its_own_backend(self) -> None:
+        """One backend's inventory never answers for the other's."""
+        with tempfile.TemporaryDirectory() as temp:
+            codex_home = Path(temp)
+            (codex_home / "models_cache.json").write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {
+                                "slug": "a-model",
+                                "supported_reasoning_levels": [{"effort": "high"}],
+                                "visibility": "list",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}):
+                # The same model and effort for both roles: only the backend
+                # that lists them can settle the request.
+                inference = self._inference(
+                    implementer={"backend": "claude", "model": "a-model"},
+                    reviewer={"backend": "codex", "model": "a-model"},
+                )
+
+        self.assertEqual("unverified", inference["implementer"]["validation"]["status"])
+        self.assertEqual(
+            "unavailable", inference["implementer"]["validation"]["inventory_source"]
+        )
+        self.assertEqual("supported", inference["reviewer"]["validation"]["status"])
+        self.assertEqual(
+            "backend-cache", inference["reviewer"]["validation"]["inventory_source"]
+        )
+
+    def test_holds_nothing_either_backend_has_answered_yet(self) -> None:
+        for role, profile in self._inference().items():
+            with self.subTest(role=role):
+                self.assertIsNone(profile["native"])
+                self.assertEqual(
+                    {"model": None, "effort": None, "speed": None},
+                    profile["observed"],
+                )
+                self.assertEqual("incomplete", profile["provenance"])
 
     def test_freezes_the_four_requested_fields(self) -> None:
         implementer = self._implementer(speed="fast")
@@ -318,10 +413,10 @@ class ReviewSchemaTests(unittest.TestCase):
 
 
 class RuntimeIdentityTests(unittest.TestCase):
-    def _actuator(self) -> Actuator:
+    def _actuator(self, name: str = "fake", version: str = "fake 9.9") -> Actuator:
         return Actuator(
-            name="fake",
-            version_command=(sys.executable, "-c", "print('fake 9.9')"),
+            name=name,
+            version_command=(sys.executable, "-c", f"print({version!r})"),
             implement=lambda *args, **kwargs: {},
             review=lambda *args, **kwargs: ({}, {}),
             describe_isolation=lambda *args, **kwargs: {},
@@ -331,7 +426,44 @@ class RuntimeIdentityTests(unittest.TestCase):
         return Path(codeservo.__file__).resolve().parents[2]
 
     def test_declares_the_shape_the_record_has(self) -> None:
-        self.assertEqual(9, EVIDENCE_SCHEMA_VERSION)
+        # A second inference role, a second backend identity, and the
+        # confinement the reviewer runs under.
+        self.assertEqual(10, EVIDENCE_SCHEMA_VERSION)
+
+    def test_names_both_backends_when_one_serves_both_roles(self) -> None:
+        actuator = self._actuator()
+
+        runtime = _runtime_metadata(actuator, actuator, None, None)
+
+        self.assertEqual("fake", runtime["actuator"])
+        self.assertEqual("fake", runtime["review_actuator"])
+        self.assertEqual("fake 9.9", runtime["actuator_version"])
+        self.assertEqual("fake 9.9", runtime["review_actuator_version"])
+        self.assertEqual("fake-default", runtime["implementer_model"])
+        self.assertEqual("fake-default", runtime["reviewer_model"])
+
+    def test_names_each_backend_and_its_own_cli_version(self) -> None:
+        runtime = _runtime_metadata(
+            self._actuator(),
+            self._actuator(name="other", version="other 1.2"),
+            "a-model",
+            "another-model",
+        )
+
+        self.assertEqual("fake", runtime["actuator"])
+        self.assertEqual("fake 9.9", runtime["actuator_version"])
+        self.assertEqual("other", runtime["review_actuator"])
+        self.assertEqual("other 1.2", runtime["review_actuator_version"])
+        self.assertEqual("a-model", runtime["implementer_model"])
+        self.assertEqual("another-model", runtime["reviewer_model"])
+
+    def test_reports_the_reviewing_backend_default_model(self) -> None:
+        runtime = _runtime_metadata(
+            self._actuator(), self._actuator(name="other"), None, None
+        )
+
+        self.assertEqual("fake-default", runtime["implementer_model"])
+        self.assertEqual("other-default", runtime["reviewer_model"])
 
     def test_declares_the_controller_version_in_one_place(self) -> None:
         pyproject = self._source_root() / "pyproject.toml"
@@ -347,7 +479,9 @@ class RuntimeIdentityTests(unittest.TestCase):
         )
 
     def test_reports_the_single_declared_controller_version(self) -> None:
-        runtime = _runtime_metadata(self._actuator(), None, None)
+        runtime = _runtime_metadata(
+            self._actuator(), self._actuator(), None, None
+        )
 
         self.assertEqual(codeservo.__version__, runtime["codeservo_version"])
 
@@ -361,7 +495,9 @@ class RuntimeIdentityTests(unittest.TestCase):
         if checkout.returncode != 0:
             self.skipTest("controller does not run from a Git checkout")
 
-        runtime = _runtime_metadata(self._actuator(), None, None)
+        runtime = _runtime_metadata(
+            self._actuator(), self._actuator(), None, None
+        )
 
         self.assertEqual(checkout.stdout.strip(), runtime["codeservo_commit"])
         self.assertEqual(40, len(runtime["codeservo_commit"]))

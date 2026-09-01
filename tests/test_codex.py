@@ -79,10 +79,68 @@ class ProfileCommandTests(unittest.TestCase):
 
         self.assertNotIn("model_service_tier", rendered)
 
-    def test_the_reviewer_command_carries_no_profile(self) -> None:
+    def test_a_command_carries_no_profile_it_was_not_given(self) -> None:
         command = _base_command(Path("/tmp/worktree"), "read-only", "gpt-5.6-sol")
 
         self.assertNotIn("-c", command)
+
+
+class ReviewerProfileCommandTests(unittest.TestCase):
+    """The reviewer profile rides on the same `codex exec` the schema does."""
+
+    def _command(self, effort=None, speed="standard") -> list[str]:
+        command = _base_command(
+            Path("/tmp/worktree"), "read-only", "gpt-5.6-sol", effort, speed
+        )
+        command.extend(
+            [
+                "--output-schema",
+                "/tmp/review.schema.json",
+                "--output-last-message",
+                "/tmp/review.json",
+                "-",
+            ]
+        )
+        return command
+
+    def _overrides(self, command: list[str]) -> list[str]:
+        return [
+            command[index + 1]
+            for index, item in enumerate(command)
+            if item == "-c"
+        ]
+
+    def test_passes_the_requested_effort_on_the_command_carrying_the_schema(
+        self,
+    ) -> None:
+        command = self._command(effort="high")
+
+        self.assertEqual(["model_reasoning_effort=high"], self._overrides(command))
+        self.assertIn("--ignore-user-config", command)
+        self.assertIn("--output-schema", command)
+        self.assertLess(command.index("-c"), command.index("--output-schema"))
+
+    def test_passes_the_fast_speed_as_the_priority_service_tier(self) -> None:
+        command = self._command(effort="low", speed="fast")
+
+        self.assertEqual(
+            ["model_reasoning_effort=low", "service_tier=priority"],
+            self._overrides(command),
+        )
+
+    def test_the_standard_speed_overrides_no_service_tier(self) -> None:
+        self.assertNotIn("service_tier=priority", self._command(effort="low"))
+
+    def test_leaves_the_backend_defaults_when_nothing_is_requested(self) -> None:
+        command = self._command()
+
+        self.assertEqual([], self._overrides(command))
+        self.assertIn("--ignore-user-config", command)
+
+    def test_introduces_no_key_the_backend_does_not_accept(self) -> None:
+        rendered = " ".join(self._command(effort="high", speed="fast"))
+
+        self.assertNotIn("model_service_tier", rendered)
 
 
 class NativeProfileTests(unittest.TestCase):
@@ -95,6 +153,15 @@ class NativeProfileTests(unittest.TestCase):
             {"model_reasoning_effort": "low"}, _native_profile("low", "standard")
         )
         self.assertEqual({}, _native_profile(None, "standard"))
+
+    def test_records_only_keys_the_command_carries(self) -> None:
+        """Every recorded key appears in the command that was built."""
+        command = _base_command(
+            Path("/tmp/worktree"), "read-only", "gpt-5.6-sol", "high", "fast"
+        )
+
+        for key, value in _native_profile("high", "fast").items():
+            self.assertIn(f"{key}={value}", command)
 
 
 class ObservedProfileTests(unittest.TestCase):

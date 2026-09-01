@@ -40,7 +40,7 @@ class ControlFailure(RuntimeError):
 
 
 # The shape of evidence.json. The observation bundle versions its own shape.
-EVIDENCE_SCHEMA_VERSION = 9
+EVIDENCE_SCHEMA_VERSION = 10
 
 
 def _now() -> str:
@@ -70,47 +70,74 @@ def _command_version(command: list[str]) -> str:
 
 
 def _runtime_metadata(
-    actuator: Actuator, model: str | None, review_model: str | None
+    actuator: Actuator,
+    reviewer: Actuator,
+    model: str | None,
+    review_model: str | None,
 ) -> dict:
+    """Name the two backends a run drives, and the CLI each one answered with.
+
+    Both roles are named even when a single backend serves them, so a record
+    never leaves the reviewing backend to be inferred from the implementing one.
+    """
     source_root = Path(__file__).resolve().parents[2]
+    actuator_version = _command_version(list(actuator.version_command))
     return {
         "codeservo_version": __version__,
         "codeservo_commit": _command_version(
             ["git", "-C", str(source_root), "rev-parse", "HEAD"]
         ),
         "actuator": actuator.name,
-        "actuator_version": _command_version(list(actuator.version_command)),
+        "actuator_version": actuator_version,
+        "review_actuator": reviewer.name,
+        "review_actuator_version": (
+            actuator_version
+            if reviewer.version_command == actuator.version_command
+            else _command_version(list(reviewer.version_command))
+        ),
         "implementer_model": model or f"{actuator.name}-default",
-        "reviewer_model": review_model or f"{actuator.name}-default",
+        "reviewer_model": review_model or f"{reviewer.name}-default",
         "python_version": platform.python_version(),
         "git_version": _command_version(["git", "--version"]),
     }
 
 
-def _inference(
+def _profile(
     backend: str, model: str | None, effort: str | None, speed: str
 ) -> dict:
-    """Freeze the requested inference profile before anything actuates.
+    """Freeze one requested inference profile before anything actuates.
 
     The request is recorded as it was resolved, next to what the local
-    inventory can say about it. Nothing the backend answers is filled in here,
-    so a substitution can never be read back as the configuration asked for.
+    inventory of that same backend can say about it. Nothing the backend
+    answers is filled in here, so a substitution can never be read back as the
+    configuration asked for.
     """
     return {
-        "implementer": {
-            "requested": {
-                "backend": backend,
-                "model": model,
-                "effort": effort,
-                "speed": speed,
-            },
-            "validation": validate_profile(
-                backend=backend, model=model, effort=effort, speed=speed
-            ),
-            "native": None,
-            "observed": {"model": None, "effort": None, "speed": None},
-            "provenance": "incomplete",
-        }
+        "requested": {
+            "backend": backend,
+            "model": model,
+            "effort": effort,
+            "speed": speed,
+        },
+        "validation": validate_profile(
+            backend=backend, model=model, effort=effort, speed=speed
+        ),
+        "native": None,
+        "observed": {"model": None, "effort": None, "speed": None},
+        "provenance": "incomplete",
+    }
+
+
+def _inference(*, implementer: dict, reviewer: dict) -> dict:
+    """Freeze the two requested inference profiles of a run.
+
+    The roles are independent control inputs: each is checked against the
+    inventory of its own backend, so one backend's cache never answers for the
+    other's.
+    """
+    return {
+        "implementer": _profile(**implementer),
+        "reviewer": _profile(**reviewer),
     }
 
 
@@ -331,9 +358,29 @@ def run(
     actuator: str | None = None,
     effort: str | None = None,
     speed: str = DEFAULT_SPEED,
+    review_actuator: str | None = None,
+    review_effort: str | None = None,
+    review_speed: str = DEFAULT_SPEED,
 ) -> dict:
     backend = load_actuator(actuator or default_actuator_name())
-    inference = _inference(backend.name, model, effort, speed)
+    # The reviewer backend is loaded on its own, so a run can implement with
+    # one command-line tool and decide with another. Asking for neither leaves
+    # the implementer's backend serving both roles.
+    review_backend = load_actuator(review_actuator or backend.name)
+    inference = _inference(
+        implementer={
+            "backend": backend.name,
+            "model": model,
+            "effort": effort,
+            "speed": speed,
+        },
+        reviewer={
+            "backend": review_backend.name,
+            "model": review_model,
+            "effort": review_effort,
+            "speed": review_speed,
+        },
+    )
     repo = root(repo_path)
     task = load_task(task_path.resolve())
     constitution = load_constitution(repo)
@@ -371,7 +418,7 @@ def run(
         "base_commit": base_commit,
         "task_sha256": sha256_text(task.raw_text),
         "constitution_sha256": sha256_text(constitution.raw_text),
-        "runtime": _runtime_metadata(backend, model, review_model),
+        "runtime": _runtime_metadata(backend, review_backend, model, review_model),
         "inference": inference,
         "sensors": sensor_evidence,
         "actuator_isolation": backend.describe_isolation(isolation),
@@ -403,13 +450,16 @@ def run(
         persist()
         return evidence
 
-    # The profile is a control input, so a request the inventory contradicts
-    # ends the run here: no checkout and no agent process ever exists for it.
-    validation = inference["implementer"]["validation"]
-    if validation["status"] == PROFILE_UNSUPPORTED:
-        return finish(
-            "REJECTED", [f"configuration error: {validation['reason']}"]
-        )
+    # Each profile is a control input, so a request the inventory of its own
+    # backend contradicts ends the run here: no checkout and no agent process
+    # ever exists for it.
+    contradicted = [
+        f"configuration error: {role} profile: {profile['validation']['reason']}"
+        for role, profile in inference.items()
+        if profile["validation"]["status"] == PROFILE_UNSUPPORTED
+    ]
+    if contradicted:
+        return finish("REJECTED", contradicted)
 
     if not is_clean(repo):
         return finish("REJECTED", ["source repository is not clean"])
@@ -567,6 +617,12 @@ def run(
     review_prompt_path = run_dir / "review" / "prompt.md"
     review_prompt_path.parent.mkdir(parents=True, exist_ok=True)
     review_prompt_path.write_text(review_prompt_text, encoding="utf-8")
+    # The reviewer is a read-only sensor: it reads the candidate and writes
+    # nothing into it. The adapter denies those writes itself; this describes
+    # the confinement it runs under, and is recorded before it starts.
+    review_isolation = Isolation(
+        denied=isolation.denied, read_only=(*isolation.read_only, worktree)
+    )
     # Recorded before the reviewer runs, so a reviewer failure cannot erase the
     # observations it was given.
     evidence["review"] = {
@@ -576,10 +632,11 @@ def run(
         },
         "observations": observations,
         "observations_sha256": sha256_text(observations_json),
+        "isolation": review_backend.describe_isolation(review_isolation),
     }
     persist()
     try:
-        review, review_meta = backend.review(
+        review, review_meta = review_backend.review(
             worktree=worktree,
             prompt=review_prompt_text,
             schema_path=schema_path,
@@ -587,10 +644,13 @@ def run(
             model=review_model,
             timeout_seconds=agent_timeout_seconds,
             isolation=isolation,
+            effort=review_effort,
+            speed=review_speed,
         )
     except (ActuatorError, SandboxError) as exc:
         return finish("REJECTED", [str(exc)])
 
+    _record_actuation(inference["reviewer"], review_meta)
     evidence["review"].update(
         {
             "result": review,

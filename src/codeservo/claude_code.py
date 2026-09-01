@@ -53,21 +53,21 @@ def _base_command(
     return command
 
 
-def _implementer_command(
+def _profile_command(
     *,
     model: str | None,
+    tools: str,
     effort: str | None,
     speed: str,
     settings_dir: Path,
 ) -> tuple[list[str], dict]:
-    """The implementer command and the profile values it carries.
+    """A command carrying an inference profile, and the values it carries.
 
     The fast tier is a settings document rather than a flag, and that document
     lives only as long as the run, so the returned record keeps its content
     instead of a path that stops existing.
     """
-    command = _base_command(model=model, tools=IMPLEMENTER_TOOLS, effort=effort)
-    command.extend(["--output-format", "stream-json", "--verbose"])
+    command = _base_command(model=model, tools=tools, effort=effort)
     native: dict = {}
     if effort:
         native["--effort"] = effort
@@ -76,6 +76,46 @@ def _implementer_command(
         settings_path.write_text(json.dumps(FAST_MODE_SETTINGS), encoding="utf-8")
         command.extend(["--settings", str(settings_path)])
         native["--settings"] = dict(FAST_MODE_SETTINGS)
+    return command, native
+
+
+def _implementer_command(
+    *,
+    model: str | None,
+    effort: str | None,
+    speed: str,
+    settings_dir: Path,
+) -> tuple[list[str], dict]:
+    command, native = _profile_command(
+        model=model,
+        tools=IMPLEMENTER_TOOLS,
+        effort=effort,
+        speed=speed,
+        settings_dir=settings_dir,
+    )
+    command.extend(["--output-format", "stream-json", "--verbose"])
+    return command, native
+
+
+def _reviewer_command(
+    *,
+    model: str | None,
+    effort: str | None,
+    speed: str,
+    settings_dir: Path,
+    schema_path: Path,
+) -> tuple[list[str], dict]:
+    """The reviewer command: the same profile options, on read-only tools."""
+    command, native = _profile_command(
+        model=model,
+        tools=REVIEWER_TOOLS,
+        effort=effort,
+        speed=speed,
+        settings_dir=settings_dir,
+    )
+    command.extend(
+        ["--output-format", "json", "--json-schema", _inline_schema(schema_path)]
+    )
     return command, native
 
 
@@ -267,15 +307,13 @@ def run_reviewer(
     model: str | None,
     timeout_seconds: int,
     isolation: Isolation = Isolation(),
+    effort: str | None = None,
+    speed: str = DEFAULT_SPEED,
 ) -> tuple[dict, dict]:
     out_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = out_dir / "stdout.log"
     stderr_path = out_dir / "stderr.log"
     result_path = out_dir / "review.json"
-    command = _base_command(model=model, tools=REVIEWER_TOOLS)
-    command.extend(
-        ["--output-format", "json", "--json-schema", _inline_schema(schema_path)]
-    )
     # The reviewer is a read-only sensor: the seatbelt denies every write to the
     # candidate worktree instead of trusting the prompt.
     review_isolation = Isolation(
@@ -288,6 +326,13 @@ def run_reviewer(
         temporary_dir = Path(temp)
         temporary_stdout = temporary_dir / "stdout.log"
         temporary_stderr = temporary_dir / "stderr.log"
+        command, native = _reviewer_command(
+            model=model,
+            effort=effort,
+            speed=speed,
+            settings_dir=temporary_dir,
+            schema_path=schema_path,
+        )
         with temporary_stdout.open("wb") as stdout, temporary_stderr.open(
             "wb"
         ) as stderr:
@@ -325,6 +370,8 @@ def run_reviewer(
         "schema_sha256": sha256_file(schema_path),
         "session": _session(_result_event(_events(stdout_path))),
         "models": _models(_events(stdout_path)),
+        "native": native,
+        "observed": _observed(_events(stdout_path)),
         "stdout_path": str(stdout_path),
         "stdout_sha256": sha256_file(stdout_path),
         "stderr_path": str(stderr_path),

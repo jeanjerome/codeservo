@@ -198,6 +198,8 @@ def run_reviewer(
     model: str | None,
     timeout_seconds: int,
     isolation: Isolation = Isolation(),
+    effort: str | None = None,
+    speed: str = DEFAULT_SPEED,
 ) -> tuple[dict, dict]:
     out_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = out_dir / "stdout.log"
@@ -217,7 +219,9 @@ def run_reviewer(
 
     with tempfile.TemporaryDirectory(prefix="codeservo-review-") as temp:
         temporary_result = Path(temp) / "review.json"
-        command = _base_command(worktree, _sandbox(isolation, "read-only"), model)
+        command = _base_command(
+            worktree, _sandbox(isolation, "read-only"), model, effort, speed
+        )
         command.extend(
             [
                 "--output-schema",
@@ -249,6 +253,11 @@ def run_reviewer(
     meta = {
         "exit_code": completed.returncode,
         "duration_ms": int((time.monotonic() - started) * 1000),
+        "native": _native_profile(effort, speed),
+        # The reviewer answers in a file rather than in an event stream, so its
+        # own report of the session stays whatever stdout carried, and nothing
+        # requested is copied in.
+        "observed": _observed(_events(stdout_path)),
         "stdout_path": str(stdout_path),
         "stdout_sha256": sha256_file(stdout_path),
         "stderr_path": str(stderr_path),

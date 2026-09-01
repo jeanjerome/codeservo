@@ -52,6 +52,63 @@ class CliTests(unittest.TestCase):
         self.assertEqual("xhigh", args.effort)
         self.assertEqual("fast", args.speed)
 
+    def test_run_leaves_the_review_profile_to_the_documented_defaults(self) -> None:
+        args = build_parser().parse_args(["run", "--task", "TASK.md"])
+
+        # An absent review backend is resolved from --actuator by the
+        # controller, an absent effort stays null, and the speed is standard.
+        self.assertIsNone(args.review_actuator)
+        self.assertIsNone(args.review_model)
+        self.assertIsNone(args.review_effort)
+        self.assertEqual("standard", args.review_speed)
+
+    def test_run_selects_the_review_profile_independently(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run",
+                "--task",
+                "TASK.md",
+                "--actuator",
+                "claude",
+                "--model",
+                "opus",
+                "--effort",
+                "high",
+                "--review-actuator",
+                "codex",
+                "--review-model",
+                "gpt-5.6-sol",
+                "--review-effort",
+                "medium",
+                "--review-speed",
+                "fast",
+            ]
+        )
+
+        self.assertEqual("claude", args.actuator)
+        self.assertEqual("high", args.effort)
+        self.assertEqual("standard", args.speed)
+        self.assertEqual("codex", args.review_actuator)
+        self.assertEqual("gpt-5.6-sol", args.review_model)
+        self.assertEqual("medium", args.review_effort)
+        self.assertEqual("fast", args.review_speed)
+
+    def test_run_rejects_a_review_backend_it_cannot_load(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            build_parser().parse_args(
+                ["run", "--task", "TASK.md", "--review-actuator", "gemini"]
+            )
+
+        self.assertNotEqual(0, raised.exception.code)
+
+    def test_run_accepts_no_review_speed_tier_it_cannot_apply(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            build_parser().parse_args(
+                ["run", "--task", "TASK.md", "--review-speed", "priority"]
+            )
+
+        self.assertNotEqual(0, raised.exception.code)
+
     def test_run_accepts_no_speed_tier_it_cannot_apply(self) -> None:
         with self.assertRaises(SystemExit) as raised:
             build_parser().parse_args(

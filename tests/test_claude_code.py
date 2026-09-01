@@ -13,9 +13,16 @@ from codeservo.claude_code import (
     _models,
     _observed,
     _review_result,
+    _reviewer_command,
     describe_isolation,
 )
 from codeservo.sandbox import Isolation
+
+REVIEW_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "required": ["criteria", "findings"],
+}
 
 
 class CommandTests(unittest.TestCase):
@@ -58,7 +65,7 @@ class CommandTests(unittest.TestCase):
             "--effort", _base_command(model=None, tools=IMPLEMENTER_TOOLS)
         )
 
-    def test_the_reviewer_command_carries_no_profile(self) -> None:
+    def test_the_base_command_carries_no_profile_of_its_own(self) -> None:
         command = _base_command(model="opus", tools=REVIEWER_TOOLS)
 
         self.assertNotIn("--effort", command)
@@ -109,6 +116,70 @@ class ImplementerProfileTests(unittest.TestCase):
         ):
             self.assertIn(flag, command)
         self.assertEqual(1, command.count("--settings"))
+
+    def test_records_nothing_when_no_profile_was_requested(self) -> None:
+        command, native, _ = self._built()
+
+        self.assertEqual({}, native)
+        self.assertNotIn("--effort", command)
+        self.assertNotIn("--settings", command)
+
+
+class ReviewerProfileTests(unittest.TestCase):
+    """The reviewer carries its own profile on the read-only command."""
+
+    def _built(self, **overrides) -> tuple[list[str], dict, Path]:
+        request = {"model": "opus", "effort": None, "speed": "standard"}
+        request.update(overrides)
+        directory = Path(tempfile.mkdtemp())
+        schema_path = directory / "review.schema.json"
+        schema_path.write_text(json.dumps(REVIEW_SCHEMA), encoding="utf-8")
+        command, native = _reviewer_command(
+            settings_dir=directory, schema_path=schema_path, **request
+        )
+        return command, native, directory
+
+    def test_keeps_the_read_only_review_command_the_backend_answers(self) -> None:
+        command, _, _ = self._built(effort="high", speed="fast")
+
+        self.assertIn("--safe-mode", command)
+        self.assertEqual(REVIEWER_TOOLS, command[command.index("--tools") + 1])
+        self.assertEqual("json", command[command.index("--output-format") + 1])
+        schema = json.loads(command[command.index("--json-schema") + 1])
+        self.assertNotIn("$schema", schema)
+        self.assertEqual(["criteria", "findings"], schema["required"])
+
+    def test_passes_a_requested_effort_under_the_flag_the_cli_accepts(self) -> None:
+        command, native, _ = self._built(effort="xhigh")
+
+        self.assertEqual("xhigh", command[command.index("--effort") + 1])
+        self.assertEqual({"--effort": "xhigh"}, native)
+
+    def test_the_fast_speed_points_at_a_document_codeservo_writes(self) -> None:
+        command, native, directory = self._built(effort="high", speed="fast")
+        settings_path = Path(command[command.index("--settings") + 1])
+
+        self.assertTrue(settings_path.is_relative_to(directory))
+        self.assertEqual(
+            {"fastMode": True},
+            json.loads(settings_path.read_text(encoding="utf-8")),
+        )
+        # The document outlives no run, so the record keeps its content.
+        self.assertEqual(
+            {"--effort": "high", "--settings": {"fastMode": True}}, native
+        )
+        self.assertNotIn(str(settings_path), json.dumps(native))
+        # No settings source outside CodeServo is added.
+        self.assertEqual(1, command.count("--settings"))
+
+    def test_the_standard_speed_adds_no_settings_document(self) -> None:
+        command, native, directory = self._built(effort="high")
+
+        self.assertNotIn("--settings", command)
+        self.assertEqual({"--effort": "high"}, native)
+        self.assertEqual(
+            ["review.schema.json"], sorted(item.name for item in directory.iterdir())
+        )
 
     def test_records_nothing_when_no_profile_was_requested(self) -> None:
         command, native, _ = self._built()

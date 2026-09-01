@@ -96,9 +96,31 @@ def build_parser() -> argparse.ArgumentParser:
         "--actuator",
         choices=ACTUATOR_NAMES,
         help=(
-            "agent CLI proposing and reviewing the change "
+            "agent CLI proposing the change, and reviewing it unless "
+            "--review-actuator names another one "
             f"(default: ${ACTUATOR_ENV_VAR}, else {DEFAULT_ACTUATOR})"
         ),
+    )
+    execute.add_argument(
+        "--review-actuator",
+        choices=ACTUATOR_NAMES,
+        help=(
+            "agent CLI running the read-only review "
+            "(default: the resolved --actuator)"
+        ),
+    )
+    execute.add_argument(
+        "--review-effort",
+        help=(
+            "reasoning effort the reviewer backend applies "
+            "(levels are backend-specific; unset leaves the backend default)"
+        ),
+    )
+    execute.add_argument(
+        "--review-speed",
+        choices=SPEED_NAMES,
+        default=DEFAULT_SPEED,
+        help=f"speed tier the reviewer backend applies (default: {DEFAULT_SPEED})",
     )
     execute.add_argument(
         "--state-dir",
@@ -150,6 +172,9 @@ def main() -> None:
             actuator=args.actuator,
             effort=args.effort,
             speed=args.speed,
+            review_actuator=args.review_actuator,
+            review_effort=args.review_effort,
+            review_speed=args.review_speed,
         )
     except (ConstitutionError, TaskError, RuntimeError, ValueError) as exc:
         print(f"codeservo: {exc}", file=sys.stderr)

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from codeservo import claude_code
+from codeservo import claude_code, codex
 from codeservo.evidence import sha256_text
 from harness import TASK_TEXT, Case, build_case, commit_repository, constitution
 
@@ -185,6 +185,7 @@ out.parent.mkdir(parents=True, exist_ok=True)
 sys.stdin.read()
 if "--output-schema" in args:
     probe_reviewer_isolation(worktree)
+    print(json.dumps({{"argv": args}}))
     out.write_text(json.dumps(REVIEW))
 else:
     probe_implementer_isolation(worktree)
@@ -343,6 +344,17 @@ class ControllerE2ETests(unittest.TestCase):
                 result = case.run(model="opus", effort="high", speed="fast")
 
             self.assertEqual("ACCEPTED", result["status"])
+            # Both roles exist in the persisted record before anything starts.
+            self.assertEqual({"implementer", "reviewer"}, set(frozen[0]["inference"]))
+            self.assertEqual(
+                {
+                    "backend": "claude",
+                    "model": None,
+                    "effort": None,
+                    "speed": "standard",
+                },
+                frozen[0]["inference"]["reviewer"]["requested"],
+            )
             before = frozen[0]["inference"]["implementer"]
             self.assertEqual(
                 {
@@ -390,6 +402,15 @@ class ControllerE2ETests(unittest.TestCase):
             "CODESERVO_TEST_SOURCE_REPO": str(case.repo.resolve()),
         }
 
+    def _reviewer_argv(self, run_dir: str) -> list[str]:
+        """The command line the fake Codex reviewer reported it was given."""
+        stdout = Path(run_dir, "review", "stdout.log").read_text(encoding="utf-8")
+        for line in stdout.splitlines():
+            payload = json.loads(line)
+            if "argv" in payload:
+                return ["codex", *payload["argv"]]
+        raise AssertionError(f"the reviewer reported no command line: {stdout}")
+
     def test_an_unsupported_profile_ends_the_run_before_any_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             case, env = self._codex_case(
@@ -409,7 +430,11 @@ class ControllerE2ETests(unittest.TestCase):
             self.assertEqual([], result["iterations"])
             self.assertNotIn("baseline", result)
             self.assertFalse(Path(result["run_dir"], "iterations").exists())
+            self.assertEqual(
+                1, len(result["decision"]["reasons"]), result["decision"]["reasons"]
+            )
             self.assertIn("configuration error", result["decision"]["reasons"][0])
+            self.assertIn("implementer", result["decision"]["reasons"][0])
 
             evidence = json.loads(
                 Path(result["run_dir"], "evidence.json").read_text(encoding="utf-8")
@@ -450,6 +475,172 @@ class ControllerE2ETests(unittest.TestCase):
                 {"model_reasoning_effort": "high", "service_tier": "priority"},
                 implementer["native"],
             )
+
+    def test_no_review_flag_keeps_one_backend_serving_both_roles(self) -> None:
+        """The documented defaults reproduce the behaviour of an earlier run."""
+        with tempfile.TemporaryDirectory() as temp:
+            case = build_case(Path(temp), implementer="implement(ACCEPTABLE)")
+
+            result = case.run(model="opus", effort="high", speed="fast")
+
+            self.assertEqual("ACCEPTED", result["status"])
+            runtime = result["runtime"]
+            self.assertEqual("claude", runtime["actuator"])
+            self.assertEqual("claude", runtime["review_actuator"])
+            self.assertEqual(
+                runtime["actuator_version"], runtime["review_actuator_version"]
+            )
+            self.assertEqual("opus", runtime["implementer_model"])
+            self.assertEqual("claude-default", runtime["reviewer_model"])
+
+            reviewer = result["inference"]["reviewer"]
+            self.assertEqual(
+                {
+                    "backend": "claude",
+                    "model": None,
+                    "effort": None,
+                    "speed": "standard",
+                },
+                reviewer["requested"],
+            )
+            # No effort, no settings document, no configuration override.
+            self.assertEqual({}, reviewer["native"])
+            command = result["review"]["meta"]["command"]
+            self.assertNotIn("--effort", command)
+            self.assertNotIn("--settings", command)
+            self.assertNotIn("--model", command)
+            self.assertIn("--safe-mode", command)
+            self.assertEqual("json", command[command.index("--output-format") + 1])
+
+    def test_the_reviewer_runs_the_backend_and_profile_it_was_given(self) -> None:
+        frozen: list[dict] = []
+        review = codex.run_reviewer
+
+        def observe(**arguments):
+            # The record already on disk when the reviewer is about to start.
+            run_dir = arguments["out_dir"].parent
+            frozen.append(
+                json.loads((run_dir / "evidence.json").read_text(encoding="utf-8"))
+            )
+            return review(**arguments)
+
+        with tempfile.TemporaryDirectory() as temp:
+            case, env = self._codex_case(
+                Path(temp), efforts=["low", "medium", "high"], fast=False
+            )
+
+            with patch.object(codex, "run_reviewer", observe):
+                result = case.run(
+                    env=env,
+                    actuator="claude",
+                    review_actuator="codex",
+                    review_model="gpt-5.6-sol",
+                    review_effort="high",
+                )
+
+            self.assertEqual("ACCEPTED", result["status"])
+            runtime = result["runtime"]
+            self.assertEqual("claude", runtime["actuator"])
+            self.assertEqual("0.0-test (Claude Code)", runtime["actuator_version"])
+            self.assertEqual("codex", runtime["review_actuator"])
+            self.assertEqual("codex-cli 0.0-test", runtime["review_actuator_version"])
+            self.assertEqual("claude-default", runtime["implementer_model"])
+            self.assertEqual("gpt-5.6-sol", runtime["reviewer_model"])
+
+            implementer = result["inference"]["implementer"]
+            reviewer = result["inference"]["reviewer"]
+            # One backend's inventory never answers for the other's.
+            self.assertEqual("claude", implementer["requested"]["backend"])
+            self.assertEqual("unverified", implementer["validation"]["status"])
+            self.assertEqual(
+                {
+                    "backend": "codex",
+                    "model": "gpt-5.6-sol",
+                    "effort": "high",
+                    "speed": "standard",
+                },
+                reviewer["requested"],
+            )
+            self.assertEqual("supported", reviewer["validation"]["status"])
+            self.assertEqual(
+                "backend-cache", reviewer["validation"]["inventory_source"]
+            )
+            # The keys the reviewer command carried, under the backend's names.
+            self.assertEqual({"model_reasoning_effort": "high"}, reviewer["native"])
+            # The reviewer effort reached the reviewer alone.
+            self.assertEqual({}, implementer["native"])
+            # Nothing requested is copied into what the backend reported.
+            self.assertEqual(
+                {"model": None, "effort": None, "speed": None}, reviewer["observed"]
+            )
+            self.assertEqual("incomplete", reviewer["provenance"])
+
+            argv = self._reviewer_argv(result["run_dir"])
+            self.assertEqual(["codex", "exec"], argv[:2])
+            self.assertIn("--ignore-user-config", argv)
+            self.assertIn("--output-schema", argv)
+            self.assertEqual(
+                ["model_reasoning_effort=high"],
+                [argv[index + 1] for index, item in enumerate(argv) if item == "-c"],
+            )
+            self.assertNotIn("service_tier=priority", argv)
+
+            # The confinement the reviewer runs under, recorded before it ran.
+            isolation = frozen[0]["review"]["isolation"]
+            self.assertEqual("macos-sandbox-exec", isolation["mechanism"])
+            self.assertTrue(isolation["user_config_ignored"])
+            self.assertEqual(
+                set(result["review"]["isolation"]),
+                {"mechanism", "denied_paths", "read_only_paths", "user_config_ignored"},
+            )
+            self.assertIn(
+                result["worktree"], result["review"]["isolation"]["read_only_paths"]
+            )
+            self.assertNotIn("result", frozen[0]["review"])
+            # The candidate is unchanged by a reviewer that could not write.
+            self.assertFalse(Path(result["worktree"], "reviewer-write.txt").exists())
+
+    def test_an_unsupported_reviewer_profile_ends_the_run_before_any_checkout(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            case, env = self._codex_case(
+                Path(temp), efforts=["low", "medium", "high"], fast=False
+            )
+
+            result = case.run(
+                env=env,
+                actuator="claude",
+                review_actuator="codex",
+                review_model="gpt-5.6-sol",
+                review_effort="ultra",
+            )
+
+            self.assertEqual("REJECTED", result["status"])
+            self.assertIsNone(result["worktree"])
+            self.assertEqual([], result["iterations"])
+            self.assertNotIn("baseline", result)
+            self.assertNotIn("review", result)
+            self.assertFalse(Path(result["run_dir"], "iterations").exists())
+            self.assertEqual(1, len(result["decision"]["reasons"]))
+            reason = result["decision"]["reasons"][0]
+            self.assertIn("configuration error", reason)
+            self.assertIn("reviewer", reason)
+
+            evidence = json.loads(
+                Path(result["run_dir"], "evidence.json").read_text(encoding="utf-8")
+            )
+            reviewer = evidence["inference"]["reviewer"]
+            self.assertEqual("unsupported", reviewer["validation"]["status"])
+            self.assertEqual(
+                "backend-cache", reviewer["validation"]["inventory_source"]
+            )
+            self.assertIn("effort ultra", reviewer["validation"]["reason"])
+            self.assertIsNone(reviewer["native"])
+            # The implementer profile is untouched by the refusal of the other.
+            implementer = evidence["inference"]["implementer"]
+            self.assertEqual("unverified", implementer["validation"]["status"])
+            self.assertIsNone(evidence["worktree"])
 
     def test_a_red_gate_stops_the_run_before_any_observation(self) -> None:
         stale = "grep -q 'return 0' app.py"
@@ -591,7 +782,7 @@ class ControllerE2ETests(unittest.TestCase):
             self.assertEqual("", remotes.stdout.strip())
             self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(9, evidence["schema_version"])
+            self.assertEqual(10, evidence["schema_version"])
             self.assertEqual(".", evidence["run_dir"])
             self.assertFalse(Path(evidence["state_dir"]).is_absolute())
             self.assertFalse(Path(evidence["worktree"]).is_absolute())
@@ -633,6 +824,30 @@ class ControllerE2ETests(unittest.TestCase):
     def _assert_inference(self, actuator: str, evidence: dict) -> None:
         """The profile the run requested, sent and observed, for one backend."""
         implementer = evidence["inference"]["implementer"]
+        reviewer = evidence["inference"]["reviewer"]
+
+        # No review flag was given: the implementer backend serves both roles
+        # on the documented defaults, and carries none of its own profile.
+        self.assertEqual(actuator, evidence["runtime"]["review_actuator"])
+        self.assertEqual(
+            evidence["runtime"]["actuator_version"],
+            evidence["runtime"]["review_actuator_version"],
+        )
+        self.assertEqual(
+            {
+                "backend": actuator,
+                "model": None,
+                "effort": None,
+                "speed": "standard",
+            },
+            reviewer["requested"],
+        )
+        self.assertEqual("unverified", reviewer["validation"]["status"])
+        self.assertEqual({}, reviewer["native"])
+        self.assertEqual(
+            {"model": None, "effort": None, "speed": None}, reviewer["observed"]
+        )
+        self.assertEqual("incomplete", reviewer["provenance"])
 
         self.assertEqual(
             {
