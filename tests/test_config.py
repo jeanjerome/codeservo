@@ -125,6 +125,110 @@ command = "true"
             load_constitution(repo)
 
 
+class GateResultFormatTests(unittest.TestCase):
+    """What a gate declares it answers with, beside its exit code."""
+
+    def _write(self, body: str) -> Path:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        repo = Path(temp.name)
+        cfg = repo / ".codeservo" / "constitution.toml"
+        cfg.parent.mkdir(parents=True)
+        cfg.write_text(body, encoding="utf-8")
+        (repo / "pyproject.toml").write_text("", encoding="utf-8")
+        (repo / "pixi.lock").write_text("version: 6\n", encoding="utf-8")
+        return repo
+
+    def test_an_undeclared_gate_answers_with_its_exit_code(self) -> None:
+        constitution = load_constitution(self._write(GATES))
+
+        self.assertEqual(
+            ["exit-code", "exit-code"],
+            [gate.result_format for gate in constitution.gates],
+        )
+
+    def test_accepts_the_two_declared_values(self) -> None:
+        repo = self._write(
+            '''
+[[gate]]
+name = "quick"
+phase = "quick"
+command = "true"
+result_format = "codeservo-json"
+
+[[gate]]
+name = "full"
+phase = "full"
+command = "true"
+result_format = "exit-code"
+'''
+        )
+
+        constitution = load_constitution(repo)
+
+        self.assertEqual(
+            ["codeservo-json", "exit-code"],
+            [gate.result_format for gate in constitution.gates],
+        )
+
+    def test_the_key_is_independent_of_every_other_one(self) -> None:
+        repo = self._write(
+            EXECUTION
+            + '''
+[[gate]]
+name = "quick-task"
+phase = "quick"
+task = "check"
+result_format = "codeservo-json"
+
+[[gate]]
+name = "acceptance"
+phase = "quick"
+command = "true"
+baseline = false
+sensor = "example/acceptance"
+result_format = "codeservo-json"
+
+[[gate]]
+name = "full"
+phase = "full"
+command = "true"
+result_format = "codeservo-json"
+'''
+        )
+
+        constitution = load_constitution(repo)
+
+        self.assertEqual(
+            ["codeservo-json"] * 3,
+            [gate.result_format for gate in constitution.gates],
+        )
+        # A phase, a task, a baseline and an external sensor, all unchanged.
+        self.assertEqual("check", constitution.gates[0].task)
+        self.assertFalse(constitution.gates[1].baseline)
+        self.assertEqual("example/acceptance", constitution.gates[1].sensor)
+        self.assertEqual("full", constitution.gates[2].phase)
+
+    def test_rejects_any_other_value_naming_it(self) -> None:
+        repo = self._write(
+            '''
+[[gate]]
+name = "quick"
+phase = "quick"
+command = "true"
+result_format = "junit-xml"
+
+[[gate]]
+name = "full"
+phase = "full"
+command = "true"
+'''
+        )
+
+        with self.assertRaisesRegex(ConstitutionError, "junit-xml"):
+            load_constitution(repo)
+
+
 class ExecutionEnvironmentTests(unittest.TestCase):
     """The declared execution environment, and every way of misdeclaring it."""
 

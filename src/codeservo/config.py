@@ -4,7 +4,7 @@ import re
 import tomllib
 from pathlib import Path
 
-from . import pixi
+from . import observations, pixi
 from .model import (
     Constitution,
     ExecutionEnvironment,
@@ -119,6 +119,12 @@ def load_constitution(repo: Path) -> Constitution:
                     f"gate {name}: task requires an [execution] provider"
                 )
             _name(task, f"task name for gate {name}")
+        result_format = str(item.get("result_format", observations.EXIT_CODE))
+        if result_format not in observations.RESULT_FORMATS:
+            raise ConstitutionError(
+                f"gate {name}: result_format must be one of"
+                f" {', '.join(observations.RESULT_FORMATS)}, not {result_format!r}"
+            )
         baseline = bool(item.get("baseline", True))
         sensor = str(item["sensor"]) if "sensor" in item else None
         if sensor is not None and not sensor.strip():
@@ -140,6 +146,7 @@ def load_constitution(repo: Path) -> Constitution:
                 timeout_seconds=int(item.get("timeout_seconds", 300)),
                 baseline=baseline,
                 sensor=sensor,
+                result_format=result_format,
             )
         )
 

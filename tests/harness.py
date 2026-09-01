@@ -107,11 +107,15 @@ def constitution(
     execution: str | None = None,
     quick_task: str | None = None,
     sensor_phase: str = "quick",
+    quick_result_format: str | None = None,
+    sensor_result_format: str | None = None,
 ) -> str:
     """The constitution a case runs under.
 
     `sensor_phase` places the external sensor, the one gate a run measures the
-    candidate with and never the source repository.
+    candidate with and never the source repository. The two `result_format`
+    arguments declare what a gate answers with beside its exit code: the quick
+    gate is a baseline one, the external sensor never is.
     """
     text = f"""version = 1
 
@@ -132,6 +136,8 @@ environment = "{execution}"
         if quick_task is not None
         else f'command = "{quick_command}"'
     )
+    if quick_result_format is not None:
+        quick += f'\nresult_format = "{quick_result_format}"'
     text += f"""
 [[gate]]
 name = "syntax"
@@ -154,6 +160,8 @@ command = '{sensor_command}'
 baseline = false
 sensor = "test/task-outcome"
 """
+        if sensor_result_format is not None:
+            text += f'result_format = "{sensor_result_format}"\n'
     text += """
 [review]
 blocking_severities = ["blocker", "major"]

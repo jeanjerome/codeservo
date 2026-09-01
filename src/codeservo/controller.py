@@ -8,7 +8,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__, pixi
+from . import __version__, observations, pixi
 from .actuator import Actuator, ActuatorError, default_actuator_name, load_actuator
 from .config import load_constitution
 from .events import JOURNAL_NAME, Journal
@@ -32,6 +32,7 @@ from .git import (
 )
 from .model import Constitution, ExecutionEnvironment
 from .models import DEFAULT_SPEED, PROFILE_UNSUPPORTED, validate_profile
+from .observations import ObservationPathError
 from .process import tail
 from .prompts import implementer_prompt, reviewer_prompt
 from .sandbox import Isolation, SandboxError, isolation_evidence
@@ -43,7 +44,7 @@ class ControlFailure(RuntimeError):
 
 
 # The shape of evidence.json. The observation bundle versions its own shape.
-EVIDENCE_SCHEMA_VERSION = 14
+EVIDENCE_SCHEMA_VERSION = 15
 
 # A run that declares no execution provider measures through whatever the host
 # offers, and says so.
@@ -468,6 +469,28 @@ def _observations(
     return {"schema_version": 1, "gates": gates}
 
 
+def _sensor_faults(results: list[dict]) -> list[str]:
+    """Gates whose document is a fault of the sensor rather than of the candidate.
+
+    A gate that declared a structured result and could not say what it measured
+    is broken: the exit code it also returned describes nothing anyone can act
+    on, so it is never fed back as something to fix. The one thing a timeout
+    excuses is a document that was never written; a document already written
+    is judged like any other, whether or not the gate then ran out of time.
+    """
+    faults: list[str] = []
+    for result in results:
+        status = result.get("observation_status")
+        if status is None or status == observations.VALID:
+            continue
+        if status == observations.ABSENT and result["timed_out"]:
+            continue
+        faults.append(
+            f"sensor error: gate {result['name']}: {result['observation_error']}"
+        )
+    return faults
+
+
 def _gate_feedback(results: list[dict]) -> str:
     chunks: list[str] = []
     for result in results:
@@ -757,13 +780,17 @@ def run(
                 ],
             )
 
-    baseline = run_gates(
-        repo=repo,
-        gates=baseline_gates(constitution),
-        out_dir=run_dir / "baseline",
-        isolation=source_gate_isolation,
-        execution=constitution.execution,
-    )
+    try:
+        baseline = run_gates(
+            repo=repo,
+            gates=baseline_gates(constitution),
+            out_dir=run_dir / "baseline",
+            isolation=source_gate_isolation,
+            execution=constitution.execution,
+            run_dir=run_dir,
+        )
+    except ObservationPathError as exc:
+        return finish("REJECTED", [str(exc)])
     evidence["baseline"] = baseline
     _record_gates(journal, "baseline", baseline)
     journal.record(
@@ -774,6 +801,11 @@ def run(
         },
     )
     persist()
+    # A broken sensor ends the run here, before anything about the candidate
+    # is evaluated: the decision never reports one gate as both.
+    faults = _sensor_faults(baseline)
+    if faults:
+        return finish("REJECTED", faults)
     if not all(g["passed"] for g in baseline):
         return finish("REJECTED", ["baseline gate failed"])
     if not is_clean(repo):
@@ -893,14 +925,20 @@ def run(
             return finish("REJECTED", [f"implementer exited with {agent['exit_code']}"])
 
         scope = scope_sensor(worktree, base_commit, constitution.scope)
-        quick = run_gates(
-            repo=worktree,
-            gates=constitution.gates_for("quick"),
-            out_dir=iteration_dir / "quick",
-            sensor_paths=sensor_paths,
-            isolation=candidate_gate_isolation,
-            execution=constitution.execution,
-        )
+        try:
+            quick = run_gates(
+                repo=worktree,
+                gates=constitution.gates_for("quick"),
+                out_dir=iteration_dir / "quick",
+                sensor_paths=sensor_paths,
+                isolation=candidate_gate_isolation,
+                execution=constitution.execution,
+                run_dir=run_dir,
+            )
+        except ObservationPathError as exc:
+            evidence["iterations"].append(record)
+            persist()
+            return finish("REJECTED", [str(exc)])
         _record_gates(journal, "quick", quick)
         record["observed_state"] = _write_patch_snapshot(
             iteration_dir / "observed.patch", worktree, base_commit
@@ -911,6 +949,12 @@ def run(
             "details": scope.details,
         }
         record["quick_gates"] = quick
+
+        faults = _sensor_faults(quick)
+        if faults:
+            evidence["iterations"].append(record)
+            persist()
+            return finish("REJECTED", faults)
 
         control_failures = [
             f"gate altered the frozen sensor {name}"
@@ -964,19 +1008,26 @@ def run(
             [f"quick gates did not converge within {max_iterations} iterations"],
         )
 
-    full = run_gates(
-        repo=worktree,
-        gates=constitution.gates_for("full"),
-        out_dir=run_dir / "full",
-        sensor_paths=sensor_paths,
-        isolation=candidate_gate_isolation,
-        execution=constitution.execution,
-    )
+    try:
+        full = run_gates(
+            repo=worktree,
+            gates=constitution.gates_for("full"),
+            out_dir=run_dir / "full",
+            sensor_paths=sensor_paths,
+            isolation=candidate_gate_isolation,
+            execution=constitution.execution,
+            run_dir=run_dir,
+        )
+    except ObservationPathError as exc:
+        return finish("REJECTED", [str(exc)])
     evidence["full_gates"] = full
     _record_gates(journal, "full", full)
     full_state = _write_patch_snapshot(run_dir / "full.patch", worktree, base_commit)
     evidence["full_gate_state"] = full_state
     persist()
+    faults = _sensor_faults(full)
+    if faults:
+        return finish("REJECTED", faults)
     reasons = [
         f"gate altered the frozen sensor {name}"
         for name in _altered_sensors(sensor_paths, sensor_evidence)

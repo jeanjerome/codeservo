@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 import sys
 import tempfile
@@ -5,8 +7,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from codeservo.evidence import sha256_record
 from codeservo.gates import gate_command, run_gates
 from codeservo.model import ExecutionEnvironment, Gate
+from codeservo.observations import (
+    CODESERVO_JSON,
+    EXIT_CODE,
+    OBSERVATION_PATH_VARIABLE,
+    ObservationPathError,
+)
 from codeservo.sandbox import Isolation, seatbelt_profile
 from harness import PIXI_TASK, commit_repository, write_provider
 from isolation_harness import (
@@ -14,6 +23,10 @@ from isolation_harness import (
     nested_seatbelt_exit_code,
     protected_gate_record,
 )
+
+
+def hashlib_sha256(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
 
 
 EXECUTION = ExecutionEnvironment(
@@ -180,6 +193,317 @@ class GateEnvironmentTests(unittest.TestCase):
                 f" --environment 'default' '{PIXI_TASK}'",
                 task["command"],
             )
+
+
+DOCUMENT = {
+    "schema_version": 1,
+    "sensor": "mutation",
+    "status": "failed",
+    "summary": "3 surviving mutants",
+    "findings": [
+        {
+            "id": "mutation-42",
+            "severity": "major",
+            "path": "src/example.py",
+            "line": 18,
+            "message": "conditional boundary survived",
+        }
+    ],
+    "metrics": {"killed": 37, "survived": 3, "timeout": 0},
+}
+
+OBSERVATION_FIELDS = (
+    "observation_status",
+    "observation_error",
+    "observation_path",
+    "observation_sha256",
+)
+
+
+def writes(text: str) -> str:
+    """A gate writing exactly these bytes where the controller told it to."""
+    return f'printf %s {json.dumps(text)} > "${OBSERVATION_PATH_VARIABLE}"'
+
+
+class GateObservationTests(unittest.TestCase):
+    """The second, structured answer a gate may declare it produces."""
+
+    def _run(self, command: str, **overrides) -> dict:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        (root / "tree").mkdir()
+        arguments = {
+            "name": "mutation",
+            "phase": "quick",
+            "command": command,
+            "result_format": CODESERVO_JSON,
+        }
+        arguments.update(overrides)
+        self.out_dir = root / "run" / "quick"
+        results = run_gates(
+            repo=root / "tree",
+            gates=(Gate(**arguments),),
+            out_dir=self.out_dir,
+            run_dir=root / "run",
+        )
+        return results[0]
+
+    def test_hands_the_declaring_gate_an_absolute_path_to_write(self) -> None:
+        probe = (
+            f'test -n "${OBSERVATION_PATH_VARIABLE}"'
+            f' && case "${OBSERVATION_PATH_VARIABLE}" in /*) ;; *) exit 1;; esac'
+            f' && test ! -e "${OBSERVATION_PATH_VARIABLE}"'
+            f' && test -d "$(dirname "${OBSERVATION_PATH_VARIABLE}")"'
+            f' && {writes(json.dumps({**DOCUMENT, "status": "passed"}))}'
+        )
+
+        record = self._run(probe)
+
+        self.assertTrue(record["passed"], Path(record["stderr_path"]).read_text())
+        self.assertEqual("valid", record["observation_status"])
+
+    def test_keeps_the_document_as_the_gate_wrote_it(self) -> None:
+        # Neither canonical, nor sorted, nor reindented: whatever comes back
+        # must be exactly these bytes.
+        written = (
+            '{"metrics":{"killed":37},   "summary":"3 surviving mutants",'
+            ' "findings":[], "status":"failed", "sensor":"mutation",'
+            ' "schema_version":1}'
+        )
+
+        record = self._run(f"{writes(written)}; exit 1")
+
+        kept = Path(record["observation_path"])
+        self.assertEqual("mutation.observation.json", kept.name)
+        self.assertEqual(self.out_dir, kept.parent)
+        self.assertEqual(written, kept.read_text(encoding="utf-8"))
+        self.assertEqual(
+            hashlib_sha256(written.encode("utf-8")), record["observation_sha256"]
+        )
+        self.assertEqual("valid", record["observation_status"])
+        self.assertIsNone(record["observation_error"])
+
+    def test_a_gate_that_wrote_nothing_is_absent(self) -> None:
+        record = self._run("true")
+
+        self.assertEqual("absent", record["observation_status"])
+        self.assertEqual("the gate wrote no observation", record["observation_error"])
+        self.assertIsNone(record["observation_path"])
+        self.assertIsNone(record["observation_sha256"])
+
+    def test_a_document_breaking_the_contract_is_invalid_and_still_kept(self) -> None:
+        broken = json.dumps({**DOCUMENT, "severity": "major"})
+
+        record = self._run(f"{writes(broken)}; exit 1")
+
+        self.assertEqual("invalid", record["observation_status"])
+        self.assertIn("unknown field severity", record["observation_error"])
+        # The document the controller refused is kept, like any it accepted.
+        self.assertEqual(
+            broken, Path(record["observation_path"]).read_text(encoding="utf-8")
+        )
+        self.assertEqual(64, len(record["observation_sha256"]))
+
+    def test_a_document_disagreeing_with_the_exit_code_is_contradicted(self) -> None:
+        passing = json.dumps({**DOCUMENT, "status": "passed"})
+
+        record = self._run(f"{writes(passing)}; exit 1")
+
+        self.assertFalse(record["passed"])
+        self.assertEqual(1, record["exit_code"])
+        self.assertEqual("contradicted", record["observation_status"])
+        self.assertIn("did not pass", record["observation_error"])
+
+    def test_nothing_a_document_says_changes_whether_the_gate_passed(self) -> None:
+        failing = json.dumps({**DOCUMENT, "status": "failed"})
+
+        record = self._run(f"{writes(failing)}; exit 0")
+
+        self.assertTrue(record["passed"])
+        self.assertEqual("contradicted", record["observation_status"])
+
+    def test_a_timeout_excuses_only_a_document_that_was_never_written(self) -> None:
+        absent = self._run("sleep 30", timeout_seconds=1)
+
+        self.assertTrue(absent["timed_out"])
+        self.assertEqual("absent", absent["observation_status"])
+
+    def test_a_document_written_before_a_timeout_is_judged_like_any_other(
+        self,
+    ) -> None:
+        broken = json.dumps({**DOCUMENT, "status": "errored"})
+
+        record = self._run(f"{writes(broken)}; sleep 30", timeout_seconds=1)
+
+        self.assertTrue(record["timed_out"])
+        self.assertIsNone(record["exit_code"])
+        self.assertEqual("invalid", record["observation_status"])
+        self.assertIn("field status", record["observation_error"])
+
+    def test_removes_the_location_once_the_result_is_recorded(self) -> None:
+        record = self._run(
+            f'{writes(json.dumps(DOCUMENT))};'
+            f' dirname "${OBSERVATION_PATH_VARIABLE}" > written-location; exit 1'
+        )
+
+        location = Path(
+            (self.out_dir.parent.parent / "tree" / "written-location")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        self.assertFalse(location.exists())
+        self.assertEqual("valid", record["observation_status"])
+
+    def test_the_four_fields_are_flat_and_the_digest_recomputes(self) -> None:
+        record = self._run(f"{writes(json.dumps(DOCUMENT))}; exit 1")
+
+        for field in OBSERVATION_FIELDS:
+            self.assertIn(field, record)
+        self.assertEqual(CODESERVO_JSON, record["result_format"])
+        # `sha256_record` drops only top-level keys ending in `_path`, so the
+        # digest recomputes from the record exactly as it is persisted.
+        self.assertEqual(record["result_sha256"], sha256_record(record))
+
+
+class GateExitCodeModeTests(unittest.TestCase):
+    """A gate that declared nothing behaves exactly as it did before."""
+
+    def test_carries_the_format_and_none_of_the_four_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            results = run_gates(
+                repo=root,
+                gates=(Gate(name="unit", phase="quick", command="true"),),
+                out_dir=root / "run" / "quick",
+                run_dir=root / "run",
+            )
+
+            record = results[0]
+            self.assertEqual(EXIT_CODE, record["result_format"])
+            for field in OBSERVATION_FIELDS:
+                self.assertNotIn(field, record)
+            self.assertEqual(record["result_sha256"], sha256_record(record))
+
+    def test_sees_the_variable_unset_even_when_the_controller_carries_one(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            inherited = root / "inherited.json"
+            gates = (
+                Gate(
+                    name="declares-nothing",
+                    phase="quick",
+                    command=(
+                        f'test -z "${OBSERVATION_PATH_VARIABLE}"'
+                        f' || echo leaked > "{inherited}"; '
+                        f'test -z "${OBSERVATION_PATH_VARIABLE}"'
+                    ),
+                ),
+                Gate(
+                    name="declares-the-format",
+                    phase="quick",
+                    command=(
+                        f'test "${OBSERVATION_PATH_VARIABLE}" !='
+                        f' "{inherited}"'
+                    ),
+                    result_format=CODESERVO_JSON,
+                ),
+            )
+
+            with patch.dict(
+                os.environ, {OBSERVATION_PATH_VARIABLE: str(inherited)}
+            ):
+                results = run_gates(
+                    repo=root,
+                    gates=gates,
+                    out_dir=root / "run" / "quick",
+                    run_dir=root / "run",
+                )
+
+            declared_nothing, declared = results
+            # The variable is unset for the gate that declared nothing, and is
+            # not the inherited value for the gate that declared the format.
+            self.assertTrue(declared_nothing["passed"])
+            self.assertTrue(declared["passed"])
+            # The gate saw no path, so the file the inherited value named was
+            # never written.
+            self.assertFalse(inherited.exists())
+
+
+class ObservationLocationTests(unittest.TestCase):
+    """Where a temporary directory lands is checked, never assumed."""
+
+    def _refuses(self, landing: str) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run_dir = root / "run"
+            tree = root / "tree"
+            (run_dir / "quick").mkdir(parents=True)
+            tree.mkdir()
+            (tree / "app.py").write_text("value = 2\n", encoding="utf-8")
+            before = sorted(item.name for item in tree.iterdir())
+            landed = {"run": run_dir, "tree": tree}[landing] / "observation-location"
+            landed.mkdir()
+            gate = Gate(
+                name="mutation",
+                phase="quick",
+                command="touch ran-anyway",
+                result_format=CODESERVO_JSON,
+            )
+
+            with patch(
+                "codeservo.gates.tempfile.mkdtemp", return_value=str(landed)
+            ):
+                with self.assertRaises(ObservationPathError) as refused:
+                    run_gates(
+                        repo=tree,
+                        gates=(gate,),
+                        out_dir=run_dir / "quick",
+                        run_dir=run_dir,
+                    )
+
+            self.assertIn(str(landed), str(refused.exception))
+            # Nothing is left behind in either, and the gate never ran.
+            self.assertFalse(landed.exists())
+            self.assertEqual(before, sorted(item.name for item in tree.iterdir()))
+            self.assertFalse((tree / "ran-anyway").exists())
+            self.assertEqual(
+                [], sorted(item.name for item in (run_dir / "quick").iterdir())
+            )
+
+    def test_reports_a_removal_that_failed_instead_of_suppressing_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gate = Gate(
+                name="mutation",
+                phase="quick",
+                command="true",
+                result_format=CODESERVO_JSON,
+            )
+
+            with patch(
+                "codeservo.gates.shutil.rmtree",
+                side_effect=OSError("directory not empty"),
+            ):
+                with self.assertRaises(ObservationPathError) as reported:
+                    run_gates(
+                        repo=root,
+                        gates=(gate,),
+                        out_dir=root / "run" / "quick",
+                        run_dir=root / "run",
+                    )
+
+            self.assertIn("could not be removed", str(reported.exception))
+            self.assertIn("directory not empty", str(reported.exception))
+
+    def test_refuses_a_location_inside_the_run_directory(self) -> None:
+        self._refuses("run")
+
+    def test_refuses_a_location_inside_the_measured_tree(self) -> None:
+        self._refuses("tree")
 
 
 @unittest.skipUnless(sys.platform == "darwin", "requires macOS sandbox-exec")

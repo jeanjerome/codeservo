@@ -28,6 +28,7 @@ from codeservo.controller import (
     _resolved_environment,
     _review_schema_path,
     _runtime_metadata,
+    _sensor_faults,
 )
 from codeservo.evidence import sha256_file, sha256_path
 from codeservo.model import (
@@ -632,6 +633,70 @@ class ObservationBundleTests(unittest.TestCase):
             self.assertEqual("", bundle["gates"][0]["stderr_tail"])
 
 
+class SensorFaultTests(unittest.TestCase):
+    """A gate that cannot say what it measured is broken, and is said to be."""
+
+    def _gate(
+        self,
+        name: str = "mutation",
+        *,
+        status: str | None = "valid",
+        error: str | None = None,
+        timed_out: bool = False,
+        passed: bool = False,
+    ) -> dict:
+        record = {"name": name, "passed": passed, "timed_out": timed_out}
+        if status is not None:
+            record["observation_status"] = status
+            record["observation_error"] = error
+        return record
+
+    def test_a_gate_answering_with_its_exit_code_alone_is_never_a_fault(self) -> None:
+        self.assertEqual([], _sensor_faults([self._gate(status=None)]))
+
+    def test_a_valid_document_is_never_a_fault(self) -> None:
+        self.assertEqual([], _sensor_faults([self._gate()]))
+
+    def test_names_the_fault_the_gate_and_the_sensor_error(self) -> None:
+        for status in ("absent", "invalid", "contradicted"):
+            with self.subTest(status=status):
+                faults = _sensor_faults(
+                    [self._gate(status=status, error="field status is wrong")]
+                )
+
+                self.assertEqual(
+                    ["sensor error: gate mutation: field status is wrong"], faults
+                )
+
+    def test_a_timeout_excuses_only_a_document_never_written(self) -> None:
+        excused = _sensor_faults(
+            [self._gate(status="absent", error="wrote nothing", timed_out=True)]
+        )
+        judged = _sensor_faults(
+            [self._gate(status="invalid", error="field status", timed_out=True)]
+        )
+
+        self.assertEqual([], excused)
+        self.assertEqual(["sensor error: gate mutation: field status"], judged)
+
+    def test_reports_every_faulty_gate_of_a_phase(self) -> None:
+        faults = _sensor_faults(
+            [
+                self._gate("unit", passed=True),
+                self._gate("mutation", status="absent", error="wrote nothing"),
+                self._gate("runtime", status="invalid", error="field metrics"),
+            ]
+        )
+
+        self.assertEqual(
+            [
+                "sensor error: gate mutation: wrote nothing",
+                "sensor error: gate runtime: field metrics",
+            ],
+            faults,
+        )
+
+
 class ReviewSchemaTests(unittest.TestCase):
     def test_prefers_the_repository_schema(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -678,10 +743,9 @@ class RuntimeIdentityTests(unittest.TestCase):
         return Path(codeservo.__file__).resolve().parents[2]
 
     def test_declares_the_shape_the_record_has(self) -> None:
-        # The block naming the run journal, next to what the previous shape
-        # held: one isolation document per measured tree, and the state of the
-        # candidate after the full gates.
-        self.assertEqual(14, EVIDENCE_SCHEMA_VERSION)
+        # Every gate record now names the format it answered with, and a gate
+        # answering with a document carries the four fields describing it.
+        self.assertEqual(15, EVIDENCE_SCHEMA_VERSION)
 
     def test_names_both_backends_when_one_serves_both_roles(self) -> None:
         actuator = self._actuator()

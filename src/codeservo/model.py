@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from .observations import EXIT_CODE
+
 Phase = Literal["quick", "full"]
 
 
@@ -31,6 +33,10 @@ class Gate:
     timeout_seconds: int = 300
     baseline: bool = True
     sensor: str | None = None
+    # What this gate answers with beside its exit code. Independent of the
+    # phase, of naming a command or a task, of the baseline, and of an
+    # external sensor.
+    result_format: str = EXIT_CODE
 
 
 @dataclass(frozen=True)

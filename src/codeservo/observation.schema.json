@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CodeServo gate observation",
+  "description": "The structured document a gate declaring result_format = \"codeservo-json\" writes at $CODESERVO_OBSERVATION_PATH. The exit code remains the verdict; this document says what was measured.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sensor", "status", "summary", "findings", "metrics"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "sensor": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["passed", "failed"]
+    },
+    "summary": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "severity", "path", "line", "message"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "severity": {
+            "type": "string",
+            "enum": ["blocker", "major", "minor", "info"]
+          },
+          "path": { "type": ["string", "null"] },
+          "line": { "type": ["integer", "null"], "minimum": 1 },
+          "message": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    }
+  }
+}
