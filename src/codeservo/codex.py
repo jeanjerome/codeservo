@@ -84,10 +84,12 @@ def _events(path: Path) -> list[dict]:
 def _observed(events: list[dict]) -> dict:
     """The inference profile the session reported about itself.
 
-    Codex answers with `reasoning_effort` and `service_tier`, which are not the
-    configuration keys that asked for them, so the stream is read under its own
-    names. A field the stream never carries stays unknown, and the last report
-    wins because it describes the session as it ended.
+    Codex answers under its own field names, which are not the configuration
+    keys that asked for them, so the stream is read by name. The installed
+    version names none of the three in either role, and every field then stays
+    empty rather than borrowing the request; a version that starts naming one
+    fills that field with no further change here. The last report wins, because
+    it describes the session as it ended.
     """
     observed: dict = {name: None for name in OBSERVED_FIELDS}
     for event in events:
@@ -222,8 +224,13 @@ def run_reviewer(
         command = _base_command(
             worktree, _sandbox(isolation, "read-only"), model, effort, speed
         )
+        # `--json` turns stdout into the documented event stream the
+        # implementer already receives, so the reviewer reports about its own
+        # session under the same field names. Its answer is unaffected: it
+        # keeps coming from the file `--output-last-message` names.
         command.extend(
             [
+                "--json",
                 "--output-schema",
                 str(schema_path),
                 "--output-last-message",
@@ -254,9 +261,8 @@ def run_reviewer(
         "exit_code": completed.returncode,
         "duration_ms": int((time.monotonic() - started) * 1000),
         "native": _native_profile(effort, speed),
-        # The reviewer answers in a file rather than in an event stream, so its
-        # own report of the session stays whatever stdout carried, and nothing
-        # requested is copied in.
+        # Read from the event stream `--json` produces, under the names the
+        # stream uses, and never from the keys the command line carried.
         "observed": _observed(_events(stdout_path)),
         "stdout_path": str(stdout_path),
         "stdout_sha256": sha256_file(stdout_path),

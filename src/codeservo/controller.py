@@ -44,11 +44,19 @@ class ControlFailure(RuntimeError):
 
 
 # The shape of evidence.json. The observation bundle versions its own shape.
-EVIDENCE_SCHEMA_VERSION = 15
+EVIDENCE_SCHEMA_VERSION = 16
 
 # A run that declares no execution provider measures through whatever the host
 # offers, and says so.
 NO_ENVIRONMENT = {"provider": "none"}
+
+# What a run records about the profile a backend applied to itself, and the two
+# statements it makes per field. A backend's own output either carried the
+# value or it did not; a field nobody could read and a field the backend does
+# not talk about are the same absence, and say the same thing.
+OBSERVED_FIELDS = ("model", "effort", "speed")
+REPORTED = "reported"
+NOT_REPORTED = "not_reported"
 
 
 def _now() -> str:
@@ -110,6 +118,26 @@ def _runtime_metadata(
     }
 
 
+def _observed_profile(observed: dict) -> dict:
+    """What a backend reported about its own profile, and why the rest is empty.
+
+    Only the backend's own output speaks here. A value it did not carry stays
+    empty and says so, field by field, instead of being filled from the request
+    or from the command line built out of it: a record repeating what was asked
+    for reads as a measurement of something nobody measured, which is worse
+    than a record saying nothing. The two blocks are built together, so
+    `observed` is non-null exactly where `provenance` says `reported`.
+    """
+    reported: dict = {}
+    provenance: dict = {}
+    for name in OBSERVED_FIELDS:
+        value = observed.get(name)
+        carried = isinstance(value, str) and bool(value)
+        reported[name] = value if carried else None
+        provenance[name] = REPORTED if carried else NOT_REPORTED
+    return {"observed": reported, "provenance": provenance}
+
+
 def _profile(
     backend: str, model: str | None, effort: str | None, speed: str
 ) -> dict:
@@ -131,8 +159,7 @@ def _profile(
             backend=backend, model=model, effort=effort, speed=speed
         ),
         "native": None,
-        "observed": {"model": None, "effort": None, "speed": None},
-        "provenance": "incomplete",
+        **_observed_profile({}),
     }
 
 
@@ -150,11 +177,14 @@ def _inference(*, implementer: dict, reviewer: dict) -> dict:
 
 
 def _record_actuation(profile: dict, agent: dict) -> None:
-    """Keep the profile of the last actuation, replacing any earlier one."""
-    observed = agent["observed"]
+    """Keep the profile of the last actuation, replacing any earlier one.
+
+    The adapter owns what its backend reports and how it read it; the shape of
+    the block is owned here, so the record holds the same three fields whichever
+    backend answered, and nothing an adapter did not report.
+    """
     profile["native"] = agent["native"]
-    profile["observed"] = observed
-    profile["provenance"] = "complete" if observed["model"] else "incomplete"
+    profile.update(_observed_profile(agent["observed"]))
 
 
 def _resolve_state_dir(repo: Path, state_dir: Path | None) -> Path:

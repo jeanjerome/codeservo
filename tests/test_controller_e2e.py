@@ -12,9 +12,12 @@ from codeservo.events import JOURNAL_NAME, read_journal
 from codeservo.evidence import sha256_file, sha256_json, sha256_text
 from codeservo.verify import verify_run
 from harness import (
+    AGENT_MODEL,
+    AGENT_SPEED,
     COMPILE_COMMAND,
     PIXI_PACKAGES,
     PIXI_TASK,
+    REVIEW_MODEL,
     SENSOR_COMMAND,
     TASK_TEXT,
     Case,
@@ -292,6 +295,10 @@ if value("--output-format") == "json":
             "session_id": "review-session",
             "result": json.dumps(REVIEW),
             "structured_output": REVIEW,
+            # One object and no init event: the model the reviewer ran on is
+            # named only by the record of what the session billed.
+            "usage": {{"speed": "standard", "service_tier": "standard"}},
+            "modelUsage": {{"test-review-model": {{"outputTokens": 4}}}},
         }},
         sys.stdout,
     )
@@ -310,6 +317,7 @@ else:
                 "total_cost_usd": 0.0,
                 "terminal_reason": "completed",
                 "result": "implemented",
+                "usage": {{"speed": "standard", "service_tier": "standard"}},
                 "modelUsage": {{"test-model": {{"outputTokens": 12, "costUSD": 0.0}}}},
             }}
         )
@@ -434,10 +442,18 @@ class ControllerE2ETests(unittest.TestCase):
             )
             self.assertEqual("unverified", before["validation"]["status"])
             self.assertIsNone(before["native"])
+            # Before any backend answered, every field is empty and says why.
             self.assertEqual(
                 {"model": None, "effort": None, "speed": None}, before["observed"]
             )
-            self.assertEqual("incomplete", before["provenance"])
+            self.assertEqual(
+                {
+                    "model": "not_reported",
+                    "effort": "not_reported",
+                    "speed": "not_reported",
+                },
+                before["provenance"],
+            )
 
             after = result["inference"]["implementer"]
             self.assertEqual(before["requested"], after["requested"])
@@ -446,11 +462,46 @@ class ControllerE2ETests(unittest.TestCase):
                 {"--effort": "high", "--settings": {"fastMode": True}},
                 after["native"],
             )
-            # The session named no model, and the requested one is not borrowed.
+            # The session named a model of its own: the record holds that one,
+            # not the alias the request carried.
             self.assertEqual(
-                {"model": None, "effort": None, "speed": None}, after["observed"]
+                {
+                    "model": AGENT_MODEL,
+                    "effort": None,
+                    "speed": AGENT_SPEED,
+                },
+                after["observed"],
             )
-            self.assertEqual("incomplete", after["provenance"])
+            self.assertNotEqual(after["requested"]["model"], after["observed"]["model"])
+            self.assertEqual(
+                {
+                    "model": "reported",
+                    "effort": "not_reported",
+                    "speed": "reported",
+                },
+                after["provenance"],
+            )
+            # The requested effort reached the command line and no observation.
+            self.assertEqual("high", after["requested"]["effort"])
+            self.assertEqual("high", after["native"]["--effort"])
+
+            reviewer = result["inference"]["reviewer"]
+            self.assertEqual(
+                {
+                    "model": REVIEW_MODEL,
+                    "effort": None,
+                    "speed": AGENT_SPEED,
+                },
+                reviewer["observed"],
+            )
+            self.assertEqual(
+                {
+                    "model": "reported",
+                    "effort": "not_reported",
+                    "speed": "reported",
+                },
+                reviewer["provenance"],
+            )
 
     def _codex_case(self, root: Path, *, efforts: list[str], fast: bool):
         """A run whose backend has a local inventory the controller can read."""
@@ -636,16 +687,31 @@ class ControllerE2ETests(unittest.TestCase):
             self.assertEqual({"model_reasoning_effort": "high"}, reviewer["native"])
             # The reviewer effort reached the reviewer alone.
             self.assertEqual({}, implementer["native"])
-            # Nothing requested is copied into what the backend reported.
+            # Nothing requested is copied into what the backend reported: the
+            # Codex stream names none of the three, and says so per field.
             self.assertEqual(
                 {"model": None, "effort": None, "speed": None}, reviewer["observed"]
             )
-            self.assertEqual("incomplete", reviewer["provenance"])
+            self.assertEqual(
+                {
+                    "model": "not_reported",
+                    "effort": "not_reported",
+                    "speed": "not_reported",
+                },
+                reviewer["provenance"],
+            )
+            # The implementer of the other backend still reported its own.
+            self.assertEqual(AGENT_MODEL, implementer["observed"]["model"])
+            self.assertEqual("reported", implementer["provenance"]["model"])
 
             argv = self._reviewer_argv(result["run_dir"])
             self.assertEqual(["codex", "exec"], argv[:2])
             self.assertIn("--ignore-user-config", argv)
             self.assertIn("--output-schema", argv)
+            # The reviewer reads the same documented event stream as the
+            # implementer, and still answers in the file it is given.
+            self.assertIn("--json", argv)
+            self.assertIn("--output-last-message", argv)
             self.assertEqual(
                 ["model_reasoning_effort=high"],
                 [argv[index + 1] for index, item in enumerate(argv) if item == "-c"],
@@ -918,7 +984,7 @@ class ControllerE2ETests(unittest.TestCase):
             self.assertEqual("", remotes.stdout.strip())
             self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(15, evidence["schema_version"])
+            self.assertEqual(16, evidence["schema_version"])
             # A constitution declaring no provider keeps shell gates.
             self.assertEqual({"provider": "none"}, evidence["environment"])
             self.assertEqual(".", evidence["run_dir"])
@@ -1026,10 +1092,21 @@ class ControllerE2ETests(unittest.TestCase):
         )
         self.assertEqual("unverified", reviewer["validation"]["status"])
         self.assertEqual({}, reviewer["native"])
-        self.assertEqual(
-            {"model": None, "effort": None, "speed": None}, reviewer["observed"]
-        )
-        self.assertEqual("incomplete", reviewer["provenance"])
+        if actuator == "claude":
+            # No init event: the model comes from what the session billed.
+            self.assertEqual(
+                {
+                    "model": "test-review-model",
+                    "effort": None,
+                    "speed": "standard",
+                },
+                reviewer["observed"],
+            )
+        else:
+            self.assertEqual(
+                {"model": None, "effort": None, "speed": None}, reviewer["observed"]
+            )
+        self._assert_agrees(reviewer)
 
         self.assertEqual(
             {
@@ -1046,22 +1123,43 @@ class ControllerE2ETests(unittest.TestCase):
                 {"--effort": "high", "--settings": {"fastMode": True}},
                 implementer["native"],
             )
-            self.assertEqual("test-model", implementer["observed"]["model"])
-            self.assertEqual("complete", implementer["provenance"])
+            # Reported: the model of the init event, the speed of the result.
+            self.assertEqual(
+                {"model": "test-model", "effort": None, "speed": "standard"},
+                implementer["observed"],
+            )
         else:
             self.assertEqual(
                 {"model_reasoning_effort": "high", "service_tier": "priority"},
                 implementer["native"],
             )
-            self.assertIsNone(implementer["observed"]["model"])
-            self.assertEqual("incomplete", implementer["provenance"])
+            # The stream of the installed Codex names none of the three, and
+            # the fast tier it was sent is not read back off the command line.
+            self.assertEqual(
+                {"model": None, "effort": None, "speed": None},
+                implementer["observed"],
+            )
+        self._assert_agrees(implementer)
+        # No backend reports a reasoning effort, and neither borrows the one
+        # the request carried.
+        self.assertIsNone(implementer["observed"]["effort"])
+        self.assertEqual("high", implementer["requested"]["effort"])
         # Neither field survives from an earlier iteration of the same run.
         last = evidence["iterations"][-1]["agent"]
         self.assertEqual(2, len(evidence["iterations"]))
         self.assertEqual(last["native"], implementer["native"])
         self.assertEqual(last["observed"], implementer["observed"])
-        self.assertIsNone(implementer["observed"]["effort"])
-        self.assertIsNone(implementer["observed"]["speed"])
+
+    def _assert_agrees(self, profile: dict) -> None:
+        """`observed` and `provenance` name the same fields and never disagree."""
+        self.assertEqual({"model", "effort", "speed"}, set(profile["observed"]))
+        self.assertEqual(set(profile["observed"]), set(profile["provenance"]))
+        for name, value in profile["observed"].items():
+            self.assertEqual(
+                "reported" if value is not None else "not_reported",
+                profile["provenance"][name],
+                name,
+            )
 
     def _assert_observations(self, result: dict, evidence: dict) -> None:
         """The reviewer received exactly the bundle the controller recorded."""
@@ -1984,7 +2082,7 @@ class RunJournalE2ETests(unittest.TestCase):
             evidence = self.evidence(result)
             events = self.journal(result)
             block = evidence["events"]
-            self.assertEqual(15, evidence["schema_version"])
+            self.assertEqual(16, evidence["schema_version"])
             self.assertEqual(
                 {"path", "count", "head_sha256", "file_sha256"}, set(block)
             )

@@ -15,6 +15,11 @@ from codeservo.controller import run
 from isolation_harness import controller_test_isolation
 
 TASK_TEXT = "# Task\n\n## Acceptance criteria\n- [AC1] `value()` returns `2`.\n"
+# What the scripted backend reports about itself. Neither model is one a case
+# ever requests, so a record repeating the request is visible as such.
+AGENT_MODEL = "harness-agent-model"
+REVIEW_MODEL = "harness-review-model"
+AGENT_SPEED = "standard"
 SENSOR_COMMAND = 'test -f "$CODESERVO_SENSOR_PATH/README.md" && grep -q "return 2" app.py'
 COMPILE_COMMAND = f"{sys.executable} -m py_compile app.py"
 
@@ -36,7 +41,13 @@ def flag(name):
 
 
 def emit_agent(message="implemented"):
-    print(json.dumps({{"type": "system", "subtype": "init"}}))
+    # The stream names the model its alias resolved to, which is not the one
+    # the command line asked for.
+    print(
+        json.dumps(
+            {{"type": "system", "subtype": "init", "model": "{agent_model}"}}
+        )
+    )
     print(
         json.dumps(
             {{
@@ -46,12 +57,18 @@ def emit_agent(message="implemented"):
                 "num_turns": 1,
                 "session_id": "agent",
                 "result": message,
+                "usage": {{"speed": "{speed}", "service_tier": "{speed}"}},
+                "modelUsage": {{
+                    "{agent_model}": {{"outputTokens": 12, "costUSD": 0.0}}
+                }},
             }}
         )
     )
 
 
 def emit_review(payload):
+    # One object and no init event: the reviewer's model is only in the record
+    # of what the session billed.
     json.dump(
         {{
             "type": "result",
@@ -61,6 +78,10 @@ def emit_review(payload):
             "session_id": "review",
             "result": json.dumps(payload),
             "structured_output": payload,
+            "usage": {{"speed": "{speed}", "service_tier": "{speed}"}},
+            "modelUsage": {{
+                "{review_model}": {{"outputTokens": 4, "costUSD": 0.0}}
+            }},
         }},
         sys.stdout,
     )
@@ -95,6 +116,9 @@ def agent_script(
     return _AGENT_TEMPLATE.format(
         implementer=textwrap.indent(textwrap.dedent(implementer).strip(), "    "),
         reviewer=textwrap.indent(textwrap.dedent(reviewer).strip(), "    "),
+        agent_model=AGENT_MODEL,
+        review_model=REVIEW_MODEL,
+        speed=AGENT_SPEED,
     )
 
 

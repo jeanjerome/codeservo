@@ -190,18 +190,97 @@ class ReviewerProfileTests(unittest.TestCase):
 
 
 class ObservedProfileTests(unittest.TestCase):
-    def test_reports_the_model_the_session_resolved(self) -> None:
-        events = [{"type": "system", "subtype": "init", "model": "claude-opus-5"}]
+    """What Claude Code says about the session, in each of the two roles."""
+
+    def _result(self, **fields: object) -> dict:
+        return {"type": "result", "subtype": "success", "result": "done", **fields}
+
+    def test_reports_the_model_and_the_speed_of_an_implementer_stream(self) -> None:
+        events = [
+            {"type": "system", "subtype": "init", "model": "claude-opus-5"},
+            self._result(
+                usage={"speed": "standard", "service_tier": "standard"},
+                modelUsage={"claude-opus-5": {"outputTokens": 24898}},
+            ),
+        ]
 
         self.assertEqual(
-            {"model": "claude-opus-5", "effort": None, "speed": None},
+            {"model": "claude-opus-5", "effort": None, "speed": "standard"},
             _observed(events),
         )
+
+    def test_reads_the_reviewer_model_from_the_one_model_it_billed(self) -> None:
+        """The reviewer answers in one object, with no init event to name it."""
+        events = [
+            self._result(
+                usage={"speed": "fast"},
+                modelUsage={"claude-opus-5": {"outputTokens": 320}},
+            )
+        ]
+
+        self.assertEqual(
+            {"model": "claude-opus-5", "effort": None, "speed": "fast"},
+            _observed(events),
+        )
+
+    def test_leaves_the_reviewer_model_unread_when_several_were_billed(self) -> None:
+        """Choosing among the models a session billed would be an inference."""
+        events = [
+            self._result(
+                usage={"speed": "standard"},
+                modelUsage={
+                    "claude-opus-5": {"outputTokens": 320},
+                    "claude-haiku-4-5-20251001": {"outputTokens": 15},
+                },
+            )
+        ]
+
+        self.assertEqual(
+            {"model": None, "effort": None, "speed": "standard"}, _observed(events)
+        )
+
+    def test_prefers_the_model_the_stream_resolved_over_what_it_billed(self) -> None:
+        events = [
+            {"type": "system", "subtype": "init", "model": "claude-opus-5"},
+            self._result(
+                modelUsage={
+                    "claude-opus-5": {"outputTokens": 320},
+                    "claude-haiku-4-5-20251001": {"outputTokens": 15},
+                }
+            ),
+        ]
+
+        self.assertEqual("claude-opus-5", _observed(events)["model"])
+
+    def test_reports_the_model_the_session_named_not_the_one_requested(self) -> None:
+        events = [{"type": "system", "subtype": "init", "model": "claude-sonnet-5"}]
+
+        self.assertEqual("claude-sonnet-5", _observed(events)["model"])
+
+    def test_reports_no_effort_beside_a_speed_the_session_does_name(self) -> None:
+        """`fast_mode_state` is a speed; nothing in the stream is an effort."""
+        events = [
+            self._result(
+                usage={"speed": "fast"},
+                fast_mode_state="on",
+                fast_mode_disabled_reason=None,
+            )
+        ]
+
+        observed = _observed(events)
+
+        self.assertIsNone(observed["effort"])
+        self.assertEqual("fast", observed["speed"])
 
     def test_leaves_unreported_values_unknown(self) -> None:
         self.assertEqual(
             {"model": None, "effort": None, "speed": None},
             _observed([{"type": "result", "result": "done"}]),
+        )
+
+    def test_leaves_every_value_unknown_when_nothing_was_read(self) -> None:
+        self.assertEqual(
+            {"model": None, "effort": None, "speed": None}, _observed([])
         )
 
 

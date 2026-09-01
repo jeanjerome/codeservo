@@ -28,6 +28,12 @@ REVIEWER_TOOLS = "Bash,Read"
 # `--settings` can point at is this one, which CodeServo writes itself.
 FAST_MODE_SETTINGS = {"fastMode": True}
 
+# Where the result event of both roles names the speed tier the session ran
+# on. It is the one field of the usage block this adapter reads: what a session
+# consumed is not part of the profile it applied.
+USAGE_FIELD = "usage"
+SPEED_FIELD = "speed"
+
 
 class ClaudeCodeError(ActuatorError):
     pass
@@ -204,17 +210,42 @@ def _session(result: dict | None) -> dict:
     }
 
 
+def _reported_model(events: list[dict]) -> str | None:
+    """The model the session says the work ran on.
+
+    The implementer's stream opens with an init event naming the model its
+    alias resolved to. The reviewer answers in a single result object with no
+    such event, so its model comes from the usage record, which names every
+    model the session billed: one name is a report, several are a choice, and
+    choosing between them would be an inference rather than a report.
+    """
+    models = _models(events)
+    session_model = models["session_model"]
+    if isinstance(session_model, str) and session_model:
+        return session_model
+    billed = list(models["usage"])
+    return billed[0] if len(billed) == 1 else None
+
+
+def _reported_speed(events: list[dict]) -> str | None:
+    """The speed tier the result reports, in both roles under the same name."""
+    usage = (_result_event(events) or {}).get(USAGE_FIELD)
+    speed = usage.get(SPEED_FIELD) if isinstance(usage, dict) else None
+    return speed if isinstance(speed, str) and speed else None
+
+
 def _observed(events: list[dict]) -> dict:
     """The inference profile the session reported about itself.
 
-    The init event names the model the alias resolved to. Claude Code reports
-    neither a reasoning effort nor a speed tier in its stream, so both stay
-    unknown rather than repeating what was asked for.
+    Claude Code names its model and its speed tier, and carries no reasoning
+    effort in any event of either role, so `effort` stays empty. Nothing else
+    is put in its place: the requested value would repeat the request, and
+    `fast_mode_state` reports a speed and not an effort.
     """
     return {
-        "model": _models(events)["session_model"],
+        "model": _reported_model(events),
         "effort": None,
-        "speed": None,
+        "speed": _reported_speed(events),
     }
 
 

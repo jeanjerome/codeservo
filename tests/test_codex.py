@@ -211,6 +211,27 @@ class ObservedProfileTests(unittest.TestCase):
         self.assertEqual("second", observed["model"])
         self.assertEqual("low", observed["effort"])
 
+    def test_reports_the_model_the_stream_names_not_the_one_requested(self) -> None:
+        path = self._stream({"msg": {"model": "gpt-5.6-codex"}})
+
+        self.assertEqual("gpt-5.6-codex", _observed(_events(path))["model"])
+
+    def test_leaves_the_installed_stream_reporting_no_profile_at_all(self) -> None:
+        """The event stream of codex-cli 0.151.0, in either role."""
+        path = self._stream(
+            {"type": "thread.started", "thread_id": "0199"},
+            {"type": "turn.started"},
+            {"type": "item.completed", "item": {"type": "agent_message"}},
+            {
+                "type": "turn.completed",
+                "usage": {"input_tokens": 12, "output_tokens": 3},
+            },
+        )
+
+        self.assertEqual(
+            {"model": None, "effort": None, "speed": None}, _observed(_events(path))
+        )
+
 
 class IsolationTests(unittest.TestCase):
     def test_reports_the_effective_mechanism(self) -> None:

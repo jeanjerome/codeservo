@@ -58,6 +58,12 @@ OBSERVATION_FIELDS = {
 
 
 PROFILE_FIELDS = {"requested", "validation", "native", "observed", "provenance"}
+# What a profile says about every field no backend reported.
+UNREPORTED = {
+    "model": "not_reported",
+    "effort": "not_reported",
+    "speed": "not_reported",
+}
 
 
 class InferenceProfileTests(unittest.TestCase):
@@ -161,7 +167,7 @@ class InferenceProfileTests(unittest.TestCase):
                     {"model": None, "effort": None, "speed": None},
                     profile["observed"],
                 )
-                self.assertEqual("incomplete", profile["provenance"])
+                self.assertEqual(UNREPORTED, profile["provenance"])
 
     def test_freezes_the_four_requested_fields(self) -> None:
         implementer = self._implementer(speed="fast")
@@ -186,7 +192,7 @@ class InferenceProfileTests(unittest.TestCase):
         self.assertEqual(
             {"model": None, "effort": None, "speed": None}, implementer["observed"]
         )
-        self.assertEqual("incomplete", implementer["provenance"])
+        self.assertEqual(UNREPORTED, implementer["provenance"])
         # A backend with no verified cache cannot contradict the request.
         self.assertEqual("unverified", implementer["validation"]["status"])
         self.assertEqual(
@@ -199,44 +205,95 @@ class ActuationRecordTests(unittest.TestCase):
         return {
             "native": {"--effort": "max"},
             "observed": {"model": "claude-opus-5", "effort": None, "speed": None},
-            "provenance": "complete",
+            "provenance": {
+                "model": "reported",
+                "effort": "not_reported",
+                "speed": "not_reported",
+            },
         }
 
-    def test_reports_a_known_model_as_complete(self) -> None:
-        profile = {"native": None, "observed": {}, "provenance": "incomplete"}
+    def _empty(self) -> dict:
+        return {"native": None, "observed": {}, "provenance": {}}
 
-        _record_actuation(
-            profile,
-            {
-                "native": {"model_reasoning_effort": "high"},
-                "observed": {
-                    "model": "gpt-5.6-sol",
-                    "effort": "high",
-                    "speed": None,
-                },
-            },
+    def _actuate(self, profile: dict, observed: dict, native: dict) -> dict:
+        _record_actuation(profile, {"native": native, "observed": observed})
+        return profile
+
+    def test_says_per_field_what_the_backend_reported(self) -> None:
+        profile = self._actuate(
+            self._empty(),
+            {"model": "gpt-5.6-sol", "effort": "high", "speed": None},
+            {"model_reasoning_effort": "high"},
         )
 
         self.assertEqual({"model_reasoning_effort": "high"}, profile["native"])
-        self.assertEqual("gpt-5.6-sol", profile["observed"]["model"])
-        self.assertEqual("complete", profile["provenance"])
+        self.assertEqual(
+            {"model": "gpt-5.6-sol", "effort": "high", "speed": None},
+            profile["observed"],
+        )
+        self.assertEqual(
+            {
+                "model": "reported",
+                "effort": "reported",
+                "speed": "not_reported",
+            },
+            profile["provenance"],
+        )
+
+    def test_names_the_same_three_fields_on_both_sides(self) -> None:
+        for observed in (
+            {},
+            {"model": "claude-opus-5", "effort": None, "speed": "standard"},
+            {"model": None, "effort": None, "speed": None},
+        ):
+            with self.subTest(observed=observed):
+                profile = self._actuate(self._empty(), observed, {})
+
+                self.assertEqual(
+                    {"model", "effort", "speed"}, set(profile["observed"])
+                )
+                self.assertEqual(
+                    set(profile["observed"]), set(profile["provenance"])
+                )
+
+    def test_agrees_field_by_field_with_what_it_holds(self) -> None:
+        for observed in (
+            {"model": "claude-opus-5", "effort": None, "speed": "standard"},
+            {"model": None, "effort": "high", "speed": None},
+            {"model": None, "effort": None, "speed": None},
+            {"model": "", "effort": None, "speed": None},
+        ):
+            with self.subTest(observed=observed):
+                profile = self._actuate(self._empty(), observed, {})
+
+                for name, value in profile["observed"].items():
+                    expected = "reported" if value is not None else "not_reported"
+                    self.assertEqual(expected, profile["provenance"][name])
+                self.assertLessEqual(
+                    set(profile["provenance"].values()),
+                    {"reported", "not_reported"},
+                )
+
+    def test_says_nothing_was_reported_when_nothing_was_read(self) -> None:
+        """A stream naming no field and no stream at all say the same thing."""
+        unread = self._actuate(self._empty(), {}, {})
+        silent = self._actuate(
+            self._empty(), {"model": None, "effort": None, "speed": None}, {}
+        )
+
+        self.assertEqual(unread, silent)
+        self.assertEqual(UNREPORTED, unread["provenance"])
 
     def test_keeps_no_value_from_an_earlier_actuation(self) -> None:
-        profile = self._profile()
-
-        _record_actuation(
-            profile,
-            {
-                "native": {},
-                "observed": {"model": None, "effort": None, "speed": None},
-            },
+        profile = self._actuate(
+            self._profile(), {"model": None, "effort": None, "speed": None}, {}
         )
 
         self.assertEqual({}, profile["native"])
         self.assertEqual(
             {"model": None, "effort": None, "speed": None}, profile["observed"]
         )
-        self.assertEqual("incomplete", profile["provenance"])
+        self.assertEqual(UNREPORTED, profile["provenance"])
 
 
 class StateDirectoryTests(unittest.TestCase):
@@ -745,7 +802,7 @@ class RuntimeIdentityTests(unittest.TestCase):
     def test_declares_the_shape_the_record_has(self) -> None:
         # Every gate record now names the format it answered with, and a gate
         # answering with a document carries the four fields describing it.
-        self.assertEqual(15, EVIDENCE_SCHEMA_VERSION)
+        self.assertEqual(16, EVIDENCE_SCHEMA_VERSION)
 
     def test_names_both_backends_when_one_serves_both_roles(self) -> None:
         actuator = self._actuator()
