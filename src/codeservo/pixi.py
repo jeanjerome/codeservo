@@ -3,7 +3,7 @@
 Everything the controller knows about pixi lives here: the commands it runs,
 what it reads back from them, and the command a task gate becomes.
 
-Two provider facts govern this module.
+Three provider facts govern this module.
 
 `pixi lock --check` is unusable inside a run: on a workspace whose lockfile
 disagrees with the manifest it exits non-zero *and rewrites the lockfile*,
@@ -15,12 +15,20 @@ An unknown task is not an error: `pixi run` executes an unrecognized name as a
 program, so a mistyped task silently becomes a different measurement. The task
 set an environment declares is therefore read from `pixi info` and checked
 before any task runs.
+
+A missing environment is not an error either: without `--clean-env` a task runs
+on whatever interpreter the operator's shell offers, and reports a result about
+a tree it never used. `--clean-env` turns that silence into a failure, and
+`pixi install --locked` is what makes the environment exist before anything is
+measured through it.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,9 +36,26 @@ from pathlib import Path
 PROVIDER = "pixi"
 LOCKFILE = "pixi.lock"
 
+# The workspace-local provider configuration, relative to the manifest that
+# declares the workspace. `--no-config` drops the user and system files and
+# leaves this one, so it is a control input like the manifest and the lockfile.
+CONFIG_FILE = Path(".pixi") / "config.toml"
+
+# What forbids a measurement from resolving or installing. A plain `pixi run`
+# installs the environment it needs; with these three set it installs nothing,
+# fetches nothing and resolves nothing, so no gate can change the environment
+# it is measured in.
+MEASUREMENT_ENVIRONMENT = {
+    "PIXI_OFFLINE": "true",
+    "PIXI_NO_INSTALL": "true",
+    "PIXI_FROZEN": "true",
+}
+
 # The inventory resolves a lockfile; the description reads two files.
 _INVENTORY_TIMEOUT_SECONDS = 120
 _DESCRIPTION_TIMEOUT_SECONDS = 60
+# The installation may fetch every package the lockfile pins.
+_INSTALL_TIMEOUT_SECONDS = 1800
 
 
 class ProviderError(RuntimeError):
@@ -45,6 +70,18 @@ class Environment:
     platform: str
     tasks: tuple[str, ...]
     packages: list
+    prefix: str
+
+
+@dataclass(frozen=True)
+class Installation:
+    """One environment installed into the tree that will be measured."""
+
+    prefix_path: str
+    command: tuple[str, ...]
+    exit_code: int
+    duration_ms: int
+    diagnostic: str
 
 
 def _quote(value: str) -> str:
@@ -92,6 +129,40 @@ def description_command(manifest: Path) -> list[str]:
     ]
 
 
+def install_command(*, manifest: Path, environment: str) -> list[str]:
+    """The command that makes one declared environment exist.
+
+    `--locked` is what forbids resolution: on a lockfile that disagrees with
+    the manifest it exits non-zero, leaves the lockfile intact and creates no
+    environment. What it may still do is fetch the packages that lockfile
+    already pins.
+    """
+    return [
+        PROVIDER,
+        "install",
+        "--locked",
+        "--no-config",
+        "--environment",
+        environment,
+        "--manifest-path",
+        str(manifest),
+    ]
+
+
+def config_path(manifest: Path) -> Path:
+    """The workspace-local provider configuration of one manifest.
+
+    `--no-config` drops the operator's user and system configuration and reads
+    this file, so what it says is part of what a measurement ran under.
+    """
+    return manifest.parent / CONFIG_FILE
+
+
+def measurement_environment() -> dict[str, str]:
+    """The variables every measurement process runs under."""
+    return dict(MEASUREMENT_ENVIRONMENT)
+
+
 def task_command(*, manifest: Path, environment: str, task: str) -> str:
     """The command one task gate runs against the tree it measures.
 
@@ -115,7 +186,11 @@ def task_command(*, manifest: Path, environment: str, task: str) -> str:
     )
 
 
-def _capture(command: list[str], timeout_seconds: int) -> subprocess.CompletedProcess:
+def _capture(
+    command: list[str],
+    timeout_seconds: int,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(
             command,
@@ -123,6 +198,7 @@ def _capture(command: list[str], timeout_seconds: int) -> subprocess.CompletedPr
             capture_output=True,
             timeout=timeout_seconds,
             check=False,
+            env=env,
         )
     except OSError as exc:
         raise ProviderError(
@@ -163,7 +239,9 @@ def _inventory(manifest: Path, lock_path: str) -> list:
     return document
 
 
-def _description(manifest: Path, environment: str) -> tuple[str, str, tuple[str, ...]]:
+def _description(
+    manifest: Path, environment: str
+) -> tuple[str, str, tuple[str, ...], str]:
     completed = _capture(description_command(manifest), _DESCRIPTION_TIMEOUT_SECONDS)
     try:
         document = json.loads(completed.stdout)
@@ -173,9 +251,7 @@ def _description(manifest: Path, environment: str) -> tuple[str, str, tuple[str,
             f" of {manifest.name}: {exc}"
         ) from exc
     declared = {
-        str(item.get("name")): tuple(
-            sorted(str(task) for task in item.get("tasks", []))
-        )
+        str(item.get("name")): item
         for item in document.get("environments_info", [])
         if isinstance(item, dict)
     }
@@ -184,13 +260,66 @@ def _description(manifest: Path, environment: str) -> tuple[str, str, tuple[str,
             f"execution environment: {PROVIDER} declares no environment"
             f" {environment}"
         )
-    # Only these three facts are read. The cache directory, the credentials
+    selected = declared[environment]
+    prefix = str(selected.get("prefix", "")).strip()
+    if not prefix:
+        raise ProviderError(
+            f"execution environment: {PROVIDER} reports no directory for"
+            f" environment {environment}"
+        )
+    # Only these four facts are read. The cache directory, the credentials
     # location, the configuration locations and the global directories the
     # description also carries are the operator's, not the run's.
     return (
         str(document.get("version", "unknown")),
         str(document.get("platform", "unknown")),
-        declared[environment],
+        tuple(sorted(str(task) for task in selected.get("tasks", []))),
+        prefix,
+    )
+
+
+def environment_prefix(*, manifest: Path, environment: str) -> str:
+    """The directory the provider itself reports for one environment.
+
+    Asked of the provider rather than assembled from the manifest, so what the
+    controller checks for and what the provider would create are the same
+    location by construction.
+    """
+    return _description(manifest, environment)[3]
+
+
+def _installing_environment() -> dict[str, str]:
+    """The environment the installation runs under.
+
+    The three measurement variables are dropped from what the controller
+    inherited: `PIXI_NO_INSTALL` or `PIXI_FROZEN` coming from the operator's
+    shell would turn the installation into a no-op that still exits zero, and
+    `PIXI_OFFLINE` would forbid fetching what the lockfile pins.
+    """
+    environment = os.environ.copy()
+    for variable in MEASUREMENT_ENVIRONMENT:
+        environment.pop(variable, None)
+    return environment
+
+
+def install(*, manifest: Path, environment: str) -> Installation:
+    """Make one declared environment exist, without resolving anything.
+
+    The directory is read from the provider before the installation runs, so a
+    failed installation still records the location it was refused for.
+    """
+    prefix = environment_prefix(manifest=manifest, environment=environment)
+    command = install_command(manifest=manifest, environment=environment)
+    started = time.monotonic()
+    completed = _capture(
+        command, _INSTALL_TIMEOUT_SECONDS, env=_installing_environment()
+    )
+    return Installation(
+        prefix_path=prefix,
+        command=tuple(command),
+        exit_code=completed.returncode,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        diagnostic=_diagnostic(completed),
     )
 
 
@@ -203,7 +332,7 @@ def freeze(
     lockfile ends the run before the description is even asked for.
     """
     packages = _inventory(manifest, lock_path)
-    version, platform, declared = _description(manifest, environment)
+    version, platform, declared, prefix = _description(manifest, environment)
     missing = sorted(set(tasks) - set(declared))
     if missing:
         raise ProviderError(
@@ -211,5 +340,9 @@ def freeze(
             f" task {', '.join(missing)}"
         )
     return Environment(
-        version=version, platform=platform, tasks=declared, packages=packages
+        version=version,
+        platform=platform,
+        tasks=declared,
+        packages=packages,
+        prefix=prefix,
     )

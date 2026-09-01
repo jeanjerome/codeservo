@@ -42,7 +42,7 @@ class ControlFailure(RuntimeError):
 
 
 # The shape of evidence.json. The observation bundle versions its own shape.
-EVIDENCE_SCHEMA_VERSION = 11
+EVIDENCE_SCHEMA_VERSION = 12
 
 # A run that declares no execution provider measures through whatever the host
 # offers, and says so.
@@ -265,11 +265,13 @@ def _resolved_environment(
     run_dir: Path,
     execution: ExecutionEnvironment,
     tasks: tuple[str, ...],
-) -> dict:
+) -> tuple[dict, str]:
     """What the lockfile resolves to, and the tasks the environment declares.
 
     The inventory is stored under the run record, so the packages a
-    measurement ran against stay readable from the evidence alone.
+    measurement ran against stay readable from the evidence alone. The
+    directory the provider reports for this tree is returned next to it and
+    never recorded: it is the operator's location, not a fact about the run.
     """
     resolved = pixi.freeze(
         manifest=repo / execution.manifest,
@@ -280,7 +282,7 @@ def _resolved_environment(
     relative = "environment/packages.json"
     packages_path = run_dir / relative
     write_json(packages_path, resolved.packages)
-    return {
+    record = {
         "provider_version": resolved.version,
         "platform": resolved.platform,
         "declared_tasks": list(resolved.tasks),
@@ -288,6 +290,77 @@ def _resolved_environment(
         "packages_sha256": sha256_file(packages_path),
         "package_count": len(resolved.packages),
     }
+    return record, resolved.prefix
+
+
+def _optional_sha256(path: Path) -> str | None:
+    """The digest of a file, or null where there is no file."""
+    return sha256_file(path) if path.is_file() else None
+
+
+def _candidate_digests(worktree: Path, execution: ExecutionEnvironment) -> dict:
+    """The three provider files of the candidate, as they are right now.
+
+    A file that is gone digests to null, so a deleted manifest, lockfile or
+    configuration reads as a change rather than as an unreadable record.
+    """
+    manifest = worktree / execution.manifest
+    return {
+        "manifest_sha256": _optional_sha256(manifest),
+        "lock_sha256": _optional_sha256(worktree / execution.lock),
+        "config_sha256": _optional_sha256(pixi.config_path(manifest)),
+    }
+
+
+def _prepare_candidate(
+    worktree: Path, execution: ExecutionEnvironment
+) -> tuple[dict, str]:
+    """Install the declared environment into the isolated checkout.
+
+    The candidate is the only tree the controller prepares. The digests are
+    taken after the installation, so they describe the workspace every later
+    measurement runs against, and are what each recomputation compares to.
+    """
+    installation = pixi.install(
+        manifest=worktree / execution.manifest, environment=execution.environment
+    )
+    record = {
+        "prefix_path": installation.prefix_path,
+        "command": list(installation.command),
+        "exit_code": installation.exit_code,
+        "duration_ms": installation.duration_ms,
+        **_candidate_digests(worktree, execution),
+        "unchanged_at_end": True,
+    }
+    return record, installation.diagnostic
+
+
+def _changed_environment(
+    environment: dict, worktree: Path, execution: ExecutionEnvironment | None
+) -> list[str]:
+    """Provider files of the candidate that moved since it was prepared.
+
+    Every measurement runs under variables forbidding it to resolve or
+    install, so a manifest, lockfile or provider configuration that differs
+    from what was prepared is a control failure of the run and not a failing
+    gate: what was frozen is no longer what was measured.
+    """
+    candidate = environment.get("candidate")
+    if execution is None or candidate is None:
+        return []
+    named = {
+        "manifest_sha256": execution.manifest,
+        "lock_sha256": execution.lock,
+        "config_sha256": pixi.config_path(Path(execution.manifest)).as_posix(),
+    }
+    current = _candidate_digests(worktree, execution)
+    reasons = [
+        f"execution environment: {named[field]} changed during the run"
+        for field, digest in current.items()
+        if digest != candidate[field]
+    ]
+    candidate["unchanged_at_end"] = not reasons
+    return reasons
 
 
 def _review_schema_path(source_root: Path | None = None) -> Path:
@@ -546,14 +619,31 @@ def run(
                 repo, base_commit, constitution.execution
             )
             persist()
-            evidence["environment"].update(
-                _resolved_environment(
-                    repo, run_dir, constitution.execution, declared_tasks
-                )
+            resolved, source_prefix = _resolved_environment(
+                repo, run_dir, constitution.execution, declared_tasks
             )
+            evidence["environment"].update(resolved)
         except (ControlFailure, pixi.ProviderError) as exc:
             return finish("REJECTED", [str(exc)])
         persist()
+
+        # The source repository is the operator's tree: the controller prepares
+        # the candidate and never this one, and writes nothing here. A baseline
+        # gate that measures through the provider therefore needs an
+        # environment that is already installed, and the run says so rather
+        # than creating one.
+        measured_at_source = any(
+            gate.task is not None for gate in baseline_gates(constitution)
+        )
+        if measured_at_source and not Path(source_prefix).is_dir():
+            return finish(
+                "REJECTED",
+                [
+                    "execution environment: environment"
+                    f" {constitution.execution.environment} is not installed in"
+                    f" the source repository: {source_prefix} does not exist"
+                ],
+            )
 
     baseline = run_gates(
         repo=repo,
@@ -572,6 +662,35 @@ def run(
     create_worktree(repo, worktree, base_commit)
     evidence["worktree"] = str(worktree)
     persist()
+
+    # The candidate is prepared once the checkout exists and before anything
+    # actuates in it, so the first measurement already runs on the environment
+    # the lockfile pins instead of on whatever the host happens to offer.
+    if constitution.execution is not None:
+        try:
+            candidate, diagnostic = _prepare_candidate(worktree, constitution.execution)
+        except pixi.ProviderError as exc:
+            return finish("REJECTED", [str(exc)])
+        evidence["environment"]["candidate"] = candidate
+        persist()
+        environment_name = constitution.execution.environment
+        if candidate["exit_code"] != 0:
+            return finish(
+                "REJECTED",
+                [
+                    f"execution environment: installing {environment_name} into"
+                    f" the candidate failed: {diagnostic}"
+                ],
+            )
+        if not Path(candidate["prefix_path"]).is_dir():
+            return finish(
+                "REJECTED",
+                [
+                    f"execution environment: installing {environment_name}"
+                    f" created no environment at {candidate['prefix_path']}"
+                ],
+            )
+
     feedback = ""
     accepted_quick: list[dict] | None = None
 
@@ -639,14 +758,17 @@ def run(
         }
         record["quick_gates"] = quick
 
-        altered = _altered_sensors(sensor_paths, sensor_evidence)
-        if altered:
+        control_failures = [
+            f"gate altered the frozen sensor {name}"
+            for name in _altered_sensors(sensor_paths, sensor_evidence)
+        ]
+        control_failures += _changed_environment(
+            evidence["environment"], worktree, constitution.execution
+        )
+        if control_failures:
             evidence["iterations"].append(record)
             persist()
-            return finish(
-                "REJECTED",
-                [f"gate altered the frozen sensor {name}" for name in altered],
-            )
+            return finish("REJECTED", control_failures)
 
         iteration_passed = scope.passed and all(g["passed"] for g in quick)
         if iteration_passed:
@@ -691,6 +813,9 @@ def run(
         f"gate altered the frozen sensor {name}"
         for name in _altered_sensors(sensor_paths, sensor_evidence)
     ]
+    reasons += _changed_environment(
+        evidence["environment"], worktree, constitution.execution
+    )
     if not all(g["passed"] for g in full):
         reasons.append("full gate failed")
     if reasons:

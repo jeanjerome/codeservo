@@ -33,6 +33,9 @@ class ProviderCommandTests(unittest.TestCase):
         commands = [
             pixi.inventory_command(Path("/tree/pyproject.toml")),
             pixi.description_command(Path("/tree/pyproject.toml")),
+            pixi.install_command(
+                manifest=Path("/tree/pyproject.toml"), environment="default"
+            ),
             pixi.task_command(
                 manifest=Path("/tree/pyproject.toml"),
                 environment="default",
@@ -41,6 +44,46 @@ class ProviderCommandTests(unittest.TestCase):
         ]
 
         self.assertTrue(all("lock" not in command for command in commands))
+
+    def test_installs_from_the_lockfile_and_resolves_nothing(self) -> None:
+        self.assertEqual(
+            [
+                "pixi",
+                "install",
+                "--locked",
+                "--no-config",
+                "--environment",
+                "default",
+                "--manifest-path",
+                "/tree/pyproject.toml",
+            ],
+            pixi.install_command(
+                manifest=Path("/tree/pyproject.toml"), environment="default"
+            ),
+        )
+
+    def test_names_the_workspace_configuration_of_a_manifest(self) -> None:
+        self.assertEqual(
+            Path("/tree/.pixi/config.toml"),
+            pixi.config_path(Path("/tree/pyproject.toml")),
+        )
+        self.assertEqual(
+            Path("/tree/sub/.pixi/config.toml"),
+            pixi.config_path(Path("/tree/sub/pyproject.toml")),
+        )
+
+    def test_a_measurement_can_neither_resolve_nor_install(self) -> None:
+        self.assertEqual(
+            {
+                "PIXI_OFFLINE": "true",
+                "PIXI_NO_INSTALL": "true",
+                "PIXI_FROZEN": "true",
+            },
+            pixi.measurement_environment(),
+        )
+        # A caller that edits what it was handed cannot change the next one.
+        pixi.measurement_environment()["PIXI_FROZEN"] = "false"
+        self.assertEqual("true", pixi.measurement_environment()["PIXI_FROZEN"])
 
     def test_describes_without_reading_configuration(self) -> None:
         self.assertEqual(
@@ -88,6 +131,111 @@ class ProviderCommandTests(unittest.TestCase):
         self.assertTrue(command.endswith("""'a'\\''; touch pwned; '\\'''"""))
 
 
+class ProviderInstallTests(unittest.TestCase):
+    """Making one environment exist, and refusing to pretend it does."""
+
+    def _workspace(self, **overrides) -> Path:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        repo = root / "repo"
+        bin_dir = root / "bin"
+        repo.mkdir()
+        bin_dir.mkdir()
+        write_provider(bin_dir, repo, installed=False, **overrides)
+        path = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+        patcher = patch.dict(os.environ, {"PATH": path}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return repo
+
+    def _install(self, repo: Path, environment: str = "default") -> pixi.Installation:
+        return pixi.install(
+            manifest=repo / "pyproject.toml", environment=environment
+        )
+
+    def test_creates_the_directory_the_provider_reports(self) -> None:
+        repo = self._workspace()
+        prefix = repo / ".pixi" / "envs" / "default"
+        self.assertFalse(prefix.exists())
+
+        installed = self._install(repo)
+
+        self.assertEqual(str(prefix), installed.prefix_path)
+        self.assertTrue(prefix.is_dir())
+        self.assertEqual(0, installed.exit_code)
+        self.assertGreaterEqual(installed.duration_ms, 0)
+        self.assertEqual(
+            (
+                "pixi",
+                "install",
+                "--locked",
+                "--no-config",
+                "--environment",
+                "default",
+                "--manifest-path",
+                str(repo / "pyproject.toml"),
+            ),
+            installed.command,
+        )
+
+    def test_reads_the_directory_from_the_provider_and_not_from_the_manifest(
+        self,
+    ) -> None:
+        repo = self._workspace()
+
+        self.assertEqual(
+            str(repo / ".pixi" / "envs" / "gates"),
+            pixi.environment_prefix(
+                manifest=repo / "pyproject.toml", environment="gates"
+            ),
+        )
+
+    def test_installs_without_the_variables_that_would_make_it_a_no_op(self) -> None:
+        """The three set would install nothing and still report success."""
+        repo = self._workspace()
+
+        with patch.dict(
+            os.environ,
+            {
+                "PIXI_OFFLINE": "true",
+                "PIXI_NO_INSTALL": "true",
+                "PIXI_FROZEN": "true",
+            },
+            clear=False,
+        ):
+            installed = self._install(repo)
+
+        self.assertEqual(0, installed.exit_code)
+        self.assertTrue(Path(installed.prefix_path).is_dir())
+
+    def test_reports_an_installation_the_provider_refused(self) -> None:
+        repo = self._workspace()
+
+        with patch.dict(
+            os.environ, {"CODESERVO_TEST_PIXI_INSTALL_FAILS": "1"}, clear=False
+        ):
+            installed = self._install(repo)
+
+        self.assertEqual(1, installed.exit_code)
+        self.assertIn("failed to install default", installed.diagnostic)
+        # The directory it was refused for is still the one it reported.
+        self.assertEqual(str(repo / ".pixi" / "envs" / "default"), installed.prefix_path)
+        self.assertFalse(Path(installed.prefix_path).exists())
+
+    def test_a_disagreeing_lockfile_installs_nothing(self) -> None:
+        repo = self._workspace(stale_lock=True)
+        before = (repo / "pixi.lock").read_bytes()
+
+        installed = self._install(repo)
+
+        self.assertEqual(1, installed.exit_code)
+        self.assertIn("lock file not up-to-date", installed.diagnostic)
+        self.assertFalse(Path(installed.prefix_path).exists())
+        # It refuses without rewriting what it refuses.
+        self.assertEqual(before, (repo / "pixi.lock").read_bytes())
+
+
 class ProviderFreezeTests(unittest.TestCase):
     """One resolved environment, or a refusal to measure through it."""
 
@@ -121,6 +269,7 @@ class ProviderFreezeTests(unittest.TestCase):
 
         resolved = self._freeze(repo)
 
+        self.assertEqual(str(repo / ".pixi" / "envs" / "default"), resolved.prefix)
         self.assertEqual("0.77.1-test", resolved.version)
         self.assertEqual("test-platform", resolved.platform)
         self.assertEqual((PIXI_TASK,), resolved.tasks)
@@ -177,7 +326,8 @@ class ProviderFreezeTests(unittest.TestCase):
             "        'version': '0.77.1-test',\n"
             "        'platform': 'test-platform',\n"
             "        'environments_info': ["
-            f"{{'name': 'default', 'tasks': ['{PIXI_TASK}']}}],\n"
+            f"{{'name': 'default', 'tasks': ['{PIXI_TASK}'],"
+            " 'prefix': '/tree/.pixi/envs/default'}],\n"
             "    },\n"
             "    sys.stdout,\n"
             ")\n"

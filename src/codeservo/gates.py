@@ -46,17 +46,20 @@ def run_gates(
         sensor_path = sensors.get(gate.name)
         if gate.sensor is not None and sensor_path is None:
             raise ValueError(f"missing frozen sensor for gate {gate.name}")
+        # Every gate of a run that declares a provider is a measurement, task
+        # gate or not: none of them may resolve or install, so none of them can
+        # change the environment they are all measured in. A run declaring no
+        # provider sets nothing.
+        gate_env = pixi.measurement_environment() if execution is not None else {}
+        if sensor_path is not None:
+            gate_env["CODESERVO_SENSOR_PATH"] = str(sensor_path)
         result = run_command(
             name=gate.name,
             command=gate_command(gate, tree=repo, execution=execution),
             cwd=repo,
             out_dir=out_dir,
             timeout_seconds=gate.timeout_seconds,
-            env=(
-                {"CODESERVO_SENSOR_PATH": str(sensor_path)}
-                if sensor_path is not None
-                else None
-            ),
+            env=gate_env or None,
             unset_env=("CODESERVO_SENSOR_PATH",),
             isolation=isolation,
         )

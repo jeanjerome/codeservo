@@ -100,6 +100,54 @@ class GateEnvironmentTests(unittest.TestCase):
 
             self.assertTrue(all(result["passed"] for result in results))
 
+    def test_no_gate_of_a_provider_run_can_resolve_or_install(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            sensor = root / "frozen-sensor"
+            sensor.mkdir()
+            forbidden = (
+                'test xtruetruetrue'
+                ' = "x$PIXI_OFFLINE$PIXI_NO_INSTALL$PIXI_FROZEN"'
+            )
+            gates = (
+                Gate(name="ordinary", phase="quick", command=forbidden),
+                Gate(
+                    name="acceptance",
+                    phase="quick",
+                    command=f'{forbidden} && test -n "$CODESERVO_SENSOR_PATH"',
+                    baseline=False,
+                    sensor="example/acceptance",
+                ),
+            )
+
+            results = run_gates(
+                repo=root,
+                gates=gates,
+                out_dir=root / "logs",
+                sensor_paths={"acceptance": sensor},
+                execution=EXECUTION,
+            )
+
+            self.assertTrue(all(result["passed"] for result in results))
+
+    def test_a_run_without_a_provider_sets_none_of_them(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gate = Gate(
+                name="ordinary",
+                phase="quick",
+                command='test x = "x$PIXI_OFFLINE$PIXI_NO_INSTALL$PIXI_FROZEN"',
+            )
+
+            with patch.dict(os.environ):
+                for variable in ("PIXI_OFFLINE", "PIXI_NO_INSTALL", "PIXI_FROZEN"):
+                    os.environ.pop(variable, None)
+                results = run_gates(
+                    repo=root, gates=(gate,), out_dir=root / "logs", execution=None
+                )
+
+            self.assertTrue(results[0]["passed"])
+
     def test_runs_a_task_gate_through_the_provider(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

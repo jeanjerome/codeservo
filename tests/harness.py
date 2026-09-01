@@ -186,6 +186,7 @@ def build_case(
     constitution_text: str | None = None,
     provider: bool = False,
     stale_lock: bool = False,
+    source_environment: bool = True,
 ) -> Case:
     repo = root / "repo"
     state_dir = root / "state"
@@ -201,7 +202,9 @@ def build_case(
     (repo / ".gitignore").write_text("__pycache__/\n*.pyc\n", encoding="utf-8")
     (repo / "app.py").write_text("def value():\n    return 0\n", encoding="utf-8")
     if provider:
-        write_provider(bin_dir, repo, stale_lock=stale_lock)
+        write_provider(
+            bin_dir, repo, stale_lock=stale_lock, installed=source_environment
+        )
     (repo / ".codeservo" / "constitution.toml").write_text(
         constitution_text if constitution_text is not None else constitution(),
         encoding="utf-8",
@@ -232,7 +235,7 @@ def commit_repository(repo: Path, message: str = "baseline") -> None:
 
 # --- Execution provider fixtures ------------------------------------------
 #
-# A stand-in for pixi. It answers the three commands the controller runs, and
+# A stand-in for pixi. It answers the four commands the controller runs, and
 # refuses the one it must never run, so a run can be driven end to end without
 # an installed provider or a solved environment.
 
@@ -265,8 +268,13 @@ subcommand = args[0] if args else ""
 
 log = os.environ.get("CODESERVO_TEST_PIXI_LOG")
 if log:
+    seen = {
+        name: os.environ[name]
+        for name in ("PIXI_OFFLINE", "PIXI_NO_INSTALL", "PIXI_FROZEN")
+        if name in os.environ
+    }
     with open(log, "a", encoding="utf-8") as stream:
-        stream.write(json.dumps(args) + "\\n")
+        stream.write(json.dumps({"args": args, "env": seen}) + "\\n")
 
 
 def flag(name, default=""):
@@ -301,6 +309,10 @@ def environments():
     return ["default", *workspace().get("environments", {})]
 
 
+def prefix_of(environment):
+    return manifest.parent / ".pixi" / "envs" / environment
+
+
 if subcommand == "lock":
     sys.stderr.write("pixi lock rewrites the lockfile and must never run\\n")
     raise SystemExit(97)
@@ -320,12 +332,41 @@ if subcommand == "info":
         "version": "0.77.1-test",
         "platform": "test-platform",
         "environments_info": [
-            {"name": name, "tasks": sorted(tasks_of(name))}
+            {
+                "name": name,
+                "tasks": sorted(tasks_of(name)),
+                "prefix": str(prefix_of(name)),
+            }
             for name in environments()
         ],
     }
     description.update(OPERATOR)
     json.dump(description, sys.stdout)
+    raise SystemExit(0)
+
+if subcommand == "install":
+    require("--locked", "--no-config", "--environment", "--manifest-path")
+    environment = flag("--environment")
+    if environment not in environments():
+        sys.stderr.write("unknown environment " + environment + "\\n")
+        raise SystemExit(1)
+    if os.environ.get("CODESERVO_TEST_PIXI_INSTALL_FAILS"):
+        sys.stderr.write("Error:   x failed to install " + environment + "\\n")
+        raise SystemExit(1)
+    lock = manifest.parent / "pixi.lock"
+    if "stale" in lock.read_text(encoding="utf-8"):
+        # It refuses without rewriting what it refuses, and creates nothing.
+        sys.stderr.write("Error:   x lock file not up-to-date with the workspace\\n")
+        raise SystemExit(1)
+    if os.environ.get("PIXI_NO_INSTALL") or os.environ.get("PIXI_FROZEN"):
+        # A no-op that still reports success.
+        raise SystemExit(0)
+    prefix_of(environment).mkdir(parents=True, exist_ok=True)
+    # The environment directory ignores itself, whatever the repository says.
+    (manifest.parent / ".pixi" / ".gitignore").write_text(
+        "*\\n!config.toml\\n", encoding="utf-8"
+    )
+    print("installed " + environment)
     raise SystemExit(0)
 
 if subcommand == "run":
@@ -334,6 +375,11 @@ if subcommand == "run":
     if environment not in environments():
         sys.stderr.write("unknown environment " + environment + "\\n")
         raise SystemExit(1)
+    if not prefix_of(environment).is_dir():
+        # `--clean-env` on a missing environment fails loudly instead of
+        # silently measuring the operator's ambient interpreter.
+        sys.stderr.write("python: command not found\\n")
+        raise SystemExit(127)
     task = args[-1]
     # An unknown task is not an error: the name is executed as a program.
     command = tasks_of(environment).get(task, task)
@@ -366,10 +412,27 @@ def pixi_lock(*, stale: bool = False) -> str:
     return "version: 6\n" + ("environments: stale\n" if stale else "environments: {}\n")
 
 
-def write_provider(bin_dir: Path, repo: Path, *, stale_lock: bool = False) -> None:
-    """Install the stand-in provider and the workspace it answers about."""
+def write_provider(
+    bin_dir: Path,
+    repo: Path,
+    *,
+    stale_lock: bool = False,
+    installed: bool = True,
+) -> None:
+    """Install the stand-in provider and the workspace it answers about.
+
+    `installed` is the operator having prepared the source repository: the
+    controller never installs there, so a baseline task gate finds the
+    environment or the run refuses to measure through it.
+    """
     (repo / "pyproject.toml").write_text(pixi_manifest(), encoding="utf-8")
     (repo / "pixi.lock").write_text(pixi_lock(stale=stale_lock), encoding="utf-8")
+    if installed:
+        (repo / ".pixi" / "envs" / "default").mkdir(parents=True, exist_ok=True)
+        (repo / ".pixi" / "envs" / "gates").mkdir(parents=True, exist_ok=True)
+        (repo / ".pixi" / ".gitignore").write_text(
+            "*\n!config.toml\n", encoding="utf-8"
+        )
     provider = bin_dir / "pixi"
     provider.write_text(f"#!{sys.executable}\n" + _PIXI_SCRIPT, encoding="utf-8")
     provider.chmod(provider.stat().st_mode | stat.S_IXUSR)

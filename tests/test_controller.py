@@ -15,6 +15,8 @@ from codeservo.controller import (
     NO_ENVIRONMENT,
     ControlFailure,
     _altered_sensors,
+    _candidate_digests,
+    _changed_environment,
     _command_version,
     _frozen_environment,
     _inference,
@@ -339,10 +341,13 @@ class ExecutionEnvironmentTests(unittest.TestCase):
         root, repo, _ = self._repo()
         run_dir = root / "run"
 
-        resolved = _resolved_environment(
+        resolved, prefix = _resolved_environment(
             repo, run_dir, self._execution(), (PIXI_TASK,)
         )
 
+        # The directory the provider reports is returned, never recorded.
+        self.assertEqual(str(repo / ".pixi" / "envs" / "default"), prefix)
+        self.assertNotIn("prefix", resolved)
         stored = run_dir / "environment" / "packages.json"
         self.assertEqual("environment/packages.json", resolved["packages_path"])
         self.assertEqual(PIXI_PACKAGES, json.loads(stored.read_text()))
@@ -355,7 +360,7 @@ class ExecutionEnvironmentTests(unittest.TestCase):
     def test_records_nothing_the_description_says_about_the_operator(self) -> None:
         root, repo, _ = self._repo()
 
-        resolved = _resolved_environment(
+        resolved, _ = _resolved_environment(
             repo, root / "run", self._execution(), (PIXI_TASK,)
         )
 
@@ -364,6 +369,85 @@ class ExecutionEnvironmentTests(unittest.TestCase):
             self.assertNotIn(private, serialized)
             self.assertNotIn(private, resolved)
         self.assertNotIn("/operator", serialized)
+
+
+class CandidateEnvironmentTests(unittest.TestCase):
+    """What the candidate was prepared with, rechecked after each phase."""
+
+    def _candidate(self) -> tuple[Path, dict, ExecutionEnvironment]:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        worktree = Path(temp.name)
+        (worktree / "pyproject.toml").write_text("[tool.pixi]\n", encoding="utf-8")
+        (worktree / "pixi.lock").write_text("version: 6\n", encoding="utf-8")
+        execution = ExecutionEnvironment(
+            provider="pixi",
+            manifest="pyproject.toml",
+            lock="pixi.lock",
+            environment="default",
+        )
+        environment = {
+            "provider": "pixi",
+            "candidate": {
+                "prefix_path": str(worktree / ".pixi" / "envs" / "default"),
+                "command": ["pixi", "install"],
+                "exit_code": 0,
+                "duration_ms": 1,
+                **_candidate_digests(worktree, execution),
+                "unchanged_at_end": True,
+            },
+        }
+        return worktree, environment, execution
+
+    def test_a_workspace_nobody_touched_is_unchanged(self) -> None:
+        worktree, environment, execution = self._candidate()
+        candidate = environment["candidate"]
+
+        self.assertEqual([], _changed_environment(environment, worktree, execution))
+        self.assertIsNone(candidate["config_sha256"])
+        self.assertTrue(candidate["unchanged_at_end"])
+
+    def test_names_the_lockfile_a_run_rewrote(self) -> None:
+        worktree, environment, execution = self._candidate()
+        (worktree / "pixi.lock").write_text("version: 6\n# resolved\n", encoding="utf-8")
+
+        reasons = _changed_environment(environment, worktree, execution)
+
+        self.assertEqual(
+            ["execution environment: pixi.lock changed during the run"], reasons
+        )
+        self.assertFalse(environment["candidate"]["unchanged_at_end"])
+
+    def test_names_a_provider_configuration_that_appeared(self) -> None:
+        worktree, environment, execution = self._candidate()
+        configuration = worktree / ".pixi" / "config.toml"
+        configuration.parent.mkdir(parents=True)
+        configuration.write_text("detached-environments = true\n", encoding="utf-8")
+
+        reasons = _changed_environment(environment, worktree, execution)
+
+        self.assertEqual(
+            ["execution environment: .pixi/config.toml changed during the run"],
+            reasons,
+        )
+        self.assertFalse(environment["candidate"]["unchanged_at_end"])
+
+    def test_a_manifest_that_is_gone_is_a_change_and_not_a_crash(self) -> None:
+        worktree, environment, execution = self._candidate()
+        (worktree / "pyproject.toml").unlink()
+
+        reasons = _changed_environment(environment, worktree, execution)
+
+        self.assertEqual(
+            ["execution environment: pyproject.toml changed during the run"], reasons
+        )
+
+    def test_a_run_declaring_no_provider_has_nothing_to_recompute(self) -> None:
+        worktree, _, _ = self._candidate()
+
+        self.assertEqual(
+            [], _changed_environment(dict(NO_ENVIRONMENT), worktree, None)
+        )
 
 
 class ObservationBundleTests(unittest.TestCase):
@@ -534,9 +618,9 @@ class RuntimeIdentityTests(unittest.TestCase):
         return Path(codeservo.__file__).resolve().parents[2]
 
     def test_declares_the_shape_the_record_has(self) -> None:
-        # The execution environment a run measures through, frozen next to the
-        # inference profiles and the confinement its two backends run under.
-        self.assertEqual(11, EVIDENCE_SCHEMA_VERSION)
+        # The environment the candidate was prepared with, next to the
+        # declaration and the digests the previous shape already froze.
+        self.assertEqual(12, EVIDENCE_SCHEMA_VERSION)
 
     def test_names_both_backends_when_one_serves_both_roles(self) -> None:
         actuator = self._actuator()
