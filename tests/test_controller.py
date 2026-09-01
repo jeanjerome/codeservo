@@ -678,9 +678,10 @@ class RuntimeIdentityTests(unittest.TestCase):
         return Path(codeservo.__file__).resolve().parents[2]
 
     def test_declares_the_shape_the_record_has(self) -> None:
-        # One isolation document per measured tree, and the state of the
-        # candidate after the full gates, next to what the previous shape held.
-        self.assertEqual(13, EVIDENCE_SCHEMA_VERSION)
+        # The block naming the run journal, next to what the previous shape
+        # held: one isolation document per measured tree, and the state of the
+        # candidate after the full gates.
+        self.assertEqual(14, EVIDENCE_SCHEMA_VERSION)
 
     def test_names_both_backends_when_one_serves_both_roles(self) -> None:
         actuator = self._actuator()

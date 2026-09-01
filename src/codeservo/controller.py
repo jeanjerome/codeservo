@@ -11,6 +11,7 @@ from pathlib import Path
 from . import __version__, pixi
 from .actuator import Actuator, ActuatorError, default_actuator_name, load_actuator
 from .config import load_constitution
+from .events import JOURNAL_NAME, Journal
 from .evidence import (
     relative_evidence_paths,
     sha256_file,
@@ -42,7 +43,7 @@ class ControlFailure(RuntimeError):
 
 
 # The shape of evidence.json. The observation bundle versions its own shape.
-EVIDENCE_SCHEMA_VERSION = 13
+EVIDENCE_SCHEMA_VERSION = 14
 
 # A run that declares no execution provider measures through whatever the host
 # offers, and says so.
@@ -488,6 +489,20 @@ def _gate_feedback(results: list[dict]) -> str:
     return "\n\n".join(chunks)
 
 
+def _record_gates(journal: Journal, phase: str, results: list[dict]) -> None:
+    """One event per gate of one phase, in the order the phase measured them."""
+    for result in results:
+        journal.record(
+            "gate.finished",
+            {
+                "phase": phase,
+                "name": result["name"],
+                "passed": result["passed"],
+                "result_sha256": result["result_sha256"],
+            },
+        )
+
+
 def _review_decision(review: dict, task_criteria: dict[str, str], blocking: tuple[str, ...]) -> list[str]:
     reasons: list[str] = []
     seen: dict[str, str] = {}
@@ -562,12 +577,37 @@ def run(
     run_dir = state_root / "runs" / repo.name / run_id
     worktree = state_root / "worktrees" / repo.name / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
+    # The journal opens with the run directory and closes on the decision:
+    # every transition is on the file system before the run acts on it.
+    journal = Journal(run_dir / JOURNAL_NAME, run_id)
+    journal.record(
+        "run.started",
+        {"base_commit": base_commit, "max_iterations": max_iterations},
+    )
 
     frozen_task = run_dir / "TASK.md"
     frozen_constitution = run_dir / "constitution.toml"
     frozen_task.write_text(task.raw_text, encoding="utf-8")
     frozen_constitution.write_text(constitution.raw_text, encoding="utf-8")
     sensor_paths, sensor_evidence = _freeze_sensors(state_root, run_dir, constitution)
+    journal.record(
+        "inputs.frozen",
+        {
+            "task_sha256": sha256_text(task.raw_text),
+            "constitution_sha256": sha256_text(constitution.raw_text),
+            "sensors": sorted(sensor_evidence),
+        },
+    )
+    journal.record(
+        "inference.profiles_frozen",
+        {
+            role: {
+                **profile["requested"],
+                "validation": profile["validation"]["status"],
+            }
+            for role, profile in inference.items()
+        },
+    )
     # The actuator owns the candidate's files and nothing else about it: the
     # checkout's Git metadata and the environment the controller installed
     # into it stay readable, so every command it runs still works, and stay
@@ -616,10 +656,14 @@ def run(
         "decision": {"reasons": []},
         "run_dir": str(run_dir),
         "worktree": None,
+        "events": journal.summary(),
     }
     evidence_path = run_dir / "evidence.json"
 
     def persist() -> None:
+        # The block describes the journal as it stands when the document is
+        # written, so a finished record describes the complete journal.
+        evidence["events"] = journal.summary()
         write_json(evidence_path, relative_evidence_paths(evidence, run_dir))
 
     persist()
@@ -635,6 +679,12 @@ def run(
         evidence["patch_sha256"] = sha256_text(patch) if patch else None
         evidence["run_dir"] = str(run_dir)
         evidence["worktree"] = str(worktree) if worktree.exists() else None
+        # The decision closes the chain before the record states it, so a
+        # status edited afterwards no longer matches the journal.
+        journal.record(
+            "decision.recorded", {"status": status, "reasons": list(reasons)}
+        )
+        journal.record("run.finished", {"status": status})
         persist()
         return evidence
 
@@ -670,7 +720,23 @@ def run(
             )
             evidence["environment"].update(resolved)
         except (ControlFailure, pixi.ProviderError) as exc:
+            journal.record(
+                "environment.validated",
+                {
+                    "provider": constitution.execution.provider,
+                    "environment": constitution.execution.environment,
+                    "passed": False,
+                },
+            )
             return finish("REJECTED", [str(exc)])
+        journal.record(
+            "environment.validated",
+            {
+                "provider": constitution.execution.provider,
+                "environment": constitution.execution.environment,
+                "passed": True,
+            },
+        )
         persist()
 
         # The source repository is the operator's tree: the controller prepares
@@ -699,6 +765,14 @@ def run(
         execution=constitution.execution,
     )
     evidence["baseline"] = baseline
+    _record_gates(journal, "baseline", baseline)
+    journal.record(
+        "baseline.finished",
+        {
+            "passed": all(g["passed"] for g in baseline),
+            "gate_count": len(baseline),
+        },
+    )
     persist()
     if not all(g["passed"] for g in baseline):
         return finish("REJECTED", ["baseline gate failed"])
@@ -707,19 +781,31 @@ def run(
 
     create_worktree(repo, worktree, base_commit)
     evidence["worktree"] = str(worktree)
+    journal.record("workspace.ready", {"base_commit": base_commit})
     persist()
 
     # The candidate is prepared once the checkout exists and before anything
     # actuates in it, so the first measurement already runs on the environment
     # the lockfile pins instead of on whatever the host happens to offer.
     if constitution.execution is not None:
+        environment_name = constitution.execution.environment
         try:
             candidate, diagnostic = _prepare_candidate(worktree, constitution.execution)
         except pixi.ProviderError as exc:
+            journal.record(
+                "environment.prepared",
+                {"environment": environment_name, "exit_code": None},
+            )
             return finish("REJECTED", [str(exc)])
         evidence["environment"]["candidate"] = candidate
+        journal.record(
+            "environment.prepared",
+            {
+                "environment": environment_name,
+                "exit_code": candidate["exit_code"],
+            },
+        )
         persist()
-        environment_name = constitution.execution.environment
         if candidate["exit_code"] != 0:
             return finish(
                 "REJECTED",
@@ -759,6 +845,10 @@ def run(
                 "sha256": sha256_text(prompt),
             },
         }
+        journal.record(
+            "actuator.started",
+            {"iteration": iteration, "prompt_sha256": record["prompt"]["sha256"]},
+        )
         try:
             agent = backend.implement(
                 worktree=worktree,
@@ -777,7 +867,23 @@ def run(
             return finish("REJECTED", [str(exc)])
 
         record["agent"] = agent
+        journal.record(
+            "actuator.finished",
+            {
+                "iteration": iteration,
+                "exit_code": agent["exit_code"],
+                "result_sha256": agent["result_sha256"],
+            },
+        )
         _record_actuation(inference["implementer"], agent)
+        journal.record(
+            "actuator.profile_observed",
+            {
+                "iteration": iteration,
+                "model": inference["implementer"]["observed"]["model"],
+                "provenance": inference["implementer"]["provenance"],
+            },
+        )
         record["actuator_state"] = _write_patch_snapshot(
             iteration_dir / "actuator.patch", worktree, base_commit
         )
@@ -795,6 +901,7 @@ def run(
             isolation=candidate_gate_isolation,
             execution=constitution.execution,
         )
+        _record_gates(journal, "quick", quick)
         record["observed_state"] = _write_patch_snapshot(
             iteration_dir / "observed.patch", worktree, base_commit
         )
@@ -843,10 +950,15 @@ def run(
             "sha256": sha256_text(feedback),
             "text": feedback,
         }
+        journal.record(
+            "feedback.emitted",
+            {"iteration": iteration, "sha256": record["controller_feedback"]["sha256"]},
+        )
         evidence["iterations"].append(record)
         persist()
 
     if accepted_quick is None:
+        journal.record("budget.exhausted", {"max_iterations": max_iterations})
         return finish(
             "REJECTED",
             [f"quick gates did not converge within {max_iterations} iterations"],
@@ -861,6 +973,7 @@ def run(
         execution=constitution.execution,
     )
     evidence["full_gates"] = full
+    _record_gates(journal, "full", full)
     full_state = _write_patch_snapshot(run_dir / "full.patch", worktree, base_commit)
     evidence["full_gate_state"] = full_state
     persist()
@@ -938,13 +1051,27 @@ def run(
     except (ActuatorError, SandboxError) as exc:
         return finish("REJECTED", [str(exc)])
 
-    _record_actuation(inference["reviewer"], review_meta)
     evidence["review"].update(
         {
             "result": review,
             "result_sha256": sha256_json(review),
             "meta": review_meta,
         }
+    )
+    journal.record(
+        "review.finished",
+        {
+            "result_sha256": evidence["review"]["result_sha256"],
+            "meta_sha256": review_meta["meta_sha256"],
+        },
+    )
+    _record_actuation(inference["reviewer"], review_meta)
+    journal.record(
+        "review.profile_observed",
+        {
+            "model": inference["reviewer"]["observed"]["model"],
+            "provenance": inference["reviewer"]["provenance"],
+        },
     )
     reasons = _review_decision(
         review, task.criteria, constitution.review.blocking_severities

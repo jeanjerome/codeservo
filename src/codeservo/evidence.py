@@ -59,16 +59,28 @@ def sha256_path(path: Path) -> str:
     return digest.hexdigest()
 
 
+# Documents recorded as their producer returned them. Their digest is taken
+# over what was returned, so relativisation never descends into them: a
+# location they name belongs to the document and not to the run directory.
+VERBATIM_TRAILS = frozenset({("review", "result")})
+
+
 def relative_evidence_paths(payload: Any, run_dir: Path) -> Any:
     portable = copy.deepcopy(payload)
 
-    def visit(value: Any, key: str | None = None) -> Any:
+    def visit(value: Any, trail: tuple[str, ...] = ()) -> Any:
+        if trail in VERBATIM_TRAILS:
+            return value
         if isinstance(value, dict):
-            return {item_key: visit(item, item_key) for item_key, item in value.items()}
+            return {
+                item_key: visit(item, (*trail, item_key))
+                for item_key, item in value.items()
+            }
         if isinstance(value, list):
-            return [visit(item, key) for item in value]
+            return [visit(item, trail) for item in value]
         if not isinstance(value, str):
             return value
+        key = trail[-1] if trail else None
 
         path_key = key in {"path", "repo", "run_dir", "state_dir", "worktree"}
         path_key = path_key or bool(key and key.endswith("_path"))

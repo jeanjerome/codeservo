@@ -19,6 +19,10 @@ from .models import (
     write_inventory,
 )
 from .task import TaskError
+from .verify import VerificationError, render_report, verify_run
+
+# What the verification of a run directory reports through the exit status.
+VERIFY_EXIT_STATUS = {"VALID": 0, "INVALID": 1, "INCOMPLETE": 2}
 
 
 def _init_repo(repo: Path) -> int:
@@ -63,6 +67,25 @@ def _models(
         sys.stdout.write(render_listing(document))
         print(f"inventory: {path}")
     return 0
+
+
+def _verify_run(run_dir: Path, as_json: bool) -> int:
+    """Report whether one run directory still holds what its record states.
+
+    The verification reads: it creates nothing, changes nothing, and never
+    rewrites the status the run recorded.
+    """
+    try:
+        report = verify_run(run_dir)
+    except VerificationError as exc:
+        print(f"codeservo: {exc}", file=sys.stderr)
+        return 3
+
+    if as_json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        sys.stdout.write(render_report(report))
+    return VERIFY_EXIT_STATUS[report["status"]]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -131,6 +154,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    verify = sub.add_parser(
+        "verify-run", help="verify one run directory against the record it holds"
+    )
+    verify.add_argument("run_dir", type=Path)
+    verify.add_argument(
+        "--json", action="store_true", help="write the report document to stdout"
+    )
+
     models = sub.add_parser(
         "models", help="report the models a backend advertises on this machine"
     )
@@ -155,6 +186,8 @@ def main() -> None:
     args = build_parser().parse_args()
     if args.command == "init":
         raise SystemExit(_init_repo(Path(args.repo).resolve()))
+    if args.command == "verify-run":
+        raise SystemExit(_verify_run(args.run_dir, args.json))
     if args.command == "models":
         raise SystemExit(
             _models(args.actuator, args.model, args.json, args.state_dir)

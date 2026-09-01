@@ -29,6 +29,35 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual("agent/events.jsonl", portable["artifact"]["path"])
             self.assertEqual(payload["feedback"], portable["feedback"])
 
+    def test_leaves_a_document_recorded_as_its_producer_returned_it(self) -> None:
+        # The reviewer's result is digested over what the reviewer returned, so
+        # a location it names is part of that document and not of the record.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            run_dir = root / "runs" / "repo" / "run"
+            located = str(root / "worktrees" / "repo" / "run" / "app.py")
+            payload = {
+                "review": {
+                    "prompt": {"path": str(run_dir / "review" / "prompt.md")},
+                    "result": {
+                        "findings": [{"path": located, "severity": "minor"}],
+                    },
+                }
+            }
+
+            portable = relative_evidence_paths(payload, run_dir)
+
+            self.assertEqual(
+                located, portable["review"]["result"]["findings"][0]["path"]
+            )
+            self.assertEqual(
+                "review/prompt.md", portable["review"]["prompt"]["path"]
+            )
+            self.assertEqual(
+                sha256_json(payload["review"]["result"]),
+                sha256_json(portable["review"]["result"]),
+            )
+
     def test_hashes_file_bytes_and_canonical_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "output.log"
