@@ -13,12 +13,12 @@ timeout_seconds = 300
 baseline = true
 
 [[gate]]
-name = "structured-observations"
+name = "observation-boundaries"
 phase = "quick"
 command = "python3.12 -m unittest discover -s \"$CODESERVO_SENSOR_PATH\" -v"
 timeout_seconds = 1200
 baseline = false
-sensor = "codeservo/015-structured-observations"
+sensor = "codeservo/016-observation-boundaries"
 
 [[gate]]
 name = "compile"
