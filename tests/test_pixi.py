@@ -72,6 +72,22 @@ class ProviderCommandTests(unittest.TestCase):
             pixi.config_path(Path("/tree/sub/pyproject.toml")),
         )
 
+    def test_names_the_directory_the_provider_owns_in_a_workspace(self) -> None:
+        # The environments and the workspace configuration both live under it,
+        # so a confinement protects the directory and not either file.
+        self.assertEqual(
+            Path("/tree/.pixi"),
+            pixi.provider_directory(Path("/tree/pyproject.toml")),
+        )
+        self.assertEqual(
+            Path("/tree/sub/.pixi"),
+            pixi.provider_directory(Path("/tree/sub/pyproject.toml")),
+        )
+        self.assertEqual(
+            pixi.config_path(Path("/tree/pyproject.toml")).parent,
+            pixi.provider_directory(Path("/tree/pyproject.toml")),
+        )
+
     def test_a_measurement_can_neither_resolve_nor_install(self) -> None:
         self.assertEqual(
             {

@@ -36,10 +36,15 @@ from pathlib import Path
 PROVIDER = "pixi"
 LOCKFILE = "pixi.lock"
 
+# The directory the provider owns inside a workspace. The installed
+# environments and the workspace-local configuration both live under it, so it
+# is the whole of what a run measures through and never a measurement's output.
+PROVIDER_DIR = Path(".pixi")
+
 # The workspace-local provider configuration, relative to the manifest that
 # declares the workspace. `--no-config` drops the user and system files and
 # leaves this one, so it is a control input like the manifest and the lockfile.
-CONFIG_FILE = Path(".pixi") / "config.toml"
+CONFIG_FILE = PROVIDER_DIR / "config.toml"
 
 # What forbids a measurement from resolving or installing. A plain `pixi run`
 # installs the environment it needs; with these three set it installs nothing,
@@ -156,6 +161,16 @@ def config_path(manifest: Path) -> Path:
     this file, so what it says is part of what a measurement ran under.
     """
     return manifest.parent / CONFIG_FILE
+
+
+def provider_directory(manifest: Path) -> Path:
+    """The directory the provider owns in the workspace of one manifest.
+
+    `.pixi/envs/<name>` holds the environment a measurement runs on and
+    `.pixi/config.toml` what it runs under, so what a confinement protects is
+    the directory rather than either of them.
+    """
+    return manifest.parent / PROVIDER_DIR
 
 
 def measurement_environment() -> dict[str, str]:

@@ -106,7 +106,13 @@ def constitution(
     max_changed_files: int = 5,
     execution: str | None = None,
     quick_task: str | None = None,
+    sensor_phase: str = "quick",
 ) -> str:
+    """The constitution a case runs under.
+
+    `sensor_phase` places the external sensor, the one gate a run measures the
+    candidate with and never the source repository.
+    """
     text = f"""version = 1
 
 [scope]
@@ -143,7 +149,7 @@ baseline = true
         text += f"""
 [[gate]]
 name = "task-outcome"
-phase = "quick"
+phase = "{sensor_phase}"
 command = '{sensor_command}'
 baseline = false
 sensor = "test/task-outcome"

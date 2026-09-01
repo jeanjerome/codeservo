@@ -20,7 +20,9 @@ from codeservo.controller import (
     _command_version,
     _frozen_environment,
     _inference,
+    _mutated,
     _observations,
+    _protected_paths,
     _record_actuation,
     _resolve_state_dir,
     _resolved_environment,
@@ -450,6 +452,64 @@ class CandidateEnvironmentTests(unittest.TestCase):
         )
 
 
+class ProtectedPathTests(unittest.TestCase):
+    """What stays readable and stops being writable in a measured tree."""
+
+    def _execution(self, manifest: str = "pyproject.toml") -> ExecutionEnvironment:
+        return ExecutionEnvironment(
+            provider="pixi",
+            manifest=manifest,
+            lock="pixi.lock",
+            environment="default",
+        )
+
+    def test_protects_the_git_metadata_and_the_provider_directory(self) -> None:
+        self.assertEqual(
+            (Path("/tree/.git"), Path("/tree/.pixi")),
+            _protected_paths(Path("/tree"), self._execution()),
+        )
+
+    def test_a_nested_manifest_names_its_own_workspace_directory(self) -> None:
+        execution = self._execution("sub/pyproject.toml")
+
+        self.assertEqual(
+            (Path("/tree/.git"), Path("/tree/sub/.pixi")),
+            _protected_paths(Path("/tree"), execution),
+        )
+
+    def test_a_run_declaring_no_provider_protects_the_metadata_only(self) -> None:
+        self.assertEqual((Path("/tree/.git"),), _protected_paths(Path("/tree"), None))
+
+    def test_each_tree_names_its_own_paths_and_never_the_other(self) -> None:
+        source = _protected_paths(Path("/source"), self._execution())
+        candidate = _protected_paths(Path("/candidate"), self._execution())
+
+        self.assertTrue(all(path.is_relative_to("/source") for path in source))
+        self.assertTrue(all(path.is_relative_to("/candidate") for path in candidate))
+
+
+class MeasuredMutationTests(unittest.TestCase):
+    """A phase that moved the tree it measured is a control failure."""
+
+    def test_a_phase_that_left_the_tree_alone_reports_nothing(self) -> None:
+        state = {"path": "observed.patch", "sha256": "a" * 64}
+
+        self.assertEqual([], _mutated("quick", state, dict(state)))
+
+    def test_names_the_phase_that_changed_the_candidate(self) -> None:
+        before = {"path": "observed.patch", "sha256": "a" * 64}
+        after = {"path": "full.patch", "sha256": "b" * 64}
+
+        self.assertEqual(
+            ["quick gates changed the candidate workspace"],
+            _mutated("quick", before, after),
+        )
+        self.assertEqual(
+            ["full gates changed the candidate workspace"],
+            _mutated("full", before, after),
+        )
+
+
 class ObservationBundleTests(unittest.TestCase):
     def _constitution(self) -> Constitution:
         return Constitution(
@@ -618,9 +678,9 @@ class RuntimeIdentityTests(unittest.TestCase):
         return Path(codeservo.__file__).resolve().parents[2]
 
     def test_declares_the_shape_the_record_has(self) -> None:
-        # The environment the candidate was prepared with, next to the
-        # declaration and the digests the previous shape already froze.
-        self.assertEqual(12, EVIDENCE_SCHEMA_VERSION)
+        # One isolation document per measured tree, and the state of the
+        # candidate after the full gates, next to what the previous shape held.
+        self.assertEqual(13, EVIDENCE_SCHEMA_VERSION)
 
     def test_names_both_backends_when_one_serves_both_roles(self) -> None:
         actuator = self._actuator()

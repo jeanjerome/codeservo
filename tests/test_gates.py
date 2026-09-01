@@ -8,7 +8,7 @@ from unittest.mock import patch
 from codeservo.gates import gate_command, run_gates
 from codeservo.model import ExecutionEnvironment, Gate
 from codeservo.sandbox import Isolation, seatbelt_profile
-from harness import PIXI_TASK, write_provider
+from harness import PIXI_TASK, commit_repository, write_provider
 from isolation_harness import (
     already_confined,
     nested_seatbelt_exit_code,
@@ -269,6 +269,101 @@ class GateConfinementTests(unittest.TestCase):
 
             self.assertFalse(results[0]["passed"])
             self.assertEqual("assert True\n", contract.read_text(encoding="utf-8"))
+
+    def test_reads_the_git_metadata_it_cannot_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            checkout = Path(temp) / "checkout"
+            checkout.mkdir()
+            (checkout / "app.py").write_text("value = 2\n", encoding="utf-8")
+            commit_repository(checkout)
+            metadata = checkout / ".git"
+            isolation = Isolation(read_only=(metadata,))
+            reads = " && ".join(
+                [
+                    "git status --porcelain",
+                    "git diff --name-only HEAD --",
+                    "git diff --numstat HEAD --",
+                    "git diff --binary --no-ext-diff HEAD --",
+                    "git log --oneline -1",
+                    "git ls-files --others --exclude-standard",
+                    "git rev-parse HEAD",
+                ]
+            )
+            gates = (
+                Gate(name="reads-the-metadata", phase="quick", command=reads),
+                Gate(name="records-a-commit", phase="quick", command="git add -A"),
+                Gate(
+                    name="writes-the-metadata",
+                    phase="quick",
+                    command=f'echo tampered > "{metadata}/tampered.txt"',
+                ),
+            )
+
+            if already_confined():
+                profile = seatbelt_profile(isolation)
+                self.assertIn("deny file-write*", profile)
+                self.assertIn(str(metadata.resolve()), profile)
+                self.assertNotIn("file-read*", profile)
+                return
+
+            (checkout / "untracked.py").write_text("value = 3\n", encoding="utf-8")
+            results = run_gates(
+                repo=checkout,
+                gates=gates,
+                out_dir=Path(temp) / "logs",
+                isolation=isolation,
+            )
+
+            reading, records, writes = results
+            self.assertTrue(
+                reading["passed"], Path(reading["stderr_path"]).read_text()
+            )
+            self.assertIn(
+                "untracked.py", Path(reading["stdout_path"]).read_text()
+            )
+            self.assertFalse(records["passed"])
+            self.assertFalse(writes["passed"])
+            self.assertFalse((metadata / "tampered.txt").exists())
+
+    def test_a_task_gate_runs_on_an_environment_it_cannot_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            write_provider(bin_dir, root)
+            (root / "app.py").write_text("value = 2\n", encoding="utf-8")
+            provider_dir = root / ".pixi"
+            isolation = Isolation(read_only=(provider_dir,))
+            gates = (
+                Gate(name="task", phase="quick", task=PIXI_TASK),
+                Gate(
+                    name="writes-the-environment",
+                    phase="quick",
+                    command=f'echo tampered > "{provider_dir}/envs/default/tampered"',
+                ),
+            )
+
+            if already_confined():
+                profile = seatbelt_profile(isolation)
+                self.assertIn("deny file-write*", profile)
+                self.assertIn(str(provider_dir.resolve()), profile)
+                self.assertNotIn("file-read*", profile)
+                return
+
+            path = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+            with patch.dict(os.environ, {"PATH": path}, clear=False):
+                results = run_gates(
+                    repo=root,
+                    gates=gates,
+                    out_dir=root / "logs",
+                    isolation=isolation,
+                    execution=EXECUTION,
+                )
+
+            task, writes = results
+            self.assertTrue(task["passed"], Path(task["stderr_path"]).read_text())
+            self.assertFalse(writes["passed"])
+            self.assertFalse((provider_dir / "envs" / "default" / "tampered").exists())
 
 
 if __name__ == "__main__":

@@ -42,7 +42,7 @@ class ControlFailure(RuntimeError):
 
 
 # The shape of evidence.json. The observation bundle versions its own shape.
-EVIDENCE_SCHEMA_VERSION = 12
+EVIDENCE_SCHEMA_VERSION = 13
 
 # A run that declares no execution provider measures through whatever the host
 # offers, and says so.
@@ -166,6 +166,24 @@ def _resolve_state_dir(repo: Path, state_dir: Path | None) -> Path:
     return root_dir
 
 
+def _protected_paths(
+    tree: Path, execution: ExecutionEnvironment | None
+) -> tuple[Path, ...]:
+    """What a process may read but never write in the tree it works on.
+
+    The Git metadata is the record of what the tree is, and the provider
+    directory is the environment every measurement runs through: writing
+    either one changes what a later reading reports without changing the
+    files anyone declared. Both stay readable, because the controller, the
+    gates and the actuator all read them. A constitution declaring no provider
+    names no provider directory.
+    """
+    paths = [tree / ".git"]
+    if execution is not None:
+        paths.append(pixi.provider_directory(tree / execution.manifest))
+    return tuple(paths)
+
+
 def _write_patch_snapshot(path: Path, worktree: Path, base_commit: str) -> dict:
     patch = make_patch(worktree, base_commit)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -174,6 +192,19 @@ def _write_patch_snapshot(path: Path, worktree: Path, base_commit: str) -> dict:
         "path": str(path),
         "sha256": sha256_text(patch),
     }
+
+
+def _mutated(phase: str, before: dict, after: dict) -> list[str]:
+    """Whether a measurement phase changed the tree it was measuring.
+
+    A confinement refuses only the writes its profile names; the comparison
+    catches everything else. A phase that moved the candidate is a control
+    failure of the run and not a failing gate: whatever those gates returned,
+    they no longer describe the tree that was actuated.
+    """
+    if before["sha256"] == after["sha256"]:
+        return []
+    return [f"{phase} gates changed the candidate workspace"]
 
 
 def _freeze_sensors(
@@ -537,6 +568,11 @@ def run(
     frozen_task.write_text(task.raw_text, encoding="utf-8")
     frozen_constitution.write_text(constitution.raw_text, encoding="utf-8")
     sensor_paths, sensor_evidence = _freeze_sensors(state_root, run_dir, constitution)
+    # The actuator owns the candidate's files and nothing else about it: the
+    # checkout's Git metadata and the environment the controller installed
+    # into it stay readable, so every command it runs still works, and stay
+    # unwritable, so what a later measurement reads is what was actuated.
+    candidate_protected = _protected_paths(worktree, constitution.execution)
     isolation = Isolation(
         denied=(
             state_root / "runs",
@@ -544,11 +580,16 @@ def run(
             state_root / ".git",
             common_git_dir(repo),
         ),
-        read_only=(repo,),
+        read_only=(repo, *candidate_protected),
     )
     # Gates are controller-owned measurements: they read the frozen sensors and
-    # write nothing into the record they produce.
-    gate_isolation = Isolation(read_only=(run_dir,))
+    # write nothing into the record they produce, and nothing into the metadata
+    # or the environment of the tree they measure. Each phase is handed the
+    # tree it measures and never the other one.
+    source_gate_isolation = Isolation(
+        read_only=(run_dir, *_protected_paths(repo, constitution.execution))
+    )
+    candidate_gate_isolation = Isolation(read_only=(run_dir, *candidate_protected))
 
     evidence: dict = {
         "schema_version": EVIDENCE_SCHEMA_VERSION,
@@ -564,7 +605,12 @@ def run(
         "sensors": sensor_evidence,
         "environment": dict(NO_ENVIRONMENT),
         "actuator_isolation": backend.describe_isolation(isolation),
-        "gate_isolation": isolation_evidence(gate_isolation, "macos-sandbox-exec"),
+        "gate_isolation": {
+            "source": isolation_evidence(source_gate_isolation, "macos-sandbox-exec"),
+            "candidate": isolation_evidence(
+                candidate_gate_isolation, "macos-sandbox-exec"
+            ),
+        },
         "status": "RUNNING",
         "iterations": [],
         "decision": {"reasons": []},
@@ -649,7 +695,7 @@ def run(
         repo=repo,
         gates=baseline_gates(constitution),
         out_dir=run_dir / "baseline",
-        isolation=gate_isolation,
+        isolation=source_gate_isolation,
         execution=constitution.execution,
     )
     evidence["baseline"] = baseline
@@ -693,6 +739,7 @@ def run(
 
     feedback = ""
     accepted_quick: list[dict] | None = None
+    accepted_state: dict = {}
 
     for iteration in range(1, max_iterations + 1):
         iteration_dir = run_dir / "iterations" / f"{iteration:02d}"
@@ -745,7 +792,7 @@ def run(
             gates=constitution.gates_for("quick"),
             out_dir=iteration_dir / "quick",
             sensor_paths=sensor_paths,
-            isolation=gate_isolation,
+            isolation=candidate_gate_isolation,
             execution=constitution.execution,
         )
         record["observed_state"] = _write_patch_snapshot(
@@ -765,6 +812,11 @@ def run(
         control_failures += _changed_environment(
             evidence["environment"], worktree, constitution.execution
         )
+        # The two snapshots bracket the quick phase: what the actuator left
+        # behind, and what the gates were measuring when they finished.
+        control_failures += _mutated(
+            "quick", record["actuator_state"], record["observed_state"]
+        )
         if control_failures:
             evidence["iterations"].append(record)
             persist()
@@ -776,6 +828,7 @@ def run(
             evidence["iterations"].append(record)
             persist()
             accepted_quick = quick
+            accepted_state = record["observed_state"]
             break
 
         feedback_parts = []
@@ -804,10 +857,12 @@ def run(
         gates=constitution.gates_for("full"),
         out_dir=run_dir / "full",
         sensor_paths=sensor_paths,
-        isolation=gate_isolation,
+        isolation=candidate_gate_isolation,
         execution=constitution.execution,
     )
     evidence["full_gates"] = full
+    full_state = _write_patch_snapshot(run_dir / "full.patch", worktree, base_commit)
+    evidence["full_gate_state"] = full_state
     persist()
     reasons = [
         f"gate altered the frozen sensor {name}"
@@ -816,6 +871,9 @@ def run(
     reasons += _changed_environment(
         evidence["environment"], worktree, constitution.execution
     )
+    # The candidate as the quick phase left it, against the candidate the full
+    # gates have just finished measuring.
+    reasons += _mutated("full", accepted_state, full_state)
     if not all(g["passed"] for g in full):
         reasons.append("full gate failed")
     if reasons:
@@ -840,7 +898,18 @@ def run(
     # nothing into it. The adapter denies those writes itself; this describes
     # the confinement it runs under, and is recorded before it starts.
     review_isolation = Isolation(
-        denied=isolation.denied, read_only=(*isolation.read_only, worktree)
+        denied=isolation.denied,
+        # The candidate's own protected paths lie inside a worktree the
+        # reviewer may not write at all, so naming them again says nothing
+        # more than the worktree already does.
+        read_only=(
+            *(
+                path
+                for path in isolation.read_only
+                if not path.is_relative_to(worktree)
+            ),
+            worktree,
+        ),
     )
     # Recorded before the reviewer runs, so a reviewer failure cannot erase the
     # observations it was given.

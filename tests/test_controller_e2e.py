@@ -13,12 +13,16 @@ from harness import (
     COMPILE_COMMAND,
     PIXI_PACKAGES,
     PIXI_TASK,
+    SENSOR_COMMAND,
     TASK_TEXT,
     Case,
     build_case,
     commit_repository,
     constitution,
 )
+
+# A gate that measures, exits zero, and leaves a file behind.
+MUTATING_SENSOR = f"{SENSOR_COMMAND} && echo mutated > mutant.py"
 
 
 def codex_cache(model: str, efforts: list[str], fast: bool) -> str:
@@ -674,6 +678,75 @@ class ControllerE2ETests(unittest.TestCase):
                 self.assertNotIn("review", evidence)
                 self.assertFalse(Path(result["run_dir"], "review").exists())
 
+    def test_a_quick_gate_that_changed_the_candidate_ends_the_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            case = build_case(
+                Path(temp),
+                implementer="implement(ACCEPTABLE)",
+                # The external sensor is the one gate the source repository
+                # is never measured with, so the only tree it can move is the
+                # candidate.
+                constitution_text=constitution(sensor_command=MUTATING_SENSOR),
+            )
+
+            result = case.run()
+
+            self.assertEqual("REJECTED", result["status"])
+            # A control failure and not a failing gate: the decision says the
+            # tree changed, and never that a gate returned something.
+            self.assertEqual(
+                ["quick gates changed the candidate workspace"],
+                result["decision"]["reasons"],
+            )
+            iteration = result["iterations"][-1]
+            self.assertTrue(all(g["passed"] for g in iteration["quick_gates"]))
+            self.assertEqual(
+                [0] * len(iteration["quick_gates"]),
+                [g["exit_code"] for g in iteration["quick_gates"]],
+            )
+            self.assertTrue(iteration["scope"]["passed"])
+            self.assertNotEqual(
+                iteration["actuator_state"]["sha256"],
+                iteration["observed_state"]["sha256"],
+            )
+            self.assertTrue(Path(result["worktree"], "mutant.py").is_file())
+            self.assertNotIn("full_gates", result)
+            self.assertNotIn("review", result)
+
+    def test_a_full_gate_that_changed_the_candidate_ends_the_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            case = build_case(
+                Path(temp),
+                implementer="implement(ACCEPTABLE)",
+                constitution_text=constitution(
+                    sensor_command=MUTATING_SENSOR, sensor_phase="full"
+                ),
+            )
+
+            result = case.run()
+
+            self.assertEqual("REJECTED", result["status"])
+            self.assertEqual(
+                ["full gates changed the candidate workspace"],
+                result["decision"]["reasons"],
+            )
+            self.assertTrue(all(g["passed"] for g in result["full_gates"]))
+            self.assertEqual(
+                [0] * len(result["full_gates"]),
+                [g["exit_code"] for g in result["full_gates"]],
+            )
+            iteration = result["iterations"][-1]
+            self.assertTrue(all(g["passed"] for g in iteration["quick_gates"]))
+            self.assertTrue(iteration["scope"]["passed"])
+            # The state the quick phase left, against the state the full gates
+            # were measuring when they finished.
+            self.assertNotEqual(
+                iteration["observed_state"]["sha256"],
+                result["full_gate_state"]["sha256"],
+            )
+            self.assertTrue(Path(result["worktree"], "mutant.py").is_file())
+            self.assertNotIn("review", result)
+
     def _assert_converges(self, actuator: str) -> None:
         binary_name, script, version = FAKE_AGENTS[actuator]
         with tempfile.TemporaryDirectory() as temp:
@@ -791,7 +864,7 @@ class ControllerE2ETests(unittest.TestCase):
             self.assertEqual("", remotes.stdout.strip())
             self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(12, evidence["schema_version"])
+            self.assertEqual(13, evidence["schema_version"])
             # A constitution declaring no provider keeps shell gates.
             self.assertEqual({"provider": "none"}, evidence["environment"])
             self.assertEqual(".", evidence["run_dir"])
@@ -813,10 +886,17 @@ class ControllerE2ETests(unittest.TestCase):
                     for path in isolation["denied_paths"] + isolation["read_only_paths"]
                 )
             )
-            gate_isolation = evidence["gate_isolation"]
-            self.assertEqual("macos-sandbox-exec", gate_isolation["mechanism"])
-            self.assertEqual([], gate_isolation["denied_paths"])
-            self.assertEqual(["."], gate_isolation["read_only_paths"])
+            self._assert_confinements(result, evidence)
+            self.assertEqual(
+                {"path", "sha256"}, set(evidence["full_gate_state"])
+            )
+            self.assertEqual("full.patch", evidence["full_gate_state"]["path"])
+            # Nothing moved between the quick phase and the full one.
+            self.assertEqual(
+                second["observed_state"]["sha256"],
+                evidence["full_gate_state"]["sha256"],
+            )
+            self.assertTrue(Path(result["run_dir"], "full.patch").is_file())
             for gate in evidence["baseline"] + evidence["full_gates"]:
                 self.assertEqual(64, len(gate["stdout_sha256"]))
                 self.assertEqual(64, len(gate["stderr_sha256"]))
@@ -831,6 +911,43 @@ class ControllerE2ETests(unittest.TestCase):
             self._assert_inference(actuator, evidence)
             self.assertEqual("ACCEPTED", evidence["status"])
             self._assert_observations(result, evidence)
+
+    def _assert_confinements(self, result: dict, evidence: dict) -> None:
+        """One confinement per measured tree, on a run declaring no provider."""
+        repo = Path(result["repo"])
+        worktree = Path(result["worktree"])
+        metadata = str(worktree / ".git")
+
+        for document in evidence["gate_isolation"].values():
+            self.assertEqual("macos-sandbox-exec", document["mechanism"])
+            self.assertEqual([], document["denied_paths"])
+            self.assertTrue(document["user_config_ignored"])
+            self.assertEqual(".", document["read_only_paths"][0])
+            self.assertTrue(
+                all(
+                    not Path(path).is_absolute()
+                    for path in document["read_only_paths"]
+                )
+            )
+        # Each phase measures one tree and is handed that tree's paths only.
+        # Declaring no provider names no provider directory anywhere.
+        self.assertEqual(
+            [result["run_dir"], str(repo / ".git")],
+            result["gate_isolation"]["source"]["read_only_paths"],
+        )
+        self.assertEqual(
+            [result["run_dir"], metadata],
+            result["gate_isolation"]["candidate"]["read_only_paths"],
+        )
+        # The actuator reads the candidate's metadata and cannot write it.
+        actuator = result["actuator_isolation"]
+        self.assertEqual([str(repo), metadata], actuator["read_only_paths"])
+        self.assertNotIn(metadata, actuator["denied_paths"])
+        # The reviewer's confinement is unchanged: the whole worktree.
+        self.assertEqual(
+            [str(repo), str(worktree)],
+            result["review"]["isolation"]["read_only_paths"],
+        )
 
     def _assert_inference(self, actuator: str, evidence: dict) -> None:
         """The profile the run requested, sent and observed, for one backend."""
@@ -1345,6 +1462,53 @@ class ExecutionEnvironmentE2ETests(unittest.TestCase):
             ).read_text()
             for text in (patch_text, observed):
                 self.assertNotIn(".pixi", text)
+
+    def test_each_confinement_names_the_tree_it_measures(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            case = self._case(root)
+            log = root / "pixi.log"
+
+            result = self._run(case, log)
+
+            self.assertEqual("ACCEPTED", result["status"])
+            repo = Path(result["repo"])
+            worktree = Path(result["worktree"])
+            source = result["gate_isolation"]["source"]
+            candidate = result["gate_isolation"]["candidate"]
+            # A gate reads the metadata and the environment of the tree it
+            # measures, writes neither, and is never handed the other tree.
+            self.assertEqual(
+                [result["run_dir"], str(repo / ".git"), str(repo / ".pixi")],
+                source["read_only_paths"],
+            )
+            self.assertEqual(
+                [result["run_dir"], str(worktree / ".git"), str(worktree / ".pixi")],
+                candidate["read_only_paths"],
+            )
+            for document in (source, candidate):
+                self.assertEqual("macos-sandbox-exec", document["mechanism"])
+                self.assertEqual([], document["denied_paths"])
+            self.assertFalse(
+                [path for path in source["read_only_paths"][1:] if str(worktree) in path]
+            )
+            self.assertFalse(
+                [path for path in candidate["read_only_paths"][1:] if str(repo) in path]
+            )
+            # The actuator reads both, and writes neither.
+            actuator = result["actuator_isolation"]
+            self.assertEqual(
+                [str(repo), str(worktree / ".git"), str(worktree / ".pixi")],
+                actuator["read_only_paths"],
+            )
+            for protected in (worktree / ".git", worktree / ".pixi"):
+                self.assertNotIn(str(protected), actuator["denied_paths"])
+            self.assertTrue((worktree / ".pixi").is_dir())
+            # The reviewer's confinement is unchanged: the whole worktree.
+            self.assertEqual(
+                [str(repo), str(worktree)],
+                result["review"]["isolation"]["read_only_paths"],
+            )
 
     def test_a_run_without_a_provider_never_invokes_one(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
