@@ -4,7 +4,6 @@ from pathlib import Path
 
 from codeservo.policies.constitution import ConstitutionError, load_constitution
 
-
 EXECUTION = """
 [execution]
 provider = "pixi"

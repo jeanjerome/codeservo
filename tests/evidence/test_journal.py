@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from codeservo.evidence.digests import sha256_file, sha256_json
 from codeservo.evidence.journal import (
     EVENT_FIELDS,
     EVENT_SCHEMA_VERSION,
@@ -13,7 +14,6 @@ from codeservo.evidence.journal import (
     event_sha256,
     read_journal,
 )
-from codeservo.evidence.digests import sha256_file, sha256_json
 
 
 def journal(root: Path, run_id: str = "20260901T110848639656Z") -> Journal:

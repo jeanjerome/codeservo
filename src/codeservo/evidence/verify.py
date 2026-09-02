@@ -12,15 +12,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+from .digests import sha256_file, sha256_json, sha256_path, sha256_record
 from .journal import (
     JOURNAL_NAME,
     JournalError,
     chain_failures,
     read_journal,
 )
-from .digests import sha256_file, sha256_json, sha256_path, sha256_record
 
 # The shape of the report. The verification versions its own shape.
 REPORT_SCHEMA_VERSION = 1
@@ -32,10 +32,15 @@ JOURNAL_EVIDENCE_VERSION = 14
 # A record whose run never reached a decision.
 RUNNING = "RUNNING"
 
-OK = "ok"
-FAILED = "failed"
-ABSENT = "missing"
-NOT_VERIFIABLE = "not_verifiable"
+# What one check of the report concluded, and what the report concludes from
+# all of them.
+CheckStatus = Literal["ok", "failed", "missing", "not_verifiable"]
+OK: CheckStatus = "ok"
+FAILED: CheckStatus = "failed"
+ABSENT: CheckStatus = "missing"
+NOT_VERIFIABLE: CheckStatus = "not_verifiable"
+
+Verdict = Literal["VALID", "INVALID", "INCOMPLETE"]
 
 # Recorded locations naming a file of the source repository at the base
 # commit. The run directory holds no copy of either, so neither is a proof it

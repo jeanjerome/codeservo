@@ -7,7 +7,6 @@ import unittest
 from pathlib import Path
 
 from codeservo.evidence.digests import sha256_text
-
 from e2e_support import canonical
 from harness import build_case, constitution
 

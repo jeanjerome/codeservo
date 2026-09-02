@@ -10,7 +10,6 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from codeservo.cli import main
 from codeservo.actuators.inventory import (
     BACKEND_NAMES,
     CLAUDE_UNVERIFIED_REASON,
@@ -27,6 +26,7 @@ from codeservo.actuators.inventory import (
     render_document,
     validate_profile,
 )
+from codeservo.cli import main
 
 BACKEND_FIELDS = {
     "backend",
@@ -452,7 +452,7 @@ class CommandTests(unittest.TestCase):
         return self.state_dir / "models" / "inventory.json"
 
     def test_reports_without_starting_any_process(self) -> None:
-        def forbidden(*args, **kwargs):
+        def forbidden(*_args, **_kwargs):
             raise AssertionError("the inventory must run no subprocess")
 
         with patch.object(subprocess, "run", forbidden), patch.object(

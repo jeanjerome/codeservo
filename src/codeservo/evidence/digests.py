@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +31,7 @@ def sha256_json(payload: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def sha256_record(payload: dict[str, Any]) -> str:
+def sha256_record(payload: Mapping[str, Any]) -> str:
     stable_fields = {
         key: value
         for key, value in payload.items()

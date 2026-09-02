@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypedDict, get_args
 
 from ..resources import observation_schema
 
@@ -26,18 +26,49 @@ OBSERVATION_PATH_VARIABLE = "CODESERVO_OBSERVATION_PATH"
 # The shape of the document. The observation versions its own shape.
 SCHEMA_VERSION = 1
 
-OBSERVATION_FIELDS = frozenset(
-    {"schema_version", "sensor", "status", "summary", "findings", "metrics"}
-)
-FINDING_FIELDS = frozenset({"id", "severity", "path", "line", "message"})
-STATUSES = ("passed", "failed")
-SEVERITIES = ("blocker", "major", "minor", "info")
+# What a document may say about the gate that wrote it, and how severe a
+# finding it may raise. Each tuple is read from the type beside it.
+Status = Literal["passed", "failed"]
+STATUSES: tuple[Status, ...] = get_args(Status)
+Severity = Literal["blocker", "major", "minor", "info"]
+SEVERITIES: tuple[Severity, ...] = get_args(Severity)
+
+
+class Finding(TypedDict):
+    """One thing a sensor saw, and where it saw it."""
+
+    id: str
+    severity: Severity
+    path: str
+    line: int
+    message: str
+
+
+class Observation(TypedDict):
+    """The document a `codeservo-json` gate writes beside its exit code.
+
+    The six fields are the whole contract. They are declared once here; the
+    field sets the validation enforces and the published schema declares are
+    both read from this shape.
+    """
+
+    schema_version: int
+    sensor: str
+    status: Status
+    summary: str
+    findings: list[Finding]
+    metrics: dict[str, float]
+
+
+OBSERVATION_FIELDS = frozenset(Observation.__annotations__)
+FINDING_FIELDS = frozenset(Finding.__annotations__)
 
 # How a gate's document ended up in the record.
-VALID = "valid"
-ABSENT = "absent"
-INVALID = "invalid"
-CONTRADICTED = "contradicted"
+Classification = Literal["valid", "absent", "invalid", "contradicted"]
+VALID: Classification = "valid"
+ABSENT: Classification = "absent"
+INVALID: Classification = "invalid"
+CONTRADICTED: Classification = "contradicted"
 
 
 class ObservationPathError(RuntimeError):
@@ -56,7 +87,7 @@ def is_json_number(value: Any) -> bool:
     pass for a number everywhere a number is expected. It is refused here, once,
     for every field that wants one.
     """
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, int | float) and not isinstance(value, bool)
 
 
 def is_json_integer(value: Any) -> bool:
@@ -138,7 +169,7 @@ def _contract(document: Any) -> str | None:
     return None
 
 
-def validate(raw: bytes) -> tuple[dict | None, str | None]:
+def validate(raw: bytes) -> tuple[Observation | None, str | None]:
     """Read one document as JSON and hold it to the six fields it must carry.
 
     Returns the parsed document, or the fault that names the field it violated
@@ -158,7 +189,9 @@ def validate(raw: bytes) -> tuple[dict | None, str | None]:
     return document, None
 
 
-def classify(raw: bytes | None, *, passed: bool) -> tuple[str, str | None]:
+def classify(
+    raw: bytes | None, *, passed: bool
+) -> tuple[Classification, str | None]:
     """How one gate's document stands against the exit code that is the verdict.
 
     A document the gate never wrote is `absent`, one that breaks the contract is
@@ -168,7 +201,7 @@ def classify(raw: bytes | None, *, passed: bool) -> tuple[str, str | None]:
     if raw is None:
         return ABSENT, "the gate wrote no observation"
     document, wrong = validate(raw)
-    if wrong is not None:
+    if document is None:
         return INVALID, wrong
     verdict = STATUSES[0] if passed else STATUSES[1]
     if document["status"] != verdict:

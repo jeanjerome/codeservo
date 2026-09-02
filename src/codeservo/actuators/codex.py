@@ -6,11 +6,12 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+from typing import Any, TypedDict
 
 from ..evidence.digests import sha256_file, sha256_record
 from ..runtime.sandbox import Isolation, isolation_evidence, seatbelt_command
-from .base import ActuatorError
-from .inventory import DEFAULT_SPEED
+from .base import ActuatorError, ObservedProfile
+from .inventory import DEFAULT_SPEED, Speed
 
 # The two configuration keys Codex accepts for the inference profile, and the
 # event-stream fields it answers with. The names differ on purpose: a key sets
@@ -23,6 +24,48 @@ OBSERVED_FIELDS = {
     "effort": "reasoning_effort",
     "speed": "service_tier",
 }
+
+
+class UnsignedActuation(TypedDict):
+    """One actuation, before it closes over itself."""
+
+    exit_code: int
+    duration_ms: int
+    native: dict[str, Any]
+    observed: ObservedProfile
+    events_path: str
+    events_sha256: str
+    stderr_path: str
+    stderr_sha256: str
+    last_message_path: str
+    last_message_sha256: str | None
+
+
+class CodexActuation(UnsignedActuation):
+    """One actuation, and the digest recomputable from what it holds."""
+
+    result_sha256: str
+
+
+class UnsignedReviewMeta(TypedDict):
+    """One review call, before it closes over itself."""
+
+    exit_code: int
+    duration_ms: int
+    native: dict[str, Any]
+    observed: ObservedProfile
+    stdout_path: str
+    stdout_sha256: str
+    stderr_path: str
+    stderr_sha256: str
+    result_path: str
+    result_sha256: str | None
+
+
+class CodexReviewMeta(UnsignedReviewMeta):
+    """One review call, and the digest recomputable from what it holds."""
+
+    meta_sha256: str
 
 
 class CodexError(ActuatorError):
@@ -55,9 +98,9 @@ def _base_command(
     return command
 
 
-def _native_profile(effort: str | None, speed: str) -> dict:
+def _native_profile(effort: str | None, speed: Speed) -> dict[str, Any]:
     """The configuration keys the command actually carried, and their values."""
-    native: dict = {}
+    native: dict[str, Any] = {}
     if effort:
         native[EFFORT_KEY] = effort
     if speed == "fast":
@@ -81,7 +124,7 @@ def _events(path: Path) -> list[dict]:
     return events
 
 
-def _observed(events: list[dict]) -> dict:
+def _observed(events: list[dict]) -> ObservedProfile:
     """The inference profile the session reported about itself.
 
     Codex answers under its own field names, which are not the configuration
@@ -91,7 +134,7 @@ def _observed(events: list[dict]) -> dict:
     fills that field with no further change here. The last report wins, because
     it describes the session as it ended.
     """
-    observed: dict = {name: None for name in OBSERVED_FIELDS}
+    read: dict[str, str | None] = dict.fromkeys(OBSERVED_FIELDS)
     for event in events:
         for scope in (event, event.get("msg")):
             if not isinstance(scope, dict):
@@ -99,8 +142,12 @@ def _observed(events: list[dict]) -> dict:
             for name, field in OBSERVED_FIELDS.items():
                 reported = scope.get(field)
                 if isinstance(reported, str) and reported:
-                    observed[name] = reported
-    return observed
+                    read[name] = reported
+    return {
+        "model": read["model"],
+        "effort": read["effort"],
+        "speed": read["speed"],
+    }
 
 
 def _sandbox(isolation: Isolation, native: str) -> str:
@@ -113,7 +160,7 @@ def _sandbox(isolation: Isolation, native: str) -> str:
     return native if isolation.empty else "danger-full-access"
 
 
-def describe_isolation(isolation: Isolation) -> dict:
+def describe_isolation(isolation: Isolation) -> dict[str, Any]:
     return isolation_evidence(
         isolation,
         "codex-workspace-write" if isolation.empty else "macos-sandbox-exec",
@@ -129,8 +176,8 @@ def run_implementer(
     timeout_seconds: int,
     isolation: Isolation = Isolation(),
     effort: str | None = None,
-    speed: str = DEFAULT_SPEED,
-) -> dict:
+    speed: Speed = DEFAULT_SPEED,
+) -> CodexActuation:
     out_dir.mkdir(parents=True, exist_ok=True)
     events = out_dir / "events.jsonl"
     stderr_path = out_dir / "stderr.log"
@@ -173,7 +220,7 @@ def run_implementer(
                 f"implementer timed out after {timeout_seconds}s"
             ) from timeout_error
 
-    result = {
+    unsigned: UnsignedActuation = {
         "exit_code": completed.returncode,
         "duration_ms": int((time.monotonic() - started) * 1000),
         "native": _native_profile(effort, speed),
@@ -187,8 +234,7 @@ def run_implementer(
             sha256_file(last_message) if last_message.is_file() else None
         ),
     }
-    result["result_sha256"] = sha256_record(result)
-    return result
+    return {**unsigned, "result_sha256": sha256_record(unsigned)}
 
 
 def run_reviewer(
@@ -201,8 +247,8 @@ def run_reviewer(
     timeout_seconds: int,
     isolation: Isolation = Isolation(),
     effort: str | None = None,
-    speed: str = DEFAULT_SPEED,
-) -> tuple[dict, dict]:
+    speed: Speed = DEFAULT_SPEED,
+) -> tuple[dict[str, Any], CodexReviewMeta]:
     out_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = out_dir / "stdout.log"
     stderr_path = out_dir / "stderr.log"
@@ -257,7 +303,7 @@ def run_reviewer(
         if temporary_result.is_file():
             shutil.copyfile(temporary_result, result_path)
 
-    meta = {
+    unsigned_meta: UnsignedReviewMeta = {
         "exit_code": completed.returncode,
         "duration_ms": int((time.monotonic() - started) * 1000),
         "native": _native_profile(effort, speed),
@@ -273,7 +319,10 @@ def run_reviewer(
             sha256_file(result_path) if result_path.is_file() else None
         ),
     }
-    meta["meta_sha256"] = sha256_record(meta)
+    meta: CodexReviewMeta = {
+        **unsigned_meta,
+        "meta_sha256": sha256_record(unsigned_meta),
+    }
     if completed.returncode != 0:
         raise CodexError(f"reviewer exited with {completed.returncode}; see {stderr_path}")
     try:

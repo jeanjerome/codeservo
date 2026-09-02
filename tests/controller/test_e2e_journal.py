@@ -9,7 +9,6 @@ from pathlib import Path
 from codeservo.evidence.digests import sha256_file, sha256_json
 from codeservo.evidence.journal import JOURNAL_NAME, read_journal
 from codeservo.evidence.verify import verify_run
-
 from e2e_support import CONVERGING_IMPLEMENTER, JOURNAL_PROBE, LOCATING_REVIEWER
 from harness import PIXI_TASK, build_case, commit_repository, constitution
 

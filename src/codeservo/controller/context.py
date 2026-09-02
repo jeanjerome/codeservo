@@ -8,10 +8,11 @@ written against it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..actuators import Actuator, default_actuator_name, load_actuator
+from ..actuators.inventory import Speed
 from ..domain.constitution import Constitution, ExecutionEnvironment
 from ..domain.task import Task, load_task
 from ..evidence.digests import sha256_text
@@ -44,11 +45,11 @@ class RunRequest:
     actuator: str | None
     model: str | None
     effort: str | None
-    speed: str
+    speed: Speed
     review_actuator: str | None
     review_model: str | None
     review_effort: str | None
-    review_speed: str
+    review_speed: Speed
 
 
 @dataclass(frozen=True)
@@ -77,7 +78,7 @@ class RunContext:
 
 
 def new_run_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
 
 
 def resolve_state_dir(repo: Path, state_dir: Path | None) -> Path:

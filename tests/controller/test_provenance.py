@@ -17,9 +17,9 @@ class RuntimeIdentityTests(unittest.TestCase):
         return Actuator(
             name=name,
             version_command=(sys.executable, "-c", f"print({version!r})"),
-            implement=lambda *args, **kwargs: {},
-            review=lambda *args, **kwargs: ({}, {}),
-            describe_isolation=lambda *args, **kwargs: {},
+            implement=lambda *_args, **_kwargs: {},
+            review=lambda *_args, **_kwargs: ({}, {}),
+            describe_isolation=lambda *_args, **_kwargs: {},
         )
 
     def _source_root(self) -> Path:

@@ -8,7 +8,6 @@ from pathlib import Path
 
 from codeservo.evidence.digests import sha256_file
 from codeservo.evidence.verify import verify_run
-
 from e2e_support import OBSERVATION, toml_basic, writes_observation
 from harness import build_case, constitution
 

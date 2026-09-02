@@ -5,8 +5,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from ..evidence.digests import sha256_file
 from ..domain.results import CommandResult
+from ..evidence.digests import sha256_file
 from .sandbox import Isolation, seatbelt_command
 
 

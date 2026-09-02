@@ -9,7 +9,6 @@ import json
 
 from harness import SENSOR_COMMAND
 
-
 JOURNAL_PROBE = '''"""Report the transitions the journal already holds."""
 import json
 import pathlib

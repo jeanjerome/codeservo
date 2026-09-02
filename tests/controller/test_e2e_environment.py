@@ -6,12 +6,11 @@ import unittest
 from pathlib import Path
 
 from codeservo.evidence.digests import sha256_file
-
 from harness import (
     COMPILE_COMMAND,
-    Case,
     PIXI_PACKAGES,
     PIXI_TASK,
+    Case,
     build_case,
     constitution,
 )

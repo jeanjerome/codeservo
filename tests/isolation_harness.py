@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import fcntl
-from contextlib import ExitStack, contextmanager
-from functools import lru_cache
 import os
-from pathlib import Path
 import subprocess
 import sys
+from contextlib import ExitStack, contextmanager
+from functools import lru_cache
+from pathlib import Path
 from unittest.mock import patch
-
 
 NESTED_TEST_ENV = "CODESERVO_TEST_NESTED_SEATBELT"
 GATE_RECORD_ENV = "CODESERVO_TEST_GATE_RECORD"
@@ -77,9 +76,11 @@ def protected_gate_record() -> Path:
         probe = candidate / f"codeservo-test-write-probe-{os.getpid()}"
         try:
             probe.write_text("forbidden\n", encoding="utf-8")
-        except OSError:
+        except OSError as refused:
             if probe.exists():
-                raise AssertionError(f"failed write left a file behind: {probe}")
+                raise AssertionError(
+                    f"failed write left a file behind: {probe}"
+                ) from refused
             return candidate
         else:
             probe.unlink()

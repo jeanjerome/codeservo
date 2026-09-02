@@ -2,15 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 Phase = Literal["quick", "full"]
+PHASES: tuple[Phase, ...] = get_args(Phase)
 
 # What a gate answers with beside its exit code. `exit-code` is the verdict
-# alone; `codeservo-json` adds a document saying what the gate saw.
-EXIT_CODE = "exit-code"
-CODESERVO_JSON = "codeservo-json"
-RESULT_FORMATS = (EXIT_CODE, CODESERVO_JSON)
+# alone; `codeservo-json` adds a document saying what the gate saw. The type
+# is the vocabulary, and the tuple is read from it, so a value can only be
+# added in one place.
+ResultFormat = Literal["exit-code", "codeservo-json"]
+RESULT_FORMATS: tuple[ResultFormat, ...] = get_args(ResultFormat)
+EXIT_CODE: ResultFormat = "exit-code"
+CODESERVO_JSON: ResultFormat = "codeservo-json"
 
 
 @dataclass(frozen=True)
@@ -40,7 +44,7 @@ class Gate:
     # What this gate answers with beside its exit code. Independent of the
     # phase, of naming a command or a task, of the baseline, and of an
     # external sensor.
-    result_format: str = EXIT_CODE
+    result_format: ResultFormat = EXIT_CODE
 
 
 @dataclass(frozen=True)

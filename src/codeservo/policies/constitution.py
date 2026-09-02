@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ..domain.constitution import (
     EXIT_CODE,
+    PHASES,
     RESULT_FORMATS,
     Constitution,
     ExecutionEnvironment,
@@ -20,6 +21,21 @@ NAME_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._-]*"
 
 class ConstitutionError(ValueError):
     pass
+
+
+def _declared[Vocabulary: str](
+    value: str, allowed: tuple[Vocabulary, ...], message: str
+) -> Vocabulary:
+    """One member of a declared vocabulary, or a refusal naming what was asked.
+
+    The member returned is the one the domain declares, never the string that
+    was read, so a value that reached this point is the vocabulary and not
+    something that merely compares equal to it.
+    """
+    for member in allowed:
+        if member == value:
+            return member
+    raise ConstitutionError(message)
 
 
 def _name(value: str, what: str) -> str:
@@ -104,9 +120,11 @@ def load_constitution(repo: Path) -> Constitution:
         if name in names:
             raise ConstitutionError(f"duplicate gate name: {name}")
         names.add(name)
-        phase = str(item["phase"])
-        if phase not in {"quick", "full"}:
-            raise ConstitutionError(f"gate {name}: phase must be quick or full")
+        phase = _declared(
+            str(item["phase"]),
+            PHASES,
+            f"gate {name}: phase must be quick or full",
+        )
         command = str(item["command"]) if "command" in item else None
         task = str(item["task"]) if "task" in item else None
         if command is not None and task is not None:
@@ -121,12 +139,13 @@ def load_constitution(repo: Path) -> Constitution:
                     f"gate {name}: task requires an [execution] provider"
                 )
             _name(task, f"task name for gate {name}")
-        result_format = str(item.get("result_format", EXIT_CODE))
-        if result_format not in RESULT_FORMATS:
-            raise ConstitutionError(
-                f"gate {name}: result_format must be one of"
-                f" {', '.join(RESULT_FORMATS)}, not {result_format!r}"
-            )
+        declared_format = str(item.get("result_format", EXIT_CODE))
+        result_format = _declared(
+            declared_format,
+            RESULT_FORMATS,
+            f"gate {name}: result_format must be one of"
+            f" {', '.join(RESULT_FORMATS)}, not {declared_format!r}",
+        )
         baseline = bool(item.get("baseline", True))
         sensor = str(item["sensor"]) if "sensor" in item else None
         if sensor is not None and not sensor.strip():
@@ -142,7 +161,7 @@ def load_constitution(repo: Path) -> Constitution:
         gates.append(
             Gate(
                 name=name,
-                phase=phase,  # type: ignore[arg-type]
+                phase=phase,
                 command=command,
                 task=task,
                 timeout_seconds=int(item.get("timeout_seconds", 300)),

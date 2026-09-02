@@ -23,11 +23,11 @@ def review_decision(
         seen[criterion_id] = status
 
     for criterion_id in task_criteria:
-        status = seen.get(criterion_id)
-        if status is None:
+        reported = seen.get(criterion_id)
+        if reported is None:
             reasons.append(f"review missing criterion {criterion_id}")
-        elif status != SATISFIED:
-            reasons.append(f"criterion {criterion_id} is {status}")
+        elif reported != SATISFIED:
+            reasons.append(f"criterion {criterion_id} is {reported}")
 
     extras = sorted(set(seen) - set(task_criteria))
     for extra in extras:

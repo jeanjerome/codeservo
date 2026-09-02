@@ -9,9 +9,8 @@ import unittest
 from pathlib import Path
 
 from codeservo.evidence.digests import sha256_text
-
 from e2e_support import FAKE_AGENTS, canonical
-from harness import Case, TASK_TEXT, commit_repository, constitution
+from harness import TASK_TEXT, Case, commit_repository, constitution
 
 
 @unittest.skipUnless(

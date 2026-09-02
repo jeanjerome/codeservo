@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from .digests import sha256_file, sha256_json
 
@@ -23,24 +24,44 @@ EVENT_SCHEMA_VERSION = 1
 # Where a run keeps its journal, relative to the run directory.
 JOURNAL_NAME = "events.jsonl"
 
-# Everything one line carries, and nothing else.
-EVENT_FIELDS = (
-    "schema_version",
-    "run_id",
-    "sequence",
-    "recorded_at",
-    "type",
-    "payload",
-    "previous_sha256",
-    "sha256",
-)
+
+class UnsignedEvent(TypedDict):
+    """One transition, before it closes over itself."""
+
+    schema_version: int
+    run_id: str
+    sequence: int
+    recorded_at: str
+    type: str
+    payload: dict[str, Any]
+    previous_sha256: str | None
+
+
+class Event(UnsignedEvent):
+    """One journal line: a transition and the digest that closes it."""
+
+    sha256: str
+
+
+class EventsSummary(TypedDict):
+    """The `events` block of the record: the journal as it stands."""
+
+    path: str
+    count: int
+    head_sha256: str | None
+    file_sha256: str | None
+
+
+# Everything one line carries, and nothing else. Read from the shape above, so
+# a field is added in one place.
+EVENT_FIELDS = tuple(Event.__annotations__)
 
 
 class JournalError(RuntimeError):
     pass
 
 
-def event_sha256(event: dict[str, Any]) -> str:
+def event_sha256(event: Mapping[str, Any]) -> str:
     """The digest closing one event: the event without its own digest."""
     return sha256_json({key: value for key, value in event.items() if key != "sha256"})
 
@@ -67,23 +88,25 @@ class Journal:
     def head_sha256(self) -> str | None:
         return self._head
 
-    def record(self, event_type: str, payload: dict[str, Any] | None = None) -> dict:
-        event = {
+    def record(
+        self, event_type: str, payload: dict[str, Any] | None = None
+    ) -> Event:
+        unsigned: UnsignedEvent = {
             "schema_version": EVENT_SCHEMA_VERSION,
             "run_id": self.run_id,
             "sequence": self._sequence + 1,
-            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "recorded_at": datetime.now(UTC).isoformat(),
             "type": event_type,
             "payload": dict(payload or {}),
             "previous_sha256": self._head,
         }
-        event["sha256"] = event_sha256(event)
+        event: Event = {**unsigned, "sha256": event_sha256(unsigned)}
         self._append(event)
         self._sequence = event["sequence"]
         self._head = event["sha256"]
         return event
 
-    def summary(self) -> dict:
+    def summary(self) -> EventsSummary:
         """The `events` block of the record: the journal as it stands now."""
         return {
             "path": JOURNAL_NAME,
@@ -92,7 +115,7 @@ class Journal:
             "file_sha256": sha256_file(self.path) if self.path.is_file() else None,
         }
 
-    def _append(self, event: dict[str, Any]) -> None:
+    def _append(self, event: Event) -> None:
         line = json.dumps(
             event, sort_keys=True, separators=(",", ":"), ensure_ascii=False
         )

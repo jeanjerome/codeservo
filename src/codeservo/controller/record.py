@@ -8,9 +8,9 @@ chain.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from ..evidence.digests import relative_evidence_paths, sha256_text, write_json
 from ..evidence.journal import Journal
@@ -19,13 +19,16 @@ from ..workspace.git import make_patch
 # The shape of evidence.json. The observation bundle versions its own shape.
 EVIDENCE_SCHEMA_VERSION = 16
 
-RUNNING = "RUNNING"
-ACCEPTED = "ACCEPTED"
-REJECTED = "REJECTED"
+# The three states a record reports. A run is `RUNNING` from the moment the
+# directory exists until the decision closes the journal.
+RunStatus = Literal["RUNNING", "ACCEPTED", "REJECTED"]
+RUNNING: RunStatus = "RUNNING"
+ACCEPTED: RunStatus = "ACCEPTED"
+REJECTED: RunStatus = "REJECTED"
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class RunRecord:

@@ -11,12 +11,13 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, get_args
 
 SCHEMA_VERSION = 1
-BACKEND_NAMES = ("claude", "codex")
+Backend = Literal["claude", "codex"]
+BACKEND_NAMES: tuple[Backend, ...] = get_args(Backend)
 
 SOURCE_CACHE = "backend-cache"
 SOURCE_UNAVAILABLE = "unavailable"
@@ -25,16 +26,18 @@ STATUS_INELIGIBLE = "ineligible"
 
 # The speed tiers a run may request. `standard` is what a backend applies when
 # no tier is asked for, so it is also the documented default.
-SPEED_NAMES = ("standard", "fast")
-DEFAULT_SPEED = "standard"
+Speed = Literal["standard", "fast"]
+SPEED_NAMES: tuple[Speed, ...] = get_args(Speed)
+DEFAULT_SPEED: Speed = "standard"
 
 # How the requested profile compares to the local inventory. `unsupported` is
 # the only refusal: it needs an inventory that lists the model and contradicts
 # the request. Everything the inventory cannot settle stays `unverified`,
 # because a cache that does not list a model is not an authority on access.
-PROFILE_SUPPORTED = "supported"
-PROFILE_UNSUPPORTED = "unsupported"
-PROFILE_UNVERIFIED = "unverified"
+ProfileStatus = Literal["supported", "unsupported", "unverified"]
+PROFILE_SUPPORTED: ProfileStatus = "supported"
+PROFILE_UNSUPPORTED: ProfileStatus = "unsupported"
+PROFILE_UNVERIFIED: ProfileStatus = "unverified"
 
 # The reason never quotes the provider document, so no value the cache holds
 # beyond the projected fields reaches the inventory.
@@ -188,7 +191,7 @@ def read_codex(env: Mapping[str, str]) -> dict:
     }
 
 
-def read_claude(env: Mapping[str, str]) -> dict:
+def read_claude(_env: Mapping[str, str]) -> dict:
     """Report the Claude cache as unread.
 
     The backend declares its cache path in `claude_cache_path`, and no reader is
@@ -305,7 +308,7 @@ def build_inventory(
 
     return {
         "schema_version": SCHEMA_VERSION,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "backends": backends,
     }
 

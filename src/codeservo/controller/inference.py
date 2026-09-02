@@ -9,17 +9,21 @@ measured.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Literal
 
-from ..actuators.inventory import PROFILE_UNSUPPORTED, validate_profile
+from ..actuators.base import ReportedProfile
+from ..actuators.inventory import PROFILE_UNSUPPORTED, Speed, validate_profile
 
 # What a run records about the profile a backend applied to itself, and the two
 # statements it makes per field. A backend's own output either carried the
 # value or it did not; a field nobody could read and a field the backend does
 # not talk about are the same absence, and say the same thing.
 OBSERVED_FIELDS = ("model", "effort", "speed")
-REPORTED = "reported"
-NOT_REPORTED = "not_reported"
+Provenance = Literal["reported", "not_reported"]
+REPORTED: Provenance = "reported"
+NOT_REPORTED: Provenance = "not_reported"
 
 
 @dataclass(frozen=True)
@@ -29,10 +33,10 @@ class InferenceRequest:
     backend: str
     model: str | None
     effort: str | None
-    speed: str
+    speed: Speed
 
 
-def observed_profile(observed: dict) -> dict:
+def observed_profile(observed: Mapping[str, object]) -> dict:
     """What a backend reported about its own profile, and why the rest is empty.
 
     Only the backend's own output speaks here. A value it did not carry stays
@@ -93,7 +97,7 @@ def frozen_inference(
     }
 
 
-def record_actuation(profile: dict, agent: dict) -> None:
+def record_actuation(profile: dict, agent: ReportedProfile) -> None:
     """Keep the profile of the last actuation, replacing any earlier one.
 
     The adapter owns what its backend reports and how it read it; the shape of

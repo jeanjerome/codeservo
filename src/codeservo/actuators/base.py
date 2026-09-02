@@ -1,11 +1,27 @@
+"""The contract a backend answers, and the loader that resolves one by name.
+
+An actuator proposes a change and, in the other role, reviews one. Everything
+specific to a command-line tool — its flags, its configuration keys, the
+fields of its event stream — stays inside that tool's adapter. What crosses
+this boundary is declared here, so a controller reading an actuation record
+and an adapter writing one are held to the same shape.
+"""
+
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Callable
+from pathlib import Path
+from typing import Any, Literal, Protocol, TypedDict, get_args
 
-ACTUATOR_NAMES = ("claude", "codex")
-DEFAULT_ACTUATOR = "claude"
+from ..runtime.sandbox import Isolation
+from .inventory import Speed
+
+# The backends a run may drive. The tuple is read from the type, so a backend
+# is added in one place.
+ActuatorName = Literal["claude", "codex"]
+ACTUATOR_NAMES: tuple[ActuatorName, ...] = get_args(ActuatorName)
+DEFAULT_ACTUATOR: ActuatorName = "claude"
 ACTUATOR_ENV_VAR = "CODESERVO_ACTUATOR"
 
 
@@ -13,22 +29,105 @@ class ActuatorError(RuntimeError):
     pass
 
 
+class ObservedProfile(TypedDict):
+    """What a backend reported about the profile it applied to itself.
+
+    A field the backend did not name stays empty. Nothing is filled in from
+    the request, so an absence here is an absence in the record.
+    """
+
+    model: str | None
+    effort: str | None
+    speed: str | None
+
+
+class ReportedProfile(TypedDict):
+    """What a backend reported about the call it just made.
+
+    Both roles report the same two things: the configuration the command
+    actually carried, and what the session then said about itself.
+    """
+
+    native: dict[str, Any]
+    observed: ObservedProfile
+
+
+class Actuation(ReportedProfile):
+    """What every backend's actuation carries for the control loop.
+
+    An adapter records more than this — the command it built, the streams it
+    kept, what the session billed. These are what the controller reads, so
+    they are what a backend is held to whichever tool answered.
+    """
+
+    exit_code: int
+    result_sha256: str
+
+
+class ReviewMeta(ReportedProfile):
+    """What every backend's review carries for the control loop."""
+
+    meta_sha256: str
+
+
+class Implement(Protocol):
+    """Propose a change inside the candidate, under the given confinement."""
+
+    def __call__(
+        self,
+        *,
+        worktree: Path,
+        prompt: str,
+        out_dir: Path,
+        model: str | None,
+        timeout_seconds: int,
+        isolation: Isolation,
+        effort: str | None,
+        speed: Speed,
+    ) -> Actuation: ...
+
+
+class Review(Protocol):
+    """Read the candidate and answer against the frozen review schema."""
+
+    def __call__(
+        self,
+        *,
+        worktree: Path,
+        prompt: str,
+        schema_path: Path,
+        out_dir: Path,
+        model: str | None,
+        timeout_seconds: int,
+        isolation: Isolation,
+        effort: str | None,
+        speed: Speed,
+    ) -> tuple[dict[str, Any], ReviewMeta]: ...
+
+
+class DescribeIsolation(Protocol):
+    """State the confinement this backend applies, before it applies it."""
+
+    def __call__(self, isolation: Isolation) -> dict[str, Any]: ...
+
+
 @dataclass(frozen=True)
 class Actuator:
-    name: str
+    name: ActuatorName
     version_command: tuple[str, ...]
-    implement: Callable[..., dict]
-    review: Callable[..., tuple[dict, dict]]
-    describe_isolation: Callable[..., dict]
+    implement: Implement
+    review: Review
+    describe_isolation: DescribeIsolation
 
 
-def default_actuator_name() -> str:
-    name = os.environ.get(ACTUATOR_ENV_VAR, "").strip() or DEFAULT_ACTUATOR
-    if name not in ACTUATOR_NAMES:
-        raise ActuatorError(
-            f"{ACTUATOR_ENV_VAR}={name!r} is not one of {', '.join(ACTUATOR_NAMES)}"
-        )
-    return name
+def default_actuator_name() -> ActuatorName:
+    requested = os.environ.get(ACTUATOR_ENV_VAR, "").strip() or DEFAULT_ACTUATOR
+    for known in ACTUATOR_NAMES:
+        if known == requested:
+            return known
+    raise ActuatorError(
+        f"{ACTUATOR_ENV_VAR}={requested!r} is not one of {', '.join(ACTUATOR_NAMES)}"
+    )
 
 
 def load_actuator(name: str) -> Actuator:

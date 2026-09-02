@@ -7,7 +7,6 @@ test can move exactly one of them and say what that does to the verdict.
 import json
 from pathlib import Path
 
-from codeservo.evidence.journal import JOURNAL_NAME, Journal
 from codeservo.evidence.digests import (
     sha256_file,
     sha256_json,
@@ -16,8 +15,8 @@ from codeservo.evidence.digests import (
     sha256_text,
     write_json,
 )
+from codeservo.evidence.journal import JOURNAL_NAME, Journal
 from codeservo.evidence.verify import JOURNAL_EVIDENCE_VERSION
-
 
 """Verification of one run directory, against records built by hand.
 

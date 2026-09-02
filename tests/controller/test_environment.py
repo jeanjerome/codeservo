@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from codeservo.controller import ControlFailure, NO_ENVIRONMENT
+from codeservo.controller import NO_ENVIRONMENT, ControlFailure
 from codeservo.controller.environment import (
     candidate_digests,
     changed_environment,
@@ -17,7 +17,6 @@ from codeservo.controller.environment import (
 )
 from codeservo.domain.constitution import ExecutionEnvironment
 from codeservo.evidence.digests import sha256_file
-
 from harness import PIXI_PACKAGES, PIXI_TASK, commit_repository, write_provider
 
 

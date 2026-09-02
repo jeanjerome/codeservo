@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..actuators.inventory import DEFAULT_SPEED
+from ..actuators.inventory import DEFAULT_SPEED, Speed
 from ..workspace.git import is_clean
 from .context import RunContext, RunRequest, prepare
 from .errors import Rejection
@@ -40,10 +40,10 @@ def run(
     state_dir: Path | None = None,
     actuator: str | None = None,
     effort: str | None = None,
-    speed: str = DEFAULT_SPEED,
+    speed: Speed = DEFAULT_SPEED,
     review_actuator: str | None = None,
     review_effort: str | None = None,
-    review_speed: str = DEFAULT_SPEED,
+    review_speed: Speed = DEFAULT_SPEED,
 ) -> dict:
     """Drive one controlled software change, and return the record it wrote."""
     context, record = prepare(

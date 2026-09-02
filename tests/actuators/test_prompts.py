@@ -2,8 +2,8 @@ import json
 import unittest
 from pathlib import Path
 
-from codeservo.domain.constitution import Constitution, Gate, ReviewPolicy, ScopePolicy
 from codeservo.actuators.prompts import implementer_prompt, reviewer_prompt
+from codeservo.domain.constitution import Constitution, Gate, ReviewPolicy, ScopePolicy
 from codeservo.domain.task import Task
 
 OBSERVATIONS = {

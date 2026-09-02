@@ -13,7 +13,6 @@ from codeservo.controller.inference import (
     record_actuation,
 )
 
-
 PROFILE_FIELDS = {"requested", "validation", "native", "observed", "provenance"}
 
 

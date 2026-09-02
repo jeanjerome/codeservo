@@ -15,9 +15,9 @@ from ..actuators.inventory import (
     write_inventory,
 )
 from ..controller import run
+from ..domain.task import TaskError
 from ..evidence.verify import VerificationError, render_report, verify_run
 from ..policies.constitution import ConstitutionError
-from ..domain.task import TaskError
 from ..resources import constitution_example
 
 # What the verification of a run directory reports through the exit status.

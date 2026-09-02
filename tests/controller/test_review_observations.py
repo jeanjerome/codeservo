@@ -8,7 +8,6 @@ from pathlib import Path
 from codeservo.controller.phases.review import review_observations
 from codeservo.domain.constitution import Constitution, Gate, ReviewPolicy, ScopePolicy
 
-
 OBSERVATION_FIELDS = {
     "phase",
     "name",

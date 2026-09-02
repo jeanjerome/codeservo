@@ -33,9 +33,42 @@ requires-pixi = ">=0.77,<0.78"
 
 [tool.pixi.dependencies]
 python = "3.12.*"
+mypy = ">=1.13,<2"
+ruff = ">=0.12,<0.13"
 
 [tool.pixi.pypi-dependencies]
 codeservo = { path = ".", editable = true }
 
 [tool.pixi.tasks]
+# Every check names the tree it measures and writes nothing into it: a gate
+# that left a cache behind would change the candidate it was only measuring.
 test = "python -m unittest discover -s tests -v"
+lint = "ruff check --no-cache src tests"
+types = "mypy --cache-dir=/dev/null src"
+
+[tool.ruff]
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# Rules that name a defect rather than a taste: pyflakes, import order the
+# guidelines already require, the bugbear traps, comprehension and idiom
+# modernisation, return-statement shape, and arguments nothing reads.
+select = ["E4", "E7", "E9", "F", "I", "B", "C4", "UP", "RET", "ARG"]
+
+[tool.ruff.lint.flake8-bugbear]
+# `Isolation` is a frozen dataclass of tuples, so one built in a default
+# argument is shared safely and says what an unconfined call means.
+extend-immutable-calls = ["codeservo.runtime.sandbox.Isolation"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+# The shipped tree. The fixtures deliberately pass keyword dictionaries a
+# checker cannot follow, and the suite is measured by the unit gate instead.
+files = ["src"]
+# The frozen documents are what this checks: a producer that omits, misnames
+# or mistypes a field of the record fails here rather than in a run.
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true

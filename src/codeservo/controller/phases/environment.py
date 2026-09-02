@@ -12,9 +12,9 @@ from pathlib import Path
 
 from ...sensors.gates import baseline_gates
 from ...workspace import pixi
+from ..context import RunContext
 from ..environment import frozen_environment, install_candidate, resolved_environment
 from ..errors import ControlFailure, Rejection
-from ..context import RunContext
 from ..record import RunRecord
 
 

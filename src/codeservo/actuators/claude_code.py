@@ -6,11 +6,12 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+from typing import Any, TypedDict
 
 from ..evidence.digests import sha256_file, sha256_record, sha256_text
 from ..runtime.sandbox import Isolation, isolation_evidence, seatbelt_command
-from .base import ActuatorError
-from .inventory import DEFAULT_SPEED
+from .base import ActuatorError, ObservedProfile
+from .inventory import DEFAULT_SPEED, Speed
 
 # `--safe-mode` drops user memory, skills, plugins, hooks, custom agents and
 # settings files, so the actuator only sees the frozen prompt and the worktree.
@@ -33,6 +34,77 @@ FAST_MODE_SETTINGS = {"fastMode": True}
 # consumed is not part of the profile it applied.
 USAGE_FIELD = "usage"
 SPEED_FIELD = "speed"
+
+
+class Session(TypedDict, total=False):
+    """What the result event says about the session that just ended.
+
+    A stream that produced no result event carries no session, and the block
+    is empty rather than filled with nulls.
+    """
+
+    session_id: str | None
+    subtype: str | None
+    is_error: bool
+    num_turns: int | None
+    total_cost_usd: float | None
+    terminal_reason: str | None
+
+
+class Models(TypedDict):
+    """The model the session resolved to, and everything it billed."""
+
+    session_model: str | None
+    usage: dict[str, dict[str, Any]]
+
+
+class UnsignedActuation(TypedDict):
+    """One actuation, before it closes over itself."""
+
+    command: list[str]
+    exit_code: int
+    duration_ms: int
+    session: Session
+    models: Models
+    native: dict[str, Any]
+    observed: ObservedProfile
+    events_path: str
+    events_sha256: str
+    stderr_path: str
+    stderr_sha256: str
+    last_message_path: str
+    last_message_sha256: str
+
+
+class ClaudeActuation(UnsignedActuation):
+    """One actuation, and the digest recomputable from what it holds."""
+
+    result_sha256: str
+
+
+class UnsignedReviewMeta(TypedDict):
+    """One review call, before it closes over itself."""
+
+    command: list[str]
+    exit_code: int
+    duration_ms: int
+    schema_sha256: str
+    session: Session
+    models: Models
+    native: dict[str, Any]
+    observed: ObservedProfile
+    stdout_path: str
+    stdout_sha256: str
+    stderr_path: str
+    stderr_sha256: str
+    result_path: str
+    result_sha256: str
+
+
+class ClaudeReviewMeta(UnsignedReviewMeta):
+    """One review call, and the digest recomputable from what it holds."""
+
+    meta_sha256: str
 
 
 class ClaudeCodeError(ActuatorError):
@@ -170,7 +242,7 @@ def _result_event(events: list[dict]) -> dict | None:
     return None
 
 
-def _models(events: list[dict]) -> dict:
+def _models(events: list[dict]) -> Models:
     """Report the models a session ran on.
 
     The command line carries an alias such as `opus`, which moves over time. The
@@ -186,7 +258,7 @@ def _models(events: list[dict]) -> dict:
         None,
     )
     usage = (_result_event(events) or {}).get("modelUsage")
-    spent = {}
+    spent: dict[str, dict[str, Any]] = {}
     if isinstance(usage, dict):
         for name, record in usage.items():
             if isinstance(record, dict):
@@ -197,7 +269,7 @@ def _models(events: list[dict]) -> dict:
     return {"session_model": session_model, "usage": spent}
 
 
-def _session(result: dict | None) -> dict:
+def _session(result: dict | None) -> Session:
     if result is None:
         return {}
     return {
@@ -234,7 +306,7 @@ def _reported_speed(events: list[dict]) -> str | None:
     return speed if isinstance(speed, str) and speed else None
 
 
-def _observed(events: list[dict]) -> dict:
+def _observed(events: list[dict]) -> ObservedProfile:
     """The inference profile the session reported about itself.
 
     Claude Code names its model and its speed tier, and carries no reasoning
@@ -249,7 +321,7 @@ def _observed(events: list[dict]) -> dict:
     }
 
 
-def describe_isolation(isolation: Isolation) -> dict:
+def describe_isolation(isolation: Isolation) -> dict[str, Any]:
     return isolation_evidence(isolation, "macos-sandbox-exec")
 
 
@@ -262,8 +334,8 @@ def run_implementer(
     timeout_seconds: int,
     isolation: Isolation = Isolation(),
     effort: str | None = None,
-    speed: str = DEFAULT_SPEED,
-) -> dict:
+    speed: Speed = DEFAULT_SPEED,
+) -> ClaudeActuation:
     out_dir.mkdir(parents=True, exist_ok=True)
     events_path = out_dir / "events.jsonl"
     stderr_path = out_dir / "stderr.log"
@@ -306,7 +378,7 @@ def run_implementer(
     message = str(result.get("result", "")) if result else ""
     last_message.write_text(message, encoding="utf-8")
 
-    record = {
+    unsigned: UnsignedActuation = {
         "command": command,
         "exit_code": completed.returncode,
         "duration_ms": int((time.monotonic() - started) * 1000),
@@ -321,10 +393,14 @@ def run_implementer(
         "last_message_path": str(last_message),
         "last_message_sha256": sha256_text(message),
     }
-    record["result_sha256"] = sha256_record(record)
+    record: ClaudeActuation = {
+        **unsigned,
+        "result_sha256": sha256_record(unsigned),
+    }
     if completed.returncode == 0 and record["session"].get("is_error"):
         raise ClaudeCodeError(
-            f"implementer reported {record['session'].get('subtype')}; see {stderr_path}"
+            f"implementer reported {record['session'].get('subtype')};"
+            f" see {stderr_path}"
         )
     return record
 
@@ -339,8 +415,8 @@ def run_reviewer(
     timeout_seconds: int,
     isolation: Isolation = Isolation(),
     effort: str | None = None,
-    speed: str = DEFAULT_SPEED,
-) -> tuple[dict, dict]:
+    speed: Speed = DEFAULT_SPEED,
+) -> tuple[dict[str, Any], ClaudeReviewMeta]:
     out_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = out_dir / "stdout.log"
     stderr_path = out_dir / "stderr.log"
@@ -394,7 +470,7 @@ def run_reviewer(
     result_path.write_text(
         json.dumps(review, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    meta = {
+    unsigned: UnsignedReviewMeta = {
         "command": command,
         "exit_code": completed.returncode,
         "duration_ms": int((time.monotonic() - started) * 1000),
@@ -410,7 +486,7 @@ def run_reviewer(
         "result_path": str(result_path),
         "result_sha256": sha256_file(result_path),
     }
-    meta["meta_sha256"] = sha256_record(meta)
+    meta: ClaudeReviewMeta = {**unsigned, "meta_sha256": sha256_record(unsigned)}
     return review, meta
 
 
