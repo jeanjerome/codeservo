@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
 
+from ..domain.run import RunStatus
 from ..evidence.digests import relative_evidence_paths, sha256_text, write_json
 from ..evidence.journal import Journal
 from ..workspace.git import make_patch
@@ -19,13 +19,6 @@ from .document import Evidence
 
 # The shape of evidence.json. The observation bundle versions its own shape.
 EVIDENCE_SCHEMA_VERSION = 16
-
-# The three states a record reports. A run is `RUNNING` from the moment the
-# directory exists until the decision closes the journal.
-RunStatus = Literal["RUNNING", "ACCEPTED", "REJECTED"]
-RUNNING: RunStatus = "RUNNING"
-ACCEPTED: RunStatus = "ACCEPTED"
-REJECTED: RunStatus = "REJECTED"
 
 
 def utc_now() -> str:
@@ -64,7 +57,7 @@ class RunRecord:
 
     def close(
         self,
-        status: str,
+        status: RunStatus,
         reasons: list[str],
         *,
         worktree: Path,

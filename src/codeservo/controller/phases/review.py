@@ -11,7 +11,7 @@ import json
 
 from ...actuators import ActuatorError
 from ...actuators.prompts import reviewer_prompt
-from ...domain.constitution import Constitution
+from ...domain.constitution import Constitution, Phase
 from ...evidence.digests import sha256_json, sha256_text
 from ...resources import review_schema
 from ...runtime.process import tail
@@ -59,7 +59,7 @@ def review_observations(
     """
     sensors = {gate.name: gate.sensor for gate in constitution.gates}
     gates: list[dict] = []
-    for phase, results in (("quick", quick), ("full", full)):
+    for phase, results in ((Phase.QUICK, quick), (Phase.FULL, full)):
         for result in results:
             sensor = sensors.get(result["name"])
             gates.append(

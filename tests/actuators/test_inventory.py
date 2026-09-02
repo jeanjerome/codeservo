@@ -11,13 +11,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from codeservo.actuators.inventory import (
-    BACKEND_NAMES,
     CLAUDE_UNVERIFIED_REASON,
-    PROFILE_SUPPORTED,
-    PROFILE_UNSUPPORTED,
-    PROFILE_UNVERIFIED,
     SCHEMA_VERSION,
+    Backend,
     ModelSelectionError,
+    ProfileStatus,
     build_inventory,
     claude_cache_path,
     codex_cache_path,
@@ -301,7 +299,7 @@ class SelectionTests(unittest.TestCase):
 
         self.assertEqual(SCHEMA_VERSION, document["schema_version"])
         self.assertEqual(
-            list(BACKEND_NAMES), [b["backend"] for b in document["backends"]]
+            list(Backend), [b["backend"] for b in document["backends"]]
         )
 
     def test_restricts_the_report_to_one_backend(self) -> None:
@@ -359,32 +357,32 @@ class ProfileValidationTests(unittest.TestCase):
     def test_supports_a_profile_the_inventory_lists_whole(self) -> None:
         profile = self.validate(effort="high", speed="fast")
 
-        self.assertEqual(PROFILE_SUPPORTED, profile["status"])
+        self.assertEqual(ProfileStatus.SUPPORTED, profile["status"])
         self.assertEqual("backend-cache", profile["inventory_source"])
         self.assertIn("fast-tier", profile["reason"])
 
     def test_supports_an_absent_effort_the_backend_will_default(self) -> None:
         profile = self.validate(effort=None)
 
-        self.assertEqual(PROFILE_SUPPORTED, profile["status"])
+        self.assertEqual(ProfileStatus.SUPPORTED, profile["status"])
         self.assertNotIn("effort", profile["reason"])
 
     def test_refuses_an_effort_the_listed_model_does_not_declare(self) -> None:
         profile = self.validate(effort="ultra")
 
-        self.assertEqual(PROFILE_UNSUPPORTED, profile["status"])
+        self.assertEqual(ProfileStatus.UNSUPPORTED, profile["status"])
         self.assertIn("effort ultra", profile["reason"])
 
     def test_refuses_a_speed_the_listed_model_does_not_declare(self) -> None:
         profile = self.validate(model="standard-only", speed="fast")
 
-        self.assertEqual(PROFILE_UNSUPPORTED, profile["status"])
+        self.assertEqual(ProfileStatus.UNSUPPORTED, profile["status"])
         self.assertIn("speed fast", profile["reason"])
 
     def test_leaves_a_model_the_inventory_does_not_list_unverified(self) -> None:
         profile = self.validate(model="absent", effort="ultra", speed="fast")
 
-        self.assertEqual(PROFILE_UNVERIFIED, profile["status"])
+        self.assertEqual(ProfileStatus.UNVERIFIED, profile["status"])
         self.assertEqual("backend-cache", profile["inventory_source"])
         self.assertIn("absent", profile["reason"])
 
@@ -393,20 +391,20 @@ class ProfileValidationTests(unittest.TestCase):
 
         profile = self.validate(effort="ultra", speed="fast")
 
-        self.assertEqual(PROFILE_UNVERIFIED, profile["status"])
+        self.assertEqual(ProfileStatus.UNVERIFIED, profile["status"])
         self.assertEqual("unavailable", profile["inventory_source"])
 
     def test_leaves_a_backend_without_a_verified_cache_unverified(self) -> None:
         profile = self.validate(backend="claude", model="opus", effort="xhigh")
 
-        self.assertEqual(PROFILE_UNVERIFIED, profile["status"])
+        self.assertEqual(ProfileStatus.UNVERIFIED, profile["status"])
         self.assertEqual("unavailable", profile["inventory_source"])
         self.assertIn(CLAUDE_UNVERIFIED_REASON, profile["reason"])
 
     def test_leaves_an_unrequested_model_unverified(self) -> None:
         profile = self.validate(model=None, effort="ultra")
 
-        self.assertEqual(PROFILE_UNVERIFIED, profile["status"])
+        self.assertEqual(ProfileStatus.UNVERIFIED, profile["status"])
         self.assertIn("default", profile["reason"])
 
     def test_rejects_an_unknown_backend(self) -> None:

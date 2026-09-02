@@ -154,7 +154,7 @@ def _profile_command(
     native: dict = {}
     if effort:
         native["--effort"] = effort
-    if speed == "fast":
+    if speed == Speed.FAST:
         settings_path = settings_dir / "settings.json"
         settings_path.write_text(json.dumps(FAST_MODE_SETTINGS), encoding="utf-8")
         command.extend(["--settings", str(settings_path)])

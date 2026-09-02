@@ -7,30 +7,29 @@ layer names a command-line flag, a configuration key or an event field.
 
 from .base import (
     ACTUATOR_ENV_VAR,
-    ACTUATOR_NAMES,
     DEFAULT_ACTUATOR,
     Actuation,
     Actuator,
     ActuatorError,
-    ActuatorName,
     ObservedProfile,
     ReportedProfile,
     ReviewMeta,
     default_actuator_name,
     load_actuator,
 )
+from .inventory import Backend, Speed
 
 __all__ = [
     "ACTUATOR_ENV_VAR",
-    "ACTUATOR_NAMES",
     "DEFAULT_ACTUATOR",
     "Actuation",
     "Actuator",
     "ActuatorError",
-    "ActuatorName",
+    "Backend",
     "ObservedProfile",
     "ReportedProfile",
     "ReviewMeta",
+    "Speed",
     "default_actuator_name",
     "load_actuator",
 ]

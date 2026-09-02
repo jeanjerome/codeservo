@@ -12,7 +12,7 @@ from ...sensors.observations import ObservationPathError
 from ...workspace.git import create_worktree, is_clean
 from ..context import RunContext
 from ..errors import Rejection
-from ..gate_results import record_gate_events, sensor_faults
+from ..gate_results import GatePhase, record_gate_events, sensor_faults
 from ..record import RunRecord
 
 
@@ -30,7 +30,7 @@ def measure_baseline(context: RunContext, record: RunRecord) -> None:
         raise Rejection(str(exc)) from exc
 
     record.document["baseline"] = baseline
-    record_gate_events(record.journal, "baseline", baseline)
+    record_gate_events(record.journal, GatePhase.BASELINE, baseline)
     record.record(
         "baseline.finished",
         {

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..domain.constitution import Phase
 from ..evidence.digests import sha256_text
 from ..workspace.git import make_patch
 from .document import FileRecord
@@ -26,7 +27,7 @@ def write_patch_snapshot(
     }
 
 
-def mutated(phase: str, before: FileRecord, after: FileRecord) -> list[str]:
+def mutated(phase: Phase, before: FileRecord, after: FileRecord) -> list[str]:
     """Whether a measurement phase changed the tree it was measuring.
 
     A confinement refuses only the writes its profile names; the comparison

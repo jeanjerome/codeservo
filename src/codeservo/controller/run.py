@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..actuators.inventory import DEFAULT_SPEED, Speed
+from ..domain.run import RunStatus
 from ..workspace.git import is_clean
 from .context import RunContext, RunRequest, prepare
 from .document import Evidence
@@ -24,7 +25,7 @@ from .phases import (
     prepare_candidate_environment,
     review_candidate,
 )
-from .record import ACCEPTED, REJECTED, RunRecord
+from .record import RunRecord
 
 DEFAULT_MAX_ITERATIONS = 4
 DEFAULT_AGENT_TIMEOUT_SECONDS = 1800
@@ -74,8 +75,13 @@ def run(
         full = measure_full(context, record, accepted)
         reasons = review_candidate(context, record, accepted, full)
     except Rejection as rejection:
-        return _close(context, record, REJECTED, rejection.reasons)
-    return _close(context, record, ACCEPTED if not reasons else REJECTED, reasons)
+        return _close(context, record, RunStatus.REJECTED, rejection.reasons)
+    return _close(
+        context,
+        record,
+        RunStatus.ACCEPTED if not reasons else RunStatus.REJECTED,
+        reasons,
+    )
 
 
 def _verify_control_inputs(context: RunContext) -> None:
@@ -94,7 +100,7 @@ def _verify_control_inputs(context: RunContext) -> None:
 
 
 def _close(
-    context: RunContext, record: RunRecord, status: str, reasons: list[str]
+    context: RunContext, record: RunRecord, status: RunStatus, reasons: list[str]
 ) -> Evidence:
     return record.close(
         status,

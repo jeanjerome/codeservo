@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ..actuators import ACTUATOR_ENV_VAR, ACTUATOR_NAMES, DEFAULT_ACTUATOR
-from ..actuators.inventory import DEFAULT_SPEED, SPEED_NAMES
+from ..actuators import ACTUATOR_ENV_VAR, DEFAULT_ACTUATOR, Backend, Speed
+from ..actuators.inventory import DEFAULT_SPEED
 from ..controller.run import DEFAULT_AGENT_TIMEOUT_SECONDS, DEFAULT_MAX_ITERATIONS
 
 PROGRAM = "codeservo"
@@ -36,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     execute.add_argument(
         "--speed",
-        choices=SPEED_NAMES,
+        choices=tuple(Speed),
         default=DEFAULT_SPEED,
         help=f"speed tier the implementer backend applies (default: {DEFAULT_SPEED})",
     )
@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     execute.add_argument(
         "--actuator",
-        choices=ACTUATOR_NAMES,
+        choices=tuple(Backend),
         help=(
             "agent CLI proposing the change, and reviewing it unless "
             "--review-actuator names another one "
@@ -54,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     execute.add_argument(
         "--review-actuator",
-        choices=ACTUATOR_NAMES,
+        choices=tuple(Backend),
         help=(
             "agent CLI running the read-only review "
             "(default: the resolved --actuator)"
@@ -69,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     execute.add_argument(
         "--review-speed",
-        choices=SPEED_NAMES,
+        choices=tuple(Speed),
         default=DEFAULT_SPEED,
         help=f"speed tier the reviewer backend applies (default: {DEFAULT_SPEED})",
     )
@@ -95,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     models.add_argument(
         "--actuator",
-        choices=ACTUATOR_NAMES,
+        choices=tuple(Backend),
         help="report one backend instead of every known one",
     )
     models.add_argument("--model", help="report one model of the selected backend")

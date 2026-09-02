@@ -14,6 +14,7 @@ from pathlib import Path
 from ..actuators import Actuator, default_actuator_name, load_actuator
 from ..actuators.inventory import Speed
 from ..domain.constitution import Constitution, ExecutionEnvironment
+from ..domain.run import RunStatus
 from ..domain.task import Task, load_task
 from ..evidence.digests import sha256_text
 from ..evidence.journal import JOURNAL_NAME, Journal
@@ -25,7 +26,7 @@ from .freeze import freeze_sensors
 from .inference import InferenceRequest, frozen_inference, roles
 from .isolation import Confinement, confinement
 from .provenance import runtime_metadata
-from .record import EVIDENCE_SCHEMA_VERSION, RUNNING, RunRecord, utc_now
+from .record import EVIDENCE_SCHEMA_VERSION, RunRecord, utc_now
 
 # A run that declares no execution provider measures through whatever the host
 # offers, and says so.
@@ -205,7 +206,7 @@ def prepare(request: RunRequest) -> tuple[RunContext, RunRecord]:
         "environment": NO_ENVIRONMENT.copy(),
         "actuator_isolation": implementer.describe_isolation(profiles.actuator),
         "gate_isolation": profiles.gate_evidence(),
-        "status": RUNNING,
+        "status": RunStatus.RUNNING,
         "iterations": [],
         "decision": {"reasons": []},
         "run_dir": str(run_dir),

@@ -11,9 +11,11 @@ machine the run ran on: what is not readable here is reported as such.
 from __future__ import annotations
 
 import json
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
+from ..domain.run import RunStatus
 from .digests import sha256_file, sha256_json, sha256_path, sha256_record
 from .journal import (
     JOURNAL_NAME,
@@ -29,18 +31,23 @@ REPORT_SCHEMA_VERSION = 1
 # written before this contract existed and cannot be held to it.
 JOURNAL_EVIDENCE_VERSION = 14
 
-# A record whose run never reached a decision.
-RUNNING = "RUNNING"
 
-# What one check of the report concluded, and what the report concludes from
-# all of them.
-CheckStatus = Literal["ok", "failed", "missing", "not_verifiable"]
-OK: CheckStatus = "ok"
-FAILED: CheckStatus = "failed"
-ABSENT: CheckStatus = "missing"
-NOT_VERIFIABLE: CheckStatus = "not_verifiable"
+class CheckStatus(StrEnum):
+    """What one check of the report concluded."""
 
-Verdict = Literal["VALID", "INVALID", "INCOMPLETE"]
+    OK = "ok"
+    FAILED = "failed"
+    ABSENT = "missing"
+    NOT_VERIFIABLE = "not_verifiable"
+
+
+class Verdict(StrEnum):
+    """What the report concludes from every check it ran."""
+
+    VALID = "VALID"
+    INVALID = "INVALID"
+    INCOMPLETE = "INCOMPLETE"
+
 
 # Recorded locations naming a file of the source repository at the base
 # commit. The run directory holds no copy of either, so neither is a proof it
@@ -72,26 +79,26 @@ class _Report:
         self.missing: list[str] = []
 
     def ok(self, name: str, detail: str) -> None:
-        self.checks.append({"name": name, "status": OK, "detail": detail})
+        self.checks.append({"name": name, "status": CheckStatus.OK, "detail": detail})
 
     def failed(self, name: str, statement: str) -> None:
-        self.checks.append({"name": name, "status": FAILED, "detail": statement})
+        self.checks.append({"name": name, "status": CheckStatus.FAILED, "detail": statement})
         self.failures.append(statement)
 
     def absent(self, name: str, statement: str) -> None:
-        self.checks.append({"name": name, "status": ABSENT, "detail": statement})
+        self.checks.append({"name": name, "status": CheckStatus.ABSENT, "detail": statement})
         self.missing.append(statement)
 
     def not_verifiable(self, name: str, detail: str) -> None:
-        self.checks.append({"name": name, "status": NOT_VERIFIABLE, "detail": detail})
+        self.checks.append({"name": name, "status": CheckStatus.NOT_VERIFIABLE, "detail": detail})
 
     @property
-    def status(self) -> str:
+    def status(self) -> Verdict:
         if self.failures:
-            return "INVALID"
+            return Verdict.INVALID
         if self.missing:
-            return "INCOMPLETE"
-        return "VALID"
+            return Verdict.INCOMPLETE
+        return Verdict.VALID
 
 
 def verify_run(run_dir: Path) -> dict:
@@ -341,7 +348,7 @@ def _check_recomputed(report: _Report, record: dict) -> None:
 
 def _check_journal(report: _Report, run_dir: Path, record: dict) -> None:
     schema = record.get("schema_version")
-    running = record.get("status") == RUNNING
+    running = record.get("status") == RunStatus.RUNNING
     block = record.get("events")
     location = block.get("path") if isinstance(block, dict) else None
     if not isinstance(location, str):

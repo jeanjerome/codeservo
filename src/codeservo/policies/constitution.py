@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import re
 import tomllib
+from enum import StrEnum
 from pathlib import Path
 
 from ..domain.constitution import (
-    EXIT_CODE,
-    PHASES,
-    RESULT_FORMATS,
     Constitution,
     ExecutionEnvironment,
     Gate,
+    Phase,
+    ResultFormat,
     ReviewPolicy,
     ScopePolicy,
 )
@@ -23,19 +23,22 @@ class ConstitutionError(ValueError):
     pass
 
 
-def _declared[Vocabulary: str](
-    value: str, allowed: tuple[Vocabulary, ...], message: str
-) -> Vocabulary:
+def _declared[Member: StrEnum](
+    vocabulary: type[Member], value: str, what: str
+) -> Member:
     """One member of a declared vocabulary, or a refusal naming what was asked.
 
     The member returned is the one the domain declares, never the string that
     was read, so a value that reached this point is the vocabulary and not
     something that merely compares equal to it.
     """
-    for member in allowed:
-        if member == value:
-            return member
-    raise ConstitutionError(message)
+    try:
+        return vocabulary(value)
+    except ValueError:
+        known = ", ".join(vocabulary)
+        raise ConstitutionError(
+            f"{what} must be one of {known}, not {value!r}"
+        ) from None
 
 
 def _name(value: str, what: str) -> str:
@@ -120,11 +123,7 @@ def load_constitution(repo: Path) -> Constitution:
         if name in names:
             raise ConstitutionError(f"duplicate gate name: {name}")
         names.add(name)
-        phase = _declared(
-            str(item["phase"]),
-            PHASES,
-            f"gate {name}: phase must be quick or full",
-        )
+        phase = _declared(Phase, str(item["phase"]), f"gate {name}: phase")
         command = str(item["command"]) if "command" in item else None
         task = str(item["task"]) if "task" in item else None
         if command is not None and task is not None:
@@ -139,12 +138,10 @@ def load_constitution(repo: Path) -> Constitution:
                     f"gate {name}: task requires an [execution] provider"
                 )
             _name(task, f"task name for gate {name}")
-        declared_format = str(item.get("result_format", EXIT_CODE))
         result_format = _declared(
-            declared_format,
-            RESULT_FORMATS,
-            f"gate {name}: result_format must be one of"
-            f" {', '.join(RESULT_FORMATS)}, not {declared_format!r}",
+            ResultFormat,
+            str(item.get("result_format", ResultFormat.EXIT_CODE)),
+            f"gate {name}: result_format",
         )
         baseline = bool(item.get("baseline", True))
         sensor = str(item["sensor"]) if "sensor" in item else None
@@ -172,10 +169,11 @@ def load_constitution(repo: Path) -> Constitution:
         )
 
     phases = {gate.phase for gate in gates}
-    if "quick" not in phases:
-        raise ConstitutionError("constitution must declare at least one quick gate")
-    if "full" not in phases:
-        raise ConstitutionError("constitution must declare at least one full gate")
+    for required in Phase:
+        if required not in phases:
+            raise ConstitutionError(
+                f"constitution must declare at least one {required} gate"
+            )
 
     review_data = data.get("review", {})
     review = ReviewPolicy(

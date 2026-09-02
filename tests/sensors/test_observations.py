@@ -9,15 +9,12 @@ from pathlib import Path
 from codeservo.evidence.digests import sha256_file
 from codeservo.resources import PACKAGE_DIR, SOURCE_ROOT
 from codeservo.sensors.observations import (
-    ABSENT,
-    CONTRADICTED,
     FINDING_FIELDS,
-    INVALID,
     OBSERVATION_FIELDS,
     SCHEMA_VERSION,
-    SEVERITIES,
-    STATUSES,
-    VALID,
+    Classification,
+    Severity,
+    Status,
     classify,
     is_json_integer,
     is_json_number,
@@ -260,35 +257,35 @@ class ClassificationTests(unittest.TestCase):
 
     def test_a_document_agreeing_with_the_exit_code_is_valid(self) -> None:
         self.assertEqual(
-            (VALID, None),
+            (Classification.VALID, None),
             classify(encoded(document(status="passed")), passed=True),
         )
         self.assertEqual(
-            (VALID, None),
+            (Classification.VALID, None),
             classify(encoded(document(status="failed")), passed=False),
         )
 
     def test_a_document_the_gate_never_wrote_is_absent(self) -> None:
         status, error = classify(None, passed=False)
 
-        self.assertEqual(ABSENT, status)
+        self.assertEqual(Classification.ABSENT, status)
         self.assertEqual("the gate wrote no observation", error)
 
     def test_a_document_breaking_the_contract_is_invalid(self) -> None:
         status, error = classify(encoded(document(status="errored")), passed=False)
 
-        self.assertEqual(INVALID, status)
+        self.assertEqual(Classification.INVALID, status)
         self.assertIn("field status", error)
 
     def test_a_document_disagreeing_with_the_exit_code_is_contradicted(self) -> None:
         passing = classify(encoded(document(status="failed")), passed=True)
         failing = classify(encoded(document(status="passed")), passed=False)
 
-        self.assertEqual(CONTRADICTED, passing[0])
+        self.assertEqual(Classification.CONTRADICTED, passing[0])
         self.assertEqual(
             "the observation reports failed for a gate that passed", passing[1]
         )
-        self.assertEqual(CONTRADICTED, failing[0])
+        self.assertEqual(Classification.CONTRADICTED, failing[0])
         self.assertEqual(
             "the observation reports passed for a gate that did not pass",
             failing[1],
@@ -304,7 +301,7 @@ class ClassificationTests(unittest.TestCase):
 
         for status, error in cases:
             with self.subTest(status=status):
-                self.assertEqual(status == VALID, error is None)
+                self.assertEqual(status == Classification.VALID, error is None)
 
 
 class PublishedSchemaTests(unittest.TestCase):
@@ -331,9 +328,9 @@ class PublishedSchemaTests(unittest.TestCase):
         schema = self._schema()
         item = schema["properties"]["findings"]["items"]
 
-        self.assertEqual(set(STATUSES), set(schema["properties"]["status"]["enum"]))
+        self.assertEqual(set(Status), set(schema["properties"]["status"]["enum"]))
         self.assertEqual(
-            set(SEVERITIES), set(item["properties"]["severity"]["enum"])
+            set(Severity), set(item["properties"]["severity"]["enum"])
         )
         self.assertEqual(SCHEMA_VERSION, schema["properties"]["schema_version"]["const"])
 

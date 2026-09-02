@@ -7,12 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from codeservo.domain.constitution import (
-    CODESERVO_JSON,
-    EXIT_CODE,
-    ExecutionEnvironment,
-    Gate,
-)
+from codeservo.domain.constitution import ExecutionEnvironment, Gate, ResultFormat
 from codeservo.evidence.digests import sha256_record
 from codeservo.runtime.sandbox import Isolation, seatbelt_profile
 from codeservo.sensors.gates import gate_command, run_gates
@@ -240,7 +235,7 @@ class GateObservationTests(unittest.TestCase):
             "name": "mutation",
             "phase": "quick",
             "command": command,
-            "result_format": CODESERVO_JSON,
+            "result_format": ResultFormat.CODESERVO_JSON,
         }
         arguments.update(overrides)
         self.out_dir = root / "run" / "quick"
@@ -363,7 +358,7 @@ class GateObservationTests(unittest.TestCase):
 
         for field in OBSERVATION_FIELDS:
             self.assertIn(field, record)
-        self.assertEqual(CODESERVO_JSON, record["result_format"])
+        self.assertEqual(ResultFormat.CODESERVO_JSON, record["result_format"])
         # `sha256_record` drops only top-level keys ending in `_path`, so the
         # digest recomputes from the record exactly as it is persisted.
         self.assertEqual(record["result_sha256"], sha256_record(record))
@@ -384,7 +379,7 @@ class GateExitCodeModeTests(unittest.TestCase):
             )
 
             record = results[0]
-            self.assertEqual(EXIT_CODE, record["result_format"])
+            self.assertEqual(ResultFormat.EXIT_CODE, record["result_format"])
             for field in OBSERVATION_FIELDS:
                 self.assertNotIn(field, record)
             self.assertEqual(record["result_sha256"], sha256_record(record))
@@ -412,7 +407,7 @@ class GateExitCodeModeTests(unittest.TestCase):
                         f'test "${OBSERVATION_PATH_VARIABLE}" !='
                         f' "{inherited}"'
                     ),
-                    result_format=CODESERVO_JSON,
+                    result_format=ResultFormat.CODESERVO_JSON,
                 ),
             )
 
@@ -454,7 +449,7 @@ class ObservationLocationTests(unittest.TestCase):
                 name="mutation",
                 phase="quick",
                 command="touch ran-anyway",
-                result_format=CODESERVO_JSON,
+                result_format=ResultFormat.CODESERVO_JSON,
             )
 
             with patch(
@@ -484,7 +479,7 @@ class ObservationLocationTests(unittest.TestCase):
                 name="mutation",
                 phase="quick",
                 command="true",
-                result_format=CODESERVO_JSON,
+                result_format=ResultFormat.CODESERVO_JSON,
             )
 
             with patch(

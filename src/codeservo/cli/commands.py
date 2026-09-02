@@ -9,19 +9,30 @@ from pathlib import Path
 
 from ..actuators.inventory import (
     ModelSelectionError,
+    Speed,
     build_inventory,
     render_document,
     render_listing,
     write_inventory,
 )
 from ..controller import run
+from ..domain.run import RunStatus
 from ..domain.task import TaskError
-from ..evidence.verify import VerificationError, render_report, verify_run
+from ..evidence.verify import (
+    Verdict,
+    VerificationError,
+    render_report,
+    verify_run,
+)
 from ..policies.constitution import ConstitutionError
 from ..resources import constitution_example
 
 # What the verification of a run directory reports through the exit status.
-VERIFY_EXIT_STATUS = {"VALID": 0, "INVALID": 1, "INCOMPLETE": 2}
+VERIFY_EXIT_STATUS = {
+    Verdict.VALID: 0,
+    Verdict.INVALID: 1,
+    Verdict.INCOMPLETE: 2,
+}
 
 USAGE_ERROR = 2
 UNREADABLE_RUN = 3
@@ -102,14 +113,14 @@ def control_change(args) -> int:
             state_dir=args.state_dir,
             actuator=args.actuator,
             effort=args.effort,
-            speed=args.speed,
+            speed=Speed(args.speed),
             review_actuator=args.review_actuator,
             review_effort=args.review_effort,
-            review_speed=args.review_speed,
+            review_speed=Speed(args.review_speed),
         )
     except (ConstitutionError, TaskError, RuntimeError, ValueError) as exc:
         print(f"codeservo: {exc}", file=sys.stderr)
         raise SystemExit(USAGE_ERROR) from exc
 
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result["status"] == "ACCEPTED" else 1
+    return 0 if result["status"] == RunStatus.ACCEPTED else 1

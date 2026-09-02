@@ -12,32 +12,53 @@ import json
 import os
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal, TypedDict, get_args
+from typing import Any, TypedDict
 
 SCHEMA_VERSION = 1
-Backend = Literal["claude", "codex"]
-BACKEND_NAMES: tuple[Backend, ...] = get_args(Backend)
+
+
+class Backend(StrEnum):
+    """The backends a run may drive, in either role."""
+
+    CLAUDE = "claude"
+    CODEX = "codex"
+
 
 SOURCE_CACHE = "backend-cache"
 SOURCE_UNAVAILABLE = "unavailable"
 STATUS_ADVERTISED = "advertised"
 STATUS_INELIGIBLE = "ineligible"
 
-# The speed tiers a run may request. `standard` is what a backend applies when
-# no tier is asked for, so it is also the documented default.
-Speed = Literal["standard", "fast"]
-SPEED_NAMES: tuple[Speed, ...] = get_args(Speed)
-DEFAULT_SPEED: Speed = "standard"
 
-# How the requested profile compares to the local inventory. `unsupported` is
-# the only refusal: it needs an inventory that lists the model and contradicts
-# the request. Everything the inventory cannot settle stays `unverified`,
-# because a cache that does not list a model is not an authority on access.
-ProfileStatus = Literal["supported", "unsupported", "unverified"]
-PROFILE_SUPPORTED: ProfileStatus = "supported"
-PROFILE_UNSUPPORTED: ProfileStatus = "unsupported"
-PROFILE_UNVERIFIED: ProfileStatus = "unverified"
+class Speed(StrEnum):
+    """The speed tiers a run may request.
+
+    `STANDARD` is what a backend applies when no tier is asked for, so it is
+    also the documented default.
+    """
+
+    STANDARD = "standard"
+    FAST = "fast"
+
+
+DEFAULT_SPEED = Speed.STANDARD
+
+
+class ProfileStatus(StrEnum):
+    """How the requested profile compares to the local inventory.
+
+    `UNSUPPORTED` is the only refusal: it needs an inventory that lists the
+    model and contradicts the request. Everything the inventory cannot settle
+    stays `UNVERIFIED`, because a cache that does not list a model is not an
+    authority on access.
+    """
+
+    SUPPORTED = "supported"
+    UNSUPPORTED = "unsupported"
+    UNVERIFIED = "unverified"
+
 
 # The reason never quotes the provider document, so no value the cache holds
 # beyond the projected fields reaches the inventory.
@@ -55,6 +76,14 @@ class ProfileVerdict(TypedDict):
 
 class ModelSelectionError(ValueError):
     """A backend or a model the inventory does not report."""
+
+
+def _backend(name: str) -> Backend:
+    """One of the backends a run may drive, or a refusal naming what was asked."""
+    try:
+        return Backend(name)
+    except ValueError:
+        raise ModelSelectionError(f"unknown backend: {name}") from None
 
 
 def _home(env: Mapping[str, str]) -> Path:
@@ -78,7 +107,7 @@ def _text(value: Any) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _unavailable(backend: str, reason: str) -> dict:
+def _unavailable(backend: Backend, reason: str) -> dict:
     """Report a source the command could not project.
 
     A projected backend entry carries the documented fields and nothing else, so
@@ -112,12 +141,12 @@ def _efforts(levels: Any) -> list[str] | None:
     return efforts
 
 
-def _speeds(tiers: Any) -> list[str] | None:
+def _speeds(tiers: Any) -> list[Speed] | None:
     if tiers is None:
         return [DEFAULT_SPEED]
     if not isinstance(tiers, list):
         return None
-    return list(SPEED_NAMES) if "fast" in tiers else [DEFAULT_SPEED]
+    return list(Speed) if Speed.FAST in tiers else [DEFAULT_SPEED]
 
 
 def _project_codex_entry(
@@ -150,7 +179,7 @@ def _project_codex_entry(
 
     listed = visibility == "list"
     return {
-        "backend": "codex",
+        "backend": Backend.CODEX,
         "model": slug,
         "display_name": display_name,
         "efforts": efforts,
@@ -169,14 +198,14 @@ def read_codex(env: Mapping[str, str]) -> dict:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return _unavailable("codex", f"no model cache at {path}")
+        return _unavailable(Backend.CODEX, f"no model cache at {path}")
     except OSError:
-        return _unavailable("codex", f"unreadable model cache at {path}")
+        return _unavailable(Backend.CODEX, f"unreadable model cache at {path}")
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return _unavailable("codex", f"model cache is not JSON: {path}")
+        return _unavailable(Backend.CODEX, f"model cache is not JSON: {path}")
 
     if not isinstance(document, dict) or not isinstance(document.get("models"), list):
-        return _unavailable("codex", f"non-conforming model cache: {path}")
+        return _unavailable(Backend.CODEX, f"non-conforming model cache: {path}")
 
     observed_at = _text(document.get("fetched_at"))
     cli_version = _text(document.get("client_version"))
@@ -190,7 +219,7 @@ def read_codex(env: Mapping[str, str]) -> dict:
             models.append(projected)
 
     return {
-        "backend": "codex",
+        "backend": Backend.CODEX,
         "source": SOURCE_CACHE,
         "source_observed_at": observed_at,
         "cli_version": cli_version,
@@ -207,10 +236,10 @@ def read_claude(_env: Mapping[str, str]) -> dict:
     it with another backend's reader would invent a claim. The report is the
     same whether or not a file exists at the path.
     """
-    return _unavailable("claude", CLAUDE_UNVERIFIED_REASON)
+    return _unavailable(Backend.CLAUDE, CLAUDE_UNVERIFIED_REASON)
 
 
-READERS = {"claude": read_claude, "codex": read_codex}
+READERS = {Backend.CLAUDE: read_claude, Backend.CODEX: read_codex}
 
 
 def _select_model(backend: dict, model: str) -> dict:
@@ -233,7 +262,7 @@ def validate_profile(
     backend: str,
     model: str | None,
     effort: str | None,
-    speed: str = DEFAULT_SPEED,
+    speed: Speed = DEFAULT_SPEED,
     env: Mapping[str, str] | None = None,
 ) -> ProfileVerdict:
     """Compare a requested inference profile to the local inventory.
@@ -245,21 +274,18 @@ def validate_profile(
     itself declares.
     """
     environment = os.environ if env is None else env
-    if backend not in BACKEND_NAMES:
-        raise ModelSelectionError(f"unknown backend: {backend}")
-
-    projected = READERS[backend](environment)
+    projected = READERS[_backend(backend)](environment)
     source = projected["source"]
     if source == SOURCE_UNAVAILABLE:
         return _profile(
-            PROFILE_UNVERIFIED,
+            ProfileStatus.UNVERIFIED,
             f"the {backend} inventory is unavailable: "
             f"{projected['unavailable_reason']}",
             source,
         )
     if model is None:
         return _profile(
-            PROFILE_UNVERIFIED,
+            ProfileStatus.UNVERIFIED,
             f"no model was requested, so {backend} applies its own default",
             source,
         )
@@ -269,7 +295,7 @@ def validate_profile(
     )
     if entry is None:
         return _profile(
-            PROFILE_UNVERIFIED,
+            ProfileStatus.UNVERIFIED,
             f"the {backend} inventory does not list {model}",
             source,
         )
@@ -283,13 +309,13 @@ def validate_profile(
     ]
     if missing:
         return _profile(
-            PROFILE_UNSUPPORTED,
+            ProfileStatus.UNSUPPORTED,
             f"the {backend} inventory lists {model} without {' or '.join(missing)}",
             source,
         )
     carried = ", ".join(f"{name} {value}" for name, value, _ in requested)
     return _profile(
-        PROFILE_SUPPORTED,
+        ProfileStatus.SUPPORTED,
         f"the {backend} inventory lists {model} with {carried}",
         source,
     )
@@ -302,14 +328,13 @@ def build_inventory(
     env: Mapping[str, str] | None = None,
 ) -> dict:
     environment = os.environ if env is None else env
-    if actuator is not None and actuator not in BACKEND_NAMES:
-        raise ModelSelectionError(f"unknown backend: {actuator}")
+    selected = None if actuator is None else _backend(actuator)
     if model is not None and actuator is None:
         raise ModelSelectionError(
             "--model reports one backend's line, so it requires --actuator"
         )
 
-    names = BACKEND_NAMES if actuator is None else (actuator,)
+    names = tuple(Backend) if selected is None else (selected,)
     backends = [READERS[name](environment) for name in names]
     if model is not None:
         backends = [_select_model(backends[0], model)]

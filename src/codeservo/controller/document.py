@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any, NotRequired, TypedDict
 
 from ..actuators.base import Actuation, ObservedProfile, ReviewMeta
-from ..actuators.inventory import ProfileVerdict
+from ..actuators.inventory import Backend, ProfileVerdict, Speed
 from ..evidence.journal import EventsSummary
 from ..runtime.sandbox import IsolationEvidence
 from ..sensors.gates import GateResult
@@ -59,10 +59,10 @@ class RuntimeMetadata(TypedDict):
 class RequestedProfile(TypedDict):
     """One role's inference profile, as the run resolved the request."""
 
-    backend: str
+    backend: Backend
     model: str | None
     effort: str | None
-    speed: str
+    speed: Speed
 
 
 class InferenceProfile(TypedDict):

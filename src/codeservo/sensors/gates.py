@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import NotRequired, TypedDict
 
 from ..domain.constitution import (
-    CODESERVO_JSON,
     Constitution,
     ExecutionEnvironment,
     Gate,
@@ -162,7 +161,7 @@ def run_gates(
         # Only a gate that declared the format is told where to write, and the
         # location exists before that gate runs.
         location: Path | None = None
-        if gate.result_format == CODESERVO_JSON:
+        if gate.result_format == ResultFormat.CODESERVO_JSON:
             location = _observation_location(gate, forbidden)
             gate_env[observations.OBSERVATION_PATH_VARIABLE] = str(
                 location / OBSERVATION_FILENAME

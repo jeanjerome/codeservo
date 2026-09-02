@@ -14,8 +14,10 @@ name.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal, TypedDict, get_args
+from typing import Any, TypedDict
 
 from ..resources import observation_schema
 
@@ -26,12 +28,25 @@ OBSERVATION_PATH_VARIABLE = "CODESERVO_OBSERVATION_PATH"
 # The shape of the document. The observation versions its own shape.
 SCHEMA_VERSION = 1
 
-# What a document may say about the gate that wrote it, and how severe a
-# finding it may raise. Each tuple is read from the type beside it.
-Status = Literal["passed", "failed"]
-STATUSES: tuple[Status, ...] = get_args(Status)
-Severity = Literal["blocker", "major", "minor", "info"]
-SEVERITIES: tuple[Severity, ...] = get_args(Severity)
+
+class Status(StrEnum):
+    """What a document says about the gate that wrote it."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+
+
+class Severity(StrEnum):
+    """How severe a finding a gate may raise.
+
+    This is what an observation carries; the reviewer answers a different
+    schema, and the severities it may raise are that schema's own.
+    """
+
+    BLOCKER = "blocker"
+    MAJOR = "major"
+    MINOR = "minor"
+    INFO = "info"
 
 
 class Finding(TypedDict):
@@ -63,12 +78,14 @@ class Observation(TypedDict):
 OBSERVATION_FIELDS = frozenset(Observation.__annotations__)
 FINDING_FIELDS = frozenset(Finding.__annotations__)
 
-# How a gate's document ended up in the record.
-Classification = Literal["valid", "absent", "invalid", "contradicted"]
-VALID: Classification = "valid"
-ABSENT: Classification = "absent"
-INVALID: Classification = "invalid"
-CONTRADICTED: Classification = "contradicted"
+
+class Classification(StrEnum):
+    """How a gate's document ended up in the record."""
+
+    VALID = "valid"
+    ABSENT = "absent"
+    INVALID = "invalid"
+    CONTRADICTED = "contradicted"
 
 
 class ObservationPathError(RuntimeError):
@@ -100,7 +117,7 @@ def _refuse_constant(name: str) -> Any:
     raise ValueError(f"{name} is not a JSON value")
 
 
-def _listed(values: frozenset[str] | tuple[str, ...]) -> str:
+def _listed(values: Iterable[str]) -> str:
     return ", ".join(sorted(values))
 
 
@@ -125,8 +142,8 @@ def _finding(finding: Any, index: int) -> str | None:
         return wrong
     if not isinstance(finding["id"], str) or not finding["id"]:
         return f"field {where}.id must be a non-empty string"
-    if finding["severity"] not in SEVERITIES:
-        return f"field {where}.severity must be one of {_listed(SEVERITIES)}"
+    if finding["severity"] not in Severity:
+        return f"field {where}.severity must be one of {_listed(Severity)}"
     if finding["path"] is not None and not isinstance(finding["path"], str):
         return f"field {where}.path must be a string or null"
     line = finding["line"]
@@ -149,8 +166,8 @@ def _contract(document: Any) -> str | None:
         return f"field schema_version must be the integer {SCHEMA_VERSION}"
     if not isinstance(document["sensor"], str) or not document["sensor"]:
         return "field sensor must be a non-empty string"
-    if document["status"] not in STATUSES:
-        return f"field status must be one of {_listed(STATUSES)}"
+    if document["status"] not in Status:
+        return f"field status must be one of {_listed(Status)}"
     if not isinstance(document["summary"], str):
         return "field summary must be a string"
     findings = document["findings"]
@@ -199,15 +216,15 @@ def classify(
     Nothing the document says changes whether the gate passed.
     """
     if raw is None:
-        return ABSENT, "the gate wrote no observation"
+        return Classification.ABSENT, "the gate wrote no observation"
     document, wrong = validate(raw)
     if document is None:
-        return INVALID, wrong
-    verdict = STATUSES[0] if passed else STATUSES[1]
+        return Classification.INVALID, wrong
+    verdict = Status.PASSED if passed else Status.FAILED
     if document["status"] != verdict:
         return (
-            CONTRADICTED,
+            Classification.CONTRADICTED,
             f"the observation reports {document['status']} for a gate that"
             f" {'passed' if passed else 'did not pass'}",
         )
-    return VALID, None
+    return Classification.VALID, None

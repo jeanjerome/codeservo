@@ -7,10 +7,26 @@ a fault of the sensor, and nothing about it is fed back.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from ..evidence.journal import Journal
 from ..runtime.process import tail
 from ..sensors import observations
 from ..sensors.gates import GateResult
+
+
+class GatePhase(StrEnum):
+    """Which measurement of a run one gate belonged to.
+
+    The baseline measures the source repository before a candidate exists,
+    and the two phases the constitution declares measure the candidate. An
+    event names the occasion a gate was measured on rather than the phase a
+    gate declares, so the baseline sits here beside the two `Phase` holds.
+    """
+
+    BASELINE = "baseline"
+    QUICK = "quick"
+    FULL = "full"
 
 
 def sensor_faults(results: list[GateResult]) -> list[str]:
@@ -25,9 +41,9 @@ def sensor_faults(results: list[GateResult]) -> list[str]:
     faults: list[str] = []
     for result in results:
         status = result.get("observation_status")
-        if status is None or status == observations.VALID:
+        if status is None or status == observations.Classification.VALID:
             continue
-        if status == observations.ABSENT and result["timed_out"]:
+        if status == observations.Classification.ABSENT and result["timed_out"]:
             continue
         faults.append(
             f"sensor error: gate {result['name']}: {result['observation_error']}"
@@ -58,7 +74,7 @@ def gate_feedback(results: list[GateResult]) -> str:
 
 
 def record_gate_events(
-    journal: Journal, phase: str, results: list[GateResult]
+    journal: Journal, phase: GatePhase, results: list[GateResult]
 ) -> None:
     """One event per gate of one phase, in the order the phase measured them."""
     for result in results:

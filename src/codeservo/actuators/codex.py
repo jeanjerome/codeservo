@@ -98,7 +98,7 @@ def _base_command(
         command.extend(["--model", model])
     if effort:
         command.extend(["-c", f"{EFFORT_KEY}={effort}"])
-    if speed == "fast":
+    if speed == Speed.FAST:
         command.extend(["-c", f"{SPEED_KEY}={FAST_SPEED_VALUE}"])
     return command
 
@@ -108,7 +108,7 @@ def _native_profile(effort: str | None, speed: Speed) -> dict[str, Any]:
     native: dict[str, Any] = {}
     if effort:
         native[EFFORT_KEY] = effort
-    if speed == "fast":
+    if speed == Speed.FAST:
         native[SPEED_KEY] = FAST_SPEED_VALUE
     return native
 

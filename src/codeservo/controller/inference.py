@@ -11,27 +11,33 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from enum import StrEnum
 
 from ..actuators.base import ObservedProfile, ReportedProfile
-from ..actuators.inventory import PROFILE_UNSUPPORTED, Speed, validate_profile
+from ..actuators.inventory import Backend, ProfileStatus, Speed, validate_profile
 from .document import Inference, InferenceProfile, ReportedBlock
 
-# What a run records about the profile a backend applied to itself, and the two
-# statements it makes per field. A backend's own output either carried the
-# value or it did not; a field nobody could read and a field the backend does
-# not talk about are the same absence, and say the same thing.
+# What a run records about the profile a backend applied to itself.
 OBSERVED_FIELDS = ("model", "effort", "speed")
-Provenance = Literal["reported", "not_reported"]
-REPORTED: Provenance = "reported"
-NOT_REPORTED: Provenance = "not_reported"
+
+
+class Provenance(StrEnum):
+    """What a record says about one field of an observed profile.
+
+    A backend's own output either carried the value or it did not; a field
+    nobody could read and a field the backend does not talk about are the same
+    absence, and say the same thing.
+    """
+
+    REPORTED = "reported"
+    NOT_REPORTED = "not_reported"
 
 
 @dataclass(frozen=True)
 class InferenceRequest:
     """One role's requested inference profile, as the run resolved it."""
 
-    backend: str
+    backend: Backend
     model: str | None
     effort: str | None
     speed: Speed
@@ -53,7 +59,9 @@ def observed_profile(observed: Mapping[str, object]) -> ReportedBlock:
         value = observed.get(name)
         carried = value if isinstance(value, str) and value else None
         reported[name] = carried
-        provenance[name] = REPORTED if carried is not None else NOT_REPORTED
+        provenance[name] = (
+            Provenance.REPORTED if carried is not None else Provenance.NOT_REPORTED
+        )
     answered: ObservedProfile = {
         "model": reported["model"],
         "effort": reported["effort"],
@@ -127,5 +135,5 @@ def contradicted_profiles(inference: Inference) -> list[str]:
     return [
         f"configuration error: {role} profile: {profile['validation']['reason']}"
         for role, profile in roles(inference)
-        if profile["validation"]["status"] == PROFILE_UNSUPPORTED
+        if profile["validation"]["status"] == ProfileStatus.UNSUPPORTED
     ]

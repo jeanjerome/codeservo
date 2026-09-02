@@ -12,16 +12,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Protocol, TypedDict, get_args
+from typing import Any, Protocol, TypedDict
 
 from ..runtime.sandbox import Isolation, IsolationEvidence
-from .inventory import Speed
+from .inventory import Backend, Speed
 
-# The backends a run may drive. The tuple is read from the type, so a backend
-# is added in one place.
-ActuatorName = Literal["claude", "codex"]
-ACTUATOR_NAMES: tuple[ActuatorName, ...] = get_args(ActuatorName)
-DEFAULT_ACTUATOR: ActuatorName = "claude"
+# What a run drives when nothing names a backend, and where it looks first.
+DEFAULT_ACTUATOR = Backend.CLAUDE
 ACTUATOR_ENV_VAR = "CODESERVO_ACTUATOR"
 
 
@@ -113,39 +110,40 @@ class DescribeIsolation(Protocol):
 
 @dataclass(frozen=True)
 class Actuator:
-    name: ActuatorName
+    name: Backend
     version_command: tuple[str, ...]
     implement: Implement
     review: Review
     describe_isolation: DescribeIsolation
 
 
-def default_actuator_name() -> ActuatorName:
+def default_actuator_name() -> Backend:
     requested = os.environ.get(ACTUATOR_ENV_VAR, "").strip() or DEFAULT_ACTUATOR
-    for known in ACTUATOR_NAMES:
-        if known == requested:
-            return known
-    raise ActuatorError(
-        f"{ACTUATOR_ENV_VAR}={requested!r} is not one of {', '.join(ACTUATOR_NAMES)}"
-    )
+    try:
+        return Backend(requested)
+    except ValueError:
+        known = ", ".join(Backend)
+        raise ActuatorError(
+            f"{ACTUATOR_ENV_VAR}={requested!r} is not one of {known}"
+        ) from None
 
 
 def load_actuator(name: str) -> Actuator:
-    if name == "claude":
+    if name == Backend.CLAUDE:
         from . import claude_code
 
         return Actuator(
-            name="claude",
+            name=Backend.CLAUDE,
             version_command=("claude", "--version"),
             implement=claude_code.run_implementer,
             review=claude_code.run_reviewer,
             describe_isolation=claude_code.describe_isolation,
         )
-    if name == "codex":
+    if name == Backend.CODEX:
         from . import codex
 
         return Actuator(
-            name="codex",
+            name=Backend.CODEX,
             version_command=("codex", "--version"),
             implement=codex.run_implementer,
             review=codex.run_reviewer,

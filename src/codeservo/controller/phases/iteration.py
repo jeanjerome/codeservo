@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ...actuators import ActuatorError
 from ...actuators.prompts import implementer_prompt
+from ...domain.constitution import Phase
 from ...evidence.digests import sha256_text
 from ...runtime.sandbox import SandboxError
 from ...sensors.gates import GateResult, run_gates
@@ -23,7 +24,12 @@ from ..document import Feedback, FileRecord, Iteration
 from ..environment import changed_environment
 from ..errors import Rejection
 from ..freeze import sensor_tampering
-from ..gate_results import gate_feedback, record_gate_events, sensor_faults
+from ..gate_results import (
+    GatePhase,
+    gate_feedback,
+    record_gate_events,
+    sensor_faults,
+)
 from ..inference import record_actuation
 from ..record import RunRecord
 from ..snapshots import mutated, write_patch_snapshot
@@ -153,7 +159,7 @@ def _measure(
     try:
         quick = run_gates(
             repo=context.worktree,
-            gates=context.constitution.gates_for("quick"),
+            gates=context.constitution.gates_for(Phase.QUICK),
             out_dir=iteration_dir / "quick",
             sensor_paths=context.sensor_paths,
             isolation=context.confinement.candidate_gates,
@@ -163,7 +169,7 @@ def _measure(
     except ObservationPathError as exc:
         raise Rejection(str(exc)) from exc
 
-    record_gate_events(record.journal, "quick", quick)
+    record_gate_events(record.journal, GatePhase.QUICK, quick)
     entry["observed_state"] = write_patch_snapshot(
         iteration_dir / "observed.patch", context.worktree, context.base_commit
     )
@@ -185,7 +191,7 @@ def _measure(
     # The two snapshots bracket the quick phase: what the actuator left
     # behind, and what the gates were measuring when they finished.
     control_failures += mutated(
-        "quick", entry["actuator_state"], entry["observed_state"]
+        Phase.QUICK, entry["actuator_state"], entry["observed_state"]
     )
     if control_failures:
         raise Rejection(control_failures)

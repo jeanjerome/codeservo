@@ -6,29 +6,27 @@ dependency in the package points in.
 """
 
 from .constitution import (
-    CODESERVO_JSON,
-    EXIT_CODE,
-    RESULT_FORMATS,
     Constitution,
     ExecutionEnvironment,
     Gate,
     Phase,
+    ResultFormat,
     ReviewPolicy,
     ScopePolicy,
 )
 from .results import CommandResult, SensorResult
+from .run import RunStatus
 from .task import Task, TaskError, load_task
 
 __all__ = [
-    "CODESERVO_JSON",
-    "EXIT_CODE",
-    "RESULT_FORMATS",
     "CommandResult",
     "Constitution",
     "ExecutionEnvironment",
     "Gate",
     "Phase",
+    "ResultFormat",
     "ReviewPolicy",
+    "RunStatus",
     "ScopePolicy",
     "SensorResult",
     "Task",
