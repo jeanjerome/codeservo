@@ -37,6 +37,14 @@ them are in [COMMANDS.md](COMMANDS.md).
 - Use four-space indentation and type hints. Use `snake_case` for modules, functions, and variables, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants.
 - Preserve dependency direction toward the domain layer. Group imports as standard library, third party, then local.
 - Name tests `test_*.py` and test methods `test_<behavior>`. Use `unittest` in `codeservo` and `pytest` in deployment-tracker.
+- A parsing boundary is stated as a property, not only as cases. What arrives
+  at one is whatever a file, a gate or a backend produced, so the rule is
+  written over every input of a shape: a constitution is read or refused by
+  name, a document reaches one of four classifications, a record reaches a
+  verdict. Properties are `unittest` cases like the others and run under
+  `tests/properties.py`, which derandomises the seed so a gate gives the same
+  verdict twice and moves Hypothesis's database and cache out of the tree a
+  gate may not write into.
 - Treat `.codeservo/constitution.toml`, external sensors, and protected paths as
   controller-owned configuration. Never expose sensor source or run evidence to
   the actuator. Do not commit secrets.
