@@ -65,7 +65,7 @@ def run(
         )
     )
     try:
-        _verify_control_inputs(context)
+        _verify_control_inputs(context, record)
         freeze_execution_environment(context, record)
         measure_baseline(context, record)
         create_candidate(context, record)
@@ -83,7 +83,7 @@ def run(
     )
 
 
-def _verify_control_inputs(context: RunContext) -> None:
+def _verify_control_inputs(context: RunContext, record: RunRecord) -> None:
     """What must hold before a checkout or an agent process ever exists.
 
     Each profile is a control input, so a request the inventory of its own
@@ -91,7 +91,7 @@ def _verify_control_inputs(context: RunContext) -> None:
     uncommitted work, because the base commit would then not describe the tree
     the baseline is about to measure.
     """
-    contradicted = contradicted_profiles(context.inference)
+    contradicted = contradicted_profiles(record.document.inference)
     if contradicted:
         raise Rejection(contradicted)
     if not is_clean(context.repo):

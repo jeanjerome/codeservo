@@ -7,6 +7,7 @@ a fault of the sensor, and nothing about it is fed back.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from enum import StrEnum
 
 from ..domain.document import Unset
@@ -30,7 +31,7 @@ class GatePhase(StrEnum):
     FULL = "full"
 
 
-def sensor_faults(results: list[GateResult]) -> list[str]:
+def sensor_faults(results: Sequence[GateResult]) -> list[str]:
     """Gates whose document is a fault of the sensor rather than of the candidate.
 
     A gate that declared a structured result and could not say what it measured
@@ -52,7 +53,7 @@ def sensor_faults(results: list[GateResult]) -> list[str]:
     return faults
 
 
-def gate_feedback(results: list[GateResult]) -> str:
+def gate_feedback(results: Sequence[GateResult]) -> str:
     """What a failing phase tells the actuator, unchanged from what it emitted."""
     chunks: list[str] = []
     for result in results:
@@ -75,7 +76,7 @@ def gate_feedback(results: list[GateResult]) -> str:
 
 
 def record_gate_events(
-    journal: Journal, phase: GatePhase, results: list[GateResult]
+    journal: Journal, phase: GatePhase, results: Sequence[GateResult]
 ) -> None:
     """One event per gate of one phase, in the order the phase measured them."""
     for result in results:

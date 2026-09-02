@@ -8,21 +8,22 @@ afterwards even where no confinement refused the write.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ...actuators import ActuatorError
 from ...actuators.prompts import implementer_prompt
 from ...domain.constitution import Phase
+from ...domain.document import Unset
 from ...evidence.digests import sha256_text
 from ...runtime.sandbox import SandboxError
 from ...sensors.gates import GateResult, run_gates
 from ...sensors.observations import ObservationPathError
 from ...sensors.scope import scope_sensor
 from ..context import RunContext
-from ..document import Feedback, FileRecord, Iteration
+from ..document import Feedback, FileRecord, Iteration, ScopeResult
 from ..environment import changed_environment
-from ..errors import Rejection
+from ..errors import ControlFailure, Rejection
 from ..freeze import sensor_tampering
 from ..gate_results import (
     GatePhase,
@@ -39,7 +40,7 @@ from ..snapshots import mutated, write_patch_snapshot
 class Converged:
     """The candidate the quick phase accepted, and what it looked like then."""
 
-    quick_gates: list[GateResult]
+    quick_gates: tuple[GateResult, ...]
     state: FileRecord
 
 
@@ -73,21 +74,22 @@ def _iterate(
     context: RunContext, record: RunRecord, iteration: int, feedback: str
 ) -> IterationOutcome:
     iteration_dir = context.run_dir / "iterations" / f"{iteration:02d}"
-    entry: Iteration = {
-        "iteration": iteration,
-        "feedback_received": feedback,
-        "input_state": write_patch_snapshot(
+    record.attempt = Iteration(
+        iteration=iteration,
+        feedback_received=feedback,
+        input_state=write_patch_snapshot(
             iteration_dir / "input.patch", context.worktree, context.base_commit
         ),
-    }
+    )
     # However this iteration ends, the record holds it before the run acts on
-    # what it says.
+    # what it says: every stage states what it reached on the record, so a
+    # rejection leaves behind what happened up to it.
     try:
-        _actuate(context, record, iteration_dir, iteration, feedback, entry)
-        quick = _measure(context, record, iteration_dir, entry)
-        return _verdict(record, iteration_dir, entry, quick)
+        _actuate(context, record, iteration_dir, iteration, feedback)
+        quick = _measure(context, record, iteration_dir)
+        return _verdict(record, iteration_dir, quick)
     finally:
-        record.document["iterations"].append(entry)
+        record.keep()
         record.persist()
 
 
@@ -97,16 +99,16 @@ def _actuate(
     iteration_dir: Path,
     iteration: int,
     feedback: str,
-    entry: Iteration,
 ) -> None:
     prompt = implementer_prompt(context.task, context.constitution, feedback)
     prompt_path = iteration_dir / "prompt.md"
     prompt_path.parent.mkdir(parents=True, exist_ok=True)
     prompt_path.write_text(prompt, encoding="utf-8")
-    entry["prompt"] = {"path": str(prompt_path), "sha256": sha256_text(prompt)}
+    written = FileRecord(path=str(prompt_path), sha256=sha256_text(prompt))
+    record.attempt = replace(record.attempted(), prompt=written)
     record.record(
         "actuator.started",
-        {"iteration": iteration, "prompt_sha256": entry["prompt"]["sha256"]},
+        {"iteration": iteration, "prompt_sha256": written.sha256},
     )
 
     try:
@@ -121,10 +123,10 @@ def _actuate(
             speed=context.request.speed,
         )
     except (ActuatorError, SandboxError) as exc:
-        entry["agent_error"] = str(exc)
+        record.attempt = replace(record.attempted(), agent_error=str(exc))
         raise Rejection(str(exc)) from exc
 
-    entry["agent"] = agent
+    record.attempt = replace(record.attempted(), agent=agent)
     record.record(
         "actuator.finished",
         {
@@ -133,26 +135,32 @@ def _actuate(
             "result_sha256": agent.result_sha256,
         },
     )
-    implementer = context.inference["implementer"]
-    record_actuation(implementer, agent)
+    implementer = record_actuation(record.document.inference.implementer, agent)
+    record.document = replace(
+        record.document,
+        inference=replace(record.document.inference, implementer=implementer),
+    )
     record.record(
         "actuator.profile_observed",
         {
             "iteration": iteration,
-            "model": implementer["observed"].model,
-            "provenance": implementer["provenance"],
+            "model": implementer.observed.model,
+            "provenance": implementer.provenance,
         },
     )
-    entry["actuator_state"] = write_patch_snapshot(
-        iteration_dir / "actuator.patch", context.worktree, context.base_commit
+    record.attempt = replace(
+        record.attempted(),
+        actuator_state=write_patch_snapshot(
+            iteration_dir / "actuator.patch", context.worktree, context.base_commit
+        ),
     )
     if agent.exit_code != 0:
         raise Rejection(f"implementer exited with {agent.exit_code}")
 
 
 def _measure(
-    context: RunContext, record: RunRecord, iteration_dir: Path, entry: Iteration
-) -> list[GateResult]:
+    context: RunContext, record: RunRecord, iteration_dir: Path
+) -> tuple[GateResult, ...]:
     scope = scope_sensor(
         context.worktree, context.base_commit, context.constitution.scope
     )
@@ -170,63 +178,84 @@ def _measure(
         raise Rejection(str(exc)) from exc
 
     record_gate_events(record.journal, GatePhase.QUICK, quick)
-    entry["observed_state"] = write_patch_snapshot(
+    observed_state = write_patch_snapshot(
         iteration_dir / "observed.patch", context.worktree, context.base_commit
     )
-    entry["scope"] = {
-        "passed": scope.passed,
-        "summary": scope.summary,
-        "details": scope.details,
-    }
-    entry["quick_gates"] = quick
+    entry = replace(
+        record.attempted(),
+        observed_state=observed_state,
+        scope=ScopeResult(
+            passed=scope.passed, summary=scope.summary, details=scope.details
+        ),
+        quick_gates=tuple(quick),
+    )
+    record.attempt = entry
 
     faults = sensor_faults(quick)
     if faults:
         raise Rejection(faults)
 
     control_failures = sensor_tampering(context.sensor_paths, context.sensor_evidence)
-    control_failures += changed_environment(
-        record.document["environment"], context.worktree, context.execution
+    environment, changed = changed_environment(
+        record.document.environment, context.worktree, context.execution
     )
+    record.document = replace(record.document, environment=environment)
+    control_failures += changed
     # The two snapshots bracket the quick phase: what the actuator left
     # behind, and what the gates were measuring when they finished.
     control_failures += mutated(
-        Phase.QUICK, entry["actuator_state"], entry["observed_state"]
+        Phase.QUICK, _reached(entry.actuator_state), observed_state
     )
     if control_failures:
         raise Rejection(control_failures)
-    return quick
+    return tuple(quick)
+
+
+def _reached(state: FileRecord | Unset) -> FileRecord:
+    """A snapshot the iteration has already taken.
+
+    Every caller here runs after the stage that took it, so an unset snapshot
+    would be a control failure of this module rather than a fact about the run.
+    """
+    if isinstance(state, Unset):
+        raise ControlFailure("the iteration has taken no snapshot yet")
+    return state
 
 
 def _verdict(
     record: RunRecord,
     iteration_dir: Path,
-    entry: Iteration,
-    quick: list[GateResult],
+    quick: tuple[GateResult, ...],
 ) -> IterationOutcome:
-    if entry["scope"]["passed"] and all(gate.passed for gate in quick):
-        entry["controller_feedback"] = None
+    entry = record.attempted()
+    scope = entry.scope
+    if isinstance(scope, Unset):
+        raise ControlFailure("the iteration has measured no scope yet")
+    if scope.passed and all(gate.passed for gate in quick):
+        record.attempt = replace(entry, controller_feedback=None)
         return IterationOutcome(
-            accepted=Converged(quick_gates=quick, state=entry["observed_state"]),
+            accepted=Converged(
+                quick_gates=quick, state=_reached(entry.observed_state)
+            ),
             feedback="",
         )
 
     parts = []
-    if not entry["scope"]["passed"]:
-        parts.append("Structural invariant failures:\n" + entry["scope"]["summary"])
+    if not scope.passed:
+        parts.append("Structural invariant failures:\n" + scope.summary)
     parts.append(gate_feedback(quick))
     feedback = "\n\n".join(part for part in parts if part).strip()
 
     feedback_path = iteration_dir / "controller-feedback.md"
     feedback_path.write_text(feedback, encoding="utf-8")
-    emitted: Feedback = {
-        "path": str(feedback_path),
-        "sha256": sha256_text(feedback),
-        "text": feedback,
-    }
-    entry["controller_feedback"] = emitted
+    emitted = Feedback(
+        path=str(feedback_path),
+        sha256=sha256_text(feedback),
+        text=feedback,
+    )
+    record.attempt = replace(entry, controller_feedback=emitted)
     record.record(
         "feedback.emitted",
-        {"iteration": entry["iteration"], "sha256": emitted["sha256"]},
+        {"iteration": entry.iteration, "sha256": emitted.sha256},
     )
     return IterationOutcome(accepted=None, feedback=feedback)

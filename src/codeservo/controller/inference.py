@@ -9,12 +9,12 @@ measured.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from enum import StrEnum
 
 from ..actuators.base import ObservedProfile, ReportedProfile
 from ..actuators.inventory import Backend, ProfileStatus, Speed, validate_profile
-from .document import Inference, InferenceProfile, ReportedBlock
+from .document import Inference, InferenceProfile, RequestedProfile
 
 # What a run records about the profile a backend applied to itself, read from
 # the shape the backends answer with.
@@ -43,7 +43,9 @@ class InferenceRequest:
     speed: Speed
 
 
-def observed_profile(observed: ObservedProfile) -> ReportedBlock:
+def observed_profile(
+    observed: ObservedProfile,
+) -> tuple[ObservedProfile, dict[str, str]]:
     """What a backend reported about its own profile, and why the rest is empty.
 
     Only the backend's own output speaks here. A value it did not carry stays
@@ -67,7 +69,7 @@ def observed_profile(observed: ObservedProfile) -> ReportedBlock:
         effort=reported["effort"],
         speed=reported["speed"],
     )
-    return {"observed": answered, "provenance": provenance}
+    return answered, provenance
 
 
 def frozen_profile(request: InferenceRequest) -> InferenceProfile:
@@ -78,22 +80,24 @@ def frozen_profile(request: InferenceRequest) -> InferenceProfile:
     answers is filled in here, so a substitution can never be read back as the
     configuration asked for.
     """
-    return {
-        "requested": {
-            "backend": request.backend,
-            "model": request.model,
-            "effort": request.effort,
-            "speed": request.speed,
-        },
-        "validation": validate_profile(
+    answered, provenance = observed_profile(ObservedProfile())
+    return InferenceProfile(
+        requested=RequestedProfile(
             backend=request.backend,
             model=request.model,
             effort=request.effort,
             speed=request.speed,
         ),
-        "native": None,
-        **observed_profile(ObservedProfile()),
-    }
+        validation=validate_profile(
+            backend=request.backend,
+            model=request.model,
+            effort=request.effort,
+            speed=request.speed,
+        ),
+        native=None,
+        observed=answered,
+        provenance=provenance,
+    )
 
 
 def frozen_inference(
@@ -105,35 +109,41 @@ def frozen_inference(
     inventory of its own backend, so one backend's cache never answers for the
     other's.
     """
-    return {
-        "implementer": frozen_profile(implementer),
-        "reviewer": frozen_profile(reviewer),
-    }
+    return Inference(
+        implementer=frozen_profile(implementer),
+        reviewer=frozen_profile(reviewer),
+    )
 
 
-def record_actuation(profile: InferenceProfile, agent: ReportedProfile) -> None:
-    """Keep the profile of the last actuation, replacing any earlier one.
+def record_actuation(
+    profile: InferenceProfile, agent: ReportedProfile
+) -> InferenceProfile:
+    """The profile carrying the last actuation, replacing any earlier one.
 
     The adapter owns what its backend reports and how it read it; the shape of
     the block is owned here, so the record holds the same three fields whichever
-    backend answered, and nothing an adapter did not report.
+    backend answered, and nothing an adapter did not report. What was frozen
+    before the run — the request and the verdict the inventory reached — is
+    carried through untouched.
     """
-    profile["native"] = agent.native
-    profile.update(observed_profile(agent.observed))
+    answered, provenance = observed_profile(agent.observed)
+    return replace(
+        profile, native=agent.native, observed=answered, provenance=provenance
+    )
 
 
 def roles(inference: Inference) -> list[tuple[str, InferenceProfile]]:
     """The two roles of a run, named once, in the order a record states them."""
     return [
-        ("implementer", inference["implementer"]),
-        ("reviewer", inference["reviewer"]),
+        ("implementer", inference.implementer),
+        ("reviewer", inference.reviewer),
     ]
 
 
 def contradicted_profiles(inference: Inference) -> list[str]:
     """Roles whose request the inventory of their own backend contradicts."""
     return [
-        f"configuration error: {role} profile: {profile['validation'].reason}"
+        f"configuration error: {role} profile: {profile.validation.reason}"
         for role, profile in roles(inference)
-        if profile["validation"].status == ProfileStatus.UNSUPPORTED
+        if profile.validation.status == ProfileStatus.UNSUPPORTED
     ]

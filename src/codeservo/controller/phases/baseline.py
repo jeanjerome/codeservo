@@ -7,6 +7,8 @@ already broken the tree the run is a change to.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ...sensors.gates import baseline_gates, run_gates
 from ...sensors.observations import ObservationPathError
 from ...workspace.git import create_worktree, is_clean
@@ -29,7 +31,7 @@ def measure_baseline(context: RunContext, record: RunRecord) -> None:
     except ObservationPathError as exc:
         raise Rejection(str(exc)) from exc
 
-    record.document["baseline"] = baseline
+    record.document = replace(record.document, baseline=tuple(baseline))
     record_gate_events(record.journal, GatePhase.BASELINE, baseline)
     record.record(
         "baseline.finished",
@@ -54,6 +56,6 @@ def measure_baseline(context: RunContext, record: RunRecord) -> None:
 def create_candidate(context: RunContext, record: RunRecord) -> None:
     """Create the isolated shallow checkout the run actuates in."""
     create_worktree(context.repo, context.worktree, context.base_commit)
-    record.document["worktree"] = str(context.worktree)
+    record.document = replace(record.document, worktree=str(context.worktree))
     record.record("workspace.ready", {"base_commit": context.base_commit})
     record.persist()

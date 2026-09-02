@@ -8,6 +8,7 @@ run there, with no checkout and no gate ever running.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from ...sensors.gates import baseline_gates
@@ -27,14 +28,20 @@ def freeze_execution_environment(context: RunContext, record: RunRecord) -> None
         gate.task for gate in context.constitution.gates if gate.task is not None
     )
     try:
-        record.document["environment"] = frozen_environment(
-            context.repo, context.base_commit, execution
+        record.document = replace(
+            record.document,
+            environment=frozen_environment(
+                context.repo, context.base_commit, execution
+            ),
         )
         record.persist()
         resolved, source_prefix = resolved_environment(
             context.repo, context.run_dir, execution, declared_tasks
         )
-        record.document["environment"].update(resolved)
+        record.document = replace(
+            record.document,
+            environment=record.document.environment.resolving(resolved),
+        )
     except (ControlFailure, pixi.ProviderError) as exc:
         record.record(
             "environment.validated",
@@ -89,20 +96,23 @@ def prepare_candidate_environment(context: RunContext, record: RunRecord) -> Non
         record.record("environment.prepared", {"environment": name, "exit_code": None})
         raise Rejection(str(exc)) from exc
 
-    record.document["environment"]["candidate"] = candidate
+    record.document = replace(
+        record.document,
+        environment=replace(record.document.environment, candidate=candidate),
+    )
     record.record(
         "environment.prepared",
-        {"environment": name, "exit_code": candidate["exit_code"]},
+        {"environment": name, "exit_code": candidate.exit_code},
     )
     record.persist()
 
-    if candidate["exit_code"] != 0:
+    if candidate.exit_code != 0:
         raise Rejection(
             f"execution environment: installing {name} into"
             f" the candidate failed: {diagnostic}"
         )
-    if not Path(candidate["prefix_path"]).is_dir():
+    if not Path(candidate.prefix_path).is_dir():
         raise Rejection(
             f"execution environment: installing {name}"
-            f" created no environment at {candidate['prefix_path']}"
+            f" created no environment at {candidate.prefix_path}"
         )

@@ -8,10 +8,13 @@ the controller keeps the record or the candidate.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
+from dataclasses import replace
 
 from ...actuators import ActuatorError
 from ...actuators.prompts import reviewer_prompt
 from ...domain.constitution import Constitution, Phase
+from ...domain.document import Unset
 from ...evidence.digests import sha256_json, sha256_text
 from ...resources import review_schema
 from ...runtime.process import tail
@@ -19,7 +22,8 @@ from ...runtime.sandbox import SandboxError
 from ...sensors.gates import GateResult
 from ..context import RunContext
 from ..decision import review_decision
-from ..errors import Rejection
+from ..document import FileRecord, ReviewBlock
+from ..errors import ControlFailure, Rejection
 from ..inference import record_actuation
 from ..record import RunRecord
 from .iteration import Converged
@@ -48,8 +52,8 @@ def observed_tail(path: str, locations: tuple) -> str:
 
 def review_observations(
     constitution: Constitution,
-    quick: list[GateResult],
-    full: list[GateResult],
+    quick: Sequence[GateResult],
+    full: Sequence[GateResult],
     locations: tuple,
 ) -> dict:
     """The successful gate measurements handed to the read-only reviewer.
@@ -110,14 +114,19 @@ def review_candidate(
     # observations it was given. The reviewer is a read-only sensor: it reads
     # the candidate and writes nothing into it. The adapter denies those writes
     # itself; this describes the confinement it runs under.
-    record.document["review"] = {
-        "prompt": {"path": str(prompt_path), "sha256": sha256_text(prompt_text)},
-        "observations": bundle,
-        "observations_sha256": sha256_text(bundle_json),
-        "isolation": context.reviewer.describe_isolation(
-            context.confinement.reviewer(context.worktree)
+    record.document = replace(
+        record.document,
+        review=ReviewBlock(
+            prompt=FileRecord(
+                path=str(prompt_path), sha256=sha256_text(prompt_text)
+            ),
+            observations=bundle,
+            observations_sha256=sha256_text(bundle_json),
+            isolation=context.reviewer.describe_isolation(
+                context.confinement.reviewer(context.worktree)
+            ),
         ),
-    }
+    )
     record.persist()
 
     try:
@@ -135,25 +144,40 @@ def review_candidate(
     except (ActuatorError, SandboxError) as exc:
         raise Rejection(str(exc)) from exc
 
-    record.document["review"].update(
-        {"result": review, "result_sha256": sha256_json(review), "meta": meta}
+    answered = replace(
+        _answered(record),
+        result=review,
+        result_sha256=sha256_json(review),
+        meta=meta,
+    )
+    reviewer = record_actuation(record.document.inference.reviewer, meta)
+    record.document = replace(
+        record.document,
+        review=answered,
+        inference=replace(record.document.inference, reviewer=reviewer),
     )
     record.record(
         "review.finished",
         {
-            "result_sha256": record.document["review"]["result_sha256"],
+            "result_sha256": answered.result_sha256,
             "meta_sha256": meta.meta_sha256,
         },
     )
-    reviewer = context.inference["reviewer"]
-    record_actuation(reviewer, meta)
     record.record(
         "review.profile_observed",
         {
-            "model": reviewer["observed"].model,
-            "provenance": reviewer["provenance"],
+            "model": reviewer.observed.model,
+            "provenance": reviewer.provenance,
         },
     )
     return review_decision(
         review, context.task.criteria, context.constitution.review.blocking_severities
     )
+
+
+def _answered(record: RunRecord) -> ReviewBlock:
+    """The review block, opened before the reviewer was invoked."""
+    block = record.document.review
+    if isinstance(block, Unset):
+        raise ControlFailure("the reviewer was invoked before it was recorded")
+    return block

@@ -8,6 +8,7 @@ chain.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,7 +17,8 @@ from ..domain.run import RunStatus
 from ..evidence.digests import relative_evidence_paths, sha256_text, write_json
 from ..evidence.journal import Journal
 from ..workspace.git import make_patch
-from .document import Evidence
+from .document import Decision, Evidence, Iteration
+from .errors import ControlFailure
 
 # The shape of evidence.json. The observation bundle versions its own shape.
 EVIDENCE_SCHEMA_VERSION = 16
@@ -29,10 +31,15 @@ def utc_now() -> str:
 class RunRecord:
     """The evidence document of one run, and the journal beside it.
 
-    A phase reaches the document by name, so a field the record does not
-    declare is refused where it is written. Every write reaches the file
-    system through `persist`, and `close` is the only way a run reaches a
-    status.
+    The document is frozen, so a phase does not edit what the run already
+    stated: it states the record it reached, and the previous one is what the
+    file system already holds. Every write reaches the file system through
+    `persist`, and `close` is the only way a run reaches a status.
+
+    One iteration is the exception a loop needs. It is assembled over several
+    transitions and has to be kept however it ends, including on the rejection
+    that ended it, so the attempt in progress is held here and each stage
+    states the version it reached.
     """
 
     def __init__(
@@ -41,11 +48,25 @@ class RunRecord:
         self.run_dir = run_dir
         self.journal = journal
         self.document = document
+        self.attempt: Iteration | None = None
         self.path = run_dir / "evidence.json"
 
     def record(self, event_type: str, payload: dict) -> None:
         """Append one transition to the journal."""
         self.journal.record(event_type, payload)
+
+    def attempted(self) -> Iteration:
+        """The iteration in progress, as the last stage left it."""
+        if self.attempt is None:
+            raise ControlFailure("no iteration is in progress")
+        return self.attempt
+
+    def keep(self) -> None:
+        """Keep the iteration in progress, however far it got."""
+        self.document = replace(
+            self.document, iterations=(*self.document.iterations, self.attempted())
+        )
+        self.attempt = None
 
     def persist(self) -> None:
         """Write the document as it stands.
@@ -56,7 +77,7 @@ class RunRecord:
         the JSON object it declares, and a field it never measured is left out
         rather than written as null.
         """
-        self.document["events"] = self.journal.summary()
+        self.document = replace(self.document, events=self.journal.summary())
         write_json(self.path, relative_evidence_paths(self.written(), self.run_dir))
 
     def written(self) -> dict:
@@ -84,12 +105,15 @@ class RunRecord:
         if worktree.exists():
             patch = make_patch(worktree, base_commit)
             (self.run_dir / "change.patch").write_text(patch, encoding="utf-8")
-        self.document["status"] = status
-        self.document["finished_at"] = utc_now()
-        self.document["decision"] = {"reasons": reasons}
-        self.document["patch_sha256"] = sha256_text(patch) if patch else None
-        self.document["run_dir"] = str(self.run_dir)
-        self.document["worktree"] = str(worktree) if worktree.exists() else None
+        self.document = replace(
+            self.document,
+            status=status,
+            finished_at=utc_now(),
+            decision=Decision(reasons=tuple(reasons)),
+            patch_sha256=sha256_text(patch) if patch else None,
+            run_dir=str(self.run_dir),
+            worktree=str(worktree) if worktree.exists() else None,
+        )
         # The decision closes the chain before the record states it, so a
         # status edited afterwards no longer matches the journal.
         self.journal.record(

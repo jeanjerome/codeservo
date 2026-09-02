@@ -66,10 +66,10 @@ class Confinement:
         )
 
     def gate_evidence(self) -> GateIsolation:
-        return {
-            "source": isolation_evidence(self.source_gates, MECHANISM),
-            "candidate": isolation_evidence(self.candidate_gates, MECHANISM),
-        }
+        return GateIsolation(
+            source=isolation_evidence(self.source_gates, MECHANISM),
+            candidate=isolation_evidence(self.candidate_gates, MECHANISM),
+        )
 
 
 def confinement(

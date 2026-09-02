@@ -10,6 +10,13 @@ from typing import Any
 from unittest.mock import patch
 
 from codeservo.actuators.base import ObservedProfile
+from codeservo.actuators.inventory import (
+    Backend,
+    ProfileStatus,
+    ProfileVerdict,
+    Speed,
+)
+from codeservo.controller.document import InferenceProfile, RequestedProfile
 from codeservo.controller.inference import (
     InferenceRequest,
     frozen_inference,
@@ -53,15 +60,19 @@ class InferenceProfileTests(unittest.TestCase):
             reviewer=InferenceRequest(**self._request(**(reviewer or {}))),
         )
 
-    def _implementer(self, **overrides) -> dict:
-        return self._inference(implementer=overrides)["implementer"]
+    def _implementer(self, **overrides):
+        return self._inference(implementer=overrides).implementer
 
     def test_holds_the_two_roles_with_the_same_five_fields(self) -> None:
         inference = self._inference()
 
-        self.assertEqual({"implementer", "reviewer"}, set(inference))
-        self.assertEqual(PROFILE_FIELDS, set(inference["implementer"]))
-        self.assertEqual(PROFILE_FIELDS, set(inference["reviewer"]))
+        self.assertEqual(
+            {"implementer", "reviewer"}, set(inference.to_document())
+        )
+        self.assertEqual(
+            PROFILE_FIELDS, set(inference.implementer.to_document())
+        )
+        self.assertEqual(PROFILE_FIELDS, set(inference.reviewer.to_document()))
 
     def test_freezes_each_role_as_it_was_resolved(self) -> None:
         inference = self._inference(
@@ -75,7 +86,7 @@ class InferenceProfileTests(unittest.TestCase):
                 "effort": "high",
                 "speed": "standard",
             },
-            inference["implementer"]["requested"],
+            inference.implementer.requested.to_document(),
         )
         self.assertEqual(
             {
@@ -84,13 +95,13 @@ class InferenceProfileTests(unittest.TestCase):
                 "effort": "high",
                 "speed": "fast",
             },
-            inference["reviewer"]["requested"],
+            inference.reviewer.requested.to_document(),
         )
 
     def test_records_an_absent_review_effort_as_null(self) -> None:
-        reviewer = self._inference(reviewer={"effort": None})["reviewer"]
+        reviewer = self._inference(reviewer={"effort": None}).reviewer
 
-        self.assertIsNone(reviewer["requested"]["effort"])
+        self.assertIsNone(reviewer.requested.effort)
 
     def test_checks_each_role_against_the_inventory_of_its_own_backend(self) -> None:
         """One backend's inventory never answers for the other's."""
@@ -118,21 +129,24 @@ class InferenceProfileTests(unittest.TestCase):
                     reviewer={"backend": "codex", "model": "a-model"},
                 )
 
-        self.assertEqual("unverified", inference["implementer"]["validation"].status)
+        self.assertEqual("unverified", inference.implementer.validation.status)
         self.assertEqual(
-            "unavailable", inference["implementer"]["validation"].inventory_source
+            "unavailable", inference.implementer.validation.inventory_source
         )
-        self.assertEqual("supported", inference["reviewer"]["validation"].status)
+        self.assertEqual("supported", inference.reviewer.validation.status)
         self.assertEqual(
-            "backend-cache", inference["reviewer"]["validation"].inventory_source
+            "backend-cache", inference.reviewer.validation.inventory_source
         )
 
     def test_holds_nothing_either_backend_has_answered_yet(self) -> None:
-        for role, profile in self._inference().items():
+        for role, profile in (
+            ("implementer", self._inference().implementer),
+            ("reviewer", self._inference().reviewer),
+        ):
             with self.subTest(role=role):
-                self.assertIsNone(profile["native"])
-                self.assertEqual(ObservedProfile(), profile["observed"])
-                self.assertEqual(UNREPORTED, profile["provenance"])
+                self.assertIsNone(profile.native)
+                self.assertEqual(ObservedProfile(), profile.observed)
+                self.assertEqual(UNREPORTED, profile.provenance)
 
     def test_freezes_the_four_requested_fields(self) -> None:
         implementer = self._implementer(speed="fast")
@@ -144,46 +158,62 @@ class InferenceProfileTests(unittest.TestCase):
                 "effort": "high",
                 "speed": "fast",
             },
-            implementer["requested"],
+            implementer.requested.to_document(),
         )
 
     def test_records_an_absent_effort_as_null(self) -> None:
-        self.assertIsNone(self._implementer(effort=None)["requested"]["effort"])
+        self.assertIsNone(self._implementer(effort=None).requested.effort)
 
     def test_holds_nothing_the_backend_has_not_answered_yet(self) -> None:
         implementer = self._implementer()
 
-        self.assertIsNone(implementer["native"])
-        self.assertEqual(ObservedProfile(), implementer["observed"])
-        self.assertEqual(UNREPORTED, implementer["provenance"])
+        self.assertIsNone(implementer.native)
+        self.assertEqual(ObservedProfile(), implementer.observed)
+        self.assertEqual(UNREPORTED, implementer.provenance)
         # A backend with no verified cache cannot contradict the request.
-        self.assertEqual("unverified", implementer["validation"].status)
+        self.assertEqual("unverified", implementer.validation.status)
         self.assertEqual(
             {"status", "reason", "inventory_source"},
-            set(implementer["validation"].to_document()),
+            set(implementer.validation.to_document()),
         )
 
 
 class ActuationRecordTests(unittest.TestCase):
-    def _profile(self) -> dict:
-        return {
-            "native": {"--effort": "max"},
-            "observed": ObservedProfile(model="claude-opus-5"),
-            "provenance": {
+    def _blank(self, **overrides) -> InferenceProfile:
+        fields: dict[str, Any] = {
+            "requested": RequestedProfile(
+                backend=Backend.CLAUDE, model=None, effort=None, speed=Speed.STANDARD
+            ),
+            "validation": ProfileVerdict(
+                status=ProfileStatus.UNVERIFIED, reason="", inventory_source="none"
+            ),
+            "native": None,
+            "observed": ObservedProfile(),
+            "provenance": {},
+        }
+        fields.update(overrides)
+        return InferenceProfile(**fields)
+
+    def _profile(self) -> InferenceProfile:
+        return self._blank(
+            native={"--effort": "max"},
+            observed=ObservedProfile(model="claude-opus-5"),
+            provenance={
                 "model": "reported",
                 "effort": "not_reported",
                 "speed": "not_reported",
             },
-        }
+        )
 
-    def _empty(self) -> dict:
-        return {"native": None, "observed": ObservedProfile(), "provenance": {}}
+    def _empty(self) -> InferenceProfile:
+        return self._blank()
 
     def _actuate(
-        self, profile: dict, observed: ObservedProfile, native: dict
-    ) -> dict:
-        record_actuation(profile, Reported(native=native, observed=observed))
-        return profile
+        self, profile: InferenceProfile, observed: ObservedProfile, native: dict
+    ) -> InferenceProfile:
+        return record_actuation(
+            profile, Reported(native=native, observed=observed)
+        )
 
     def test_says_per_field_what_the_backend_reported(self) -> None:
         profile = self._actuate(
@@ -192,10 +222,10 @@ class ActuationRecordTests(unittest.TestCase):
             {"model_reasoning_effort": "high"},
         )
 
-        self.assertEqual({"model_reasoning_effort": "high"}, profile["native"])
+        self.assertEqual({"model_reasoning_effort": "high"}, profile.native)
         self.assertEqual(
             ObservedProfile(model="gpt-5.6-sol", effort="high"),
-            profile["observed"],
+            profile.observed,
         )
         self.assertEqual(
             {
@@ -203,7 +233,7 @@ class ActuationRecordTests(unittest.TestCase):
                 "effort": "reported",
                 "speed": "not_reported",
             },
-            profile["provenance"],
+            profile.provenance,
         )
 
     def test_names_the_same_three_fields_on_both_sides(self) -> None:
@@ -214,9 +244,9 @@ class ActuationRecordTests(unittest.TestCase):
             with self.subTest(observed=observed):
                 profile = self._actuate(self._empty(), observed, {})
 
-                answered = profile["observed"].to_document()
+                answered = profile.observed.to_document()
                 self.assertEqual({"model", "effort", "speed"}, set(answered))
-                self.assertEqual(set(answered), set(profile["provenance"]))
+                self.assertEqual(set(answered), set(profile.provenance))
 
     def test_agrees_field_by_field_with_what_it_holds(self) -> None:
         for observed in (
@@ -228,11 +258,11 @@ class ActuationRecordTests(unittest.TestCase):
             with self.subTest(observed=observed):
                 profile = self._actuate(self._empty(), observed, {})
 
-                for name, value in profile["observed"].to_document().items():
+                for name, value in profile.observed.to_document().items():
                     expected = "reported" if value is not None else "not_reported"
-                    self.assertEqual(expected, profile["provenance"][name])
+                    self.assertEqual(expected, profile.provenance[name])
                 self.assertLessEqual(
-                    set(profile["provenance"].values()),
+                    set(profile.provenance.values()),
                     {"reported", "not_reported"},
                 )
 
@@ -246,14 +276,14 @@ class ActuationRecordTests(unittest.TestCase):
         )
 
         self.assertEqual(unread, silent)
-        self.assertEqual(UNREPORTED, unread["provenance"])
+        self.assertEqual(UNREPORTED, unread.provenance)
 
     def test_keeps_no_value_from_an_earlier_actuation(self) -> None:
         profile = self._actuate(self._profile(), ObservedProfile(), {})
 
-        self.assertEqual({}, profile["native"])
-        self.assertEqual(ObservedProfile(), profile["observed"])
-        self.assertEqual(UNREPORTED, profile["provenance"])
+        self.assertEqual({}, profile.native)
+        self.assertEqual(ObservedProfile(), profile.observed)
+        self.assertEqual(UNREPORTED, profile.provenance)
 
 
 if __name__ == "__main__":

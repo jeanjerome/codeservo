@@ -7,6 +7,8 @@ run.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ...domain.constitution import Phase
 from ...sensors.gates import GateResult, run_gates
 from ...sensors.observations import ObservationPathError
@@ -36,12 +38,13 @@ def measure_full(
     except ObservationPathError as exc:
         raise Rejection(str(exc)) from exc
 
-    record.document["full_gates"] = full
-    record_gate_events(record.journal, GatePhase.FULL, full)
     full_state = write_patch_snapshot(
         context.run_dir / "full.patch", context.worktree, context.base_commit
     )
-    record.document["full_gate_state"] = full_state
+    record.document = replace(
+        record.document, full_gates=tuple(full), full_gate_state=full_state
+    )
+    record_gate_events(record.journal, GatePhase.FULL, full)
     record.persist()
 
     faults = sensor_faults(full)
@@ -49,9 +52,11 @@ def measure_full(
         raise Rejection(faults)
 
     reasons = sensor_tampering(context.sensor_paths, context.sensor_evidence)
-    reasons += changed_environment(
-        record.document["environment"], context.worktree, context.execution
+    environment, changed = changed_environment(
+        record.document.environment, context.worktree, context.execution
     )
+    record.document = replace(record.document, environment=environment)
+    reasons += changed
     # The candidate as the quick phase left it, against the candidate the full
     # gates have just finished measuring.
     reasons += mutated(Phase.FULL, accepted.state, full_state)

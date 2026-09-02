@@ -61,11 +61,11 @@ def freeze_sensors(
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
         paths[gate.name] = target
-        evidence[gate.name] = {
-            "path": str(target),
-            "reference": gate.sensor,
-            "sha256": sha256_path(target),
-        }
+        evidence[gate.name] = FrozenSensor(
+            path=str(target),
+            reference=gate.sensor,
+            sha256=sha256_path(target),
+        )
     return paths, evidence
 
 
@@ -76,7 +76,7 @@ def altered_sensors(
     return sorted(
         name
         for name, path in sensor_paths.items()
-        if sha256_path(path) != sensor_evidence[name]["sha256"]
+        if sha256_path(path) != sensor_evidence[name].sha256
     )
 
 

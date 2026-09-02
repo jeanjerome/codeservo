@@ -21,10 +21,7 @@ def write_patch_snapshot(
     patch = make_patch(worktree, base_commit)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(patch, encoding="utf-8")
-    return {
-        "path": str(path),
-        "sha256": sha256_text(patch),
-    }
+    return FileRecord(path=str(path), sha256=sha256_text(patch))
 
 
 def mutated(phase: Phase, before: FileRecord, after: FileRecord) -> list[str]:
@@ -35,6 +32,6 @@ def mutated(phase: Phase, before: FileRecord, after: FileRecord) -> list[str]:
     failure of the run and not a failing gate: whatever those gates returned,
     they no longer describe the tree that was actuated.
     """
-    if before["sha256"] == after["sha256"]:
+    if before.sha256 == after.sha256:
         return []
     return [f"{phase} gates changed the candidate workspace"]

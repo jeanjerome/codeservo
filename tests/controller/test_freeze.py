@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from codeservo.controller.document import FrozenSensor
 from codeservo.controller.freeze import altered_sensors
 from codeservo.evidence.digests import sha256_path
 
@@ -15,7 +16,13 @@ class SensorIntegrityTests(unittest.TestCase):
         (sensor / "contract.py").write_text("assert True\n", encoding="utf-8")
         return (
             {"acceptance": sensor},
-            {"acceptance": {"sha256": sha256_path(sensor)}},
+            {
+                "acceptance": FrozenSensor(
+                    path=str(sensor),
+                    reference="owner/acceptance",
+                    sha256=sha256_path(sensor),
+                )
+            },
         )
 
     def test_reports_nothing_while_the_snapshot_is_intact(self) -> None:
