@@ -46,7 +46,7 @@ codeservo = { path = ".", editable = true }
 # Every check names the tree it measures and writes nothing into it: a gate
 # that left a cache behind would change the candidate it was only measuring.
 test = "python -m unittest discover -s tests -v"
-lint = "ruff check --no-cache src tests"
+lint = "ruff check --no-cache src tests tools"
 types = "mypy --cache-dir=/dev/null src"
 compile = "python -m compileall -q src tests"
 
