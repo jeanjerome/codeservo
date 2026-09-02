@@ -34,7 +34,7 @@ def measure_baseline(context: RunContext, record: RunRecord) -> None:
     record.record(
         "baseline.finished",
         {
-            "passed": all(gate["passed"] for gate in baseline),
+            "passed": all(gate.passed for gate in baseline),
             "gate_count": len(baseline),
         },
     )
@@ -45,7 +45,7 @@ def measure_baseline(context: RunContext, record: RunRecord) -> None:
     faults = sensor_faults(baseline)
     if faults:
         raise Rejection(faults)
-    if not all(gate["passed"] for gate in baseline):
+    if not all(gate.passed for gate in baseline):
         raise Rejection("baseline gate failed")
     if not is_clean(context.repo):
         raise Rejection("baseline gate mutated the source repository")

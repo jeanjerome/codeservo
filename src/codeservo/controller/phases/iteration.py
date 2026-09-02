@@ -204,7 +204,7 @@ def _verdict(
     entry: Iteration,
     quick: list[GateResult],
 ) -> IterationOutcome:
-    if entry["scope"]["passed"] and all(gate["passed"] for gate in quick):
+    if entry["scope"]["passed"] and all(gate.passed for gate in quick):
         entry["controller_feedback"] = None
         return IterationOutcome(
             accepted=Converged(quick_gates=quick, state=entry["observed_state"]),

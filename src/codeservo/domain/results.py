@@ -5,6 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+def succeeded(exit_code: int | None, timed_out: bool) -> bool:
+    """Whether one command answered the way a passing measurement does.
+
+    Said once, because a gate result carries the same two values as the
+    command it was measured by and must not reach a different verdict from
+    them.
+    """
+    return exit_code == 0 and not timed_out
+
+
 @dataclass
 class CommandResult:
     """One command the controller ran, and what it left behind."""
@@ -21,7 +31,7 @@ class CommandResult:
 
     @property
     def passed(self) -> bool:
-        return self.exit_code == 0 and not self.timed_out
+        return succeeded(self.exit_code, self.timed_out)
 
 
 @dataclass

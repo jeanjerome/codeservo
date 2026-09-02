@@ -6,7 +6,14 @@ import unittest
 from pathlib import Path
 
 from codeservo.controller.phases.review import review_observations
-from codeservo.domain.constitution import Constitution, Gate, ReviewPolicy, ScopePolicy
+from codeservo.domain.constitution import (
+    Constitution,
+    Gate,
+    ResultFormat,
+    ReviewPolicy,
+    ScopePolicy,
+)
+from codeservo.sensors.gates import GateResult, UnsignedGateResult
 
 OBSERVATION_FIELDS = {
     "phase",
@@ -45,25 +52,26 @@ class ObservationBundleTests(unittest.TestCase):
             review=ReviewPolicy(),
         )
 
-    def _gate_result(self, name: str, out_dir: Path, stdout: str = "") -> dict:
+    def _gate_result(
+        self, name: str, out_dir: Path, stdout: str = ""
+    ) -> GateResult:
         out_dir.mkdir(parents=True, exist_ok=True)
         stdout_path = out_dir / f"{name}.stdout.log"
         stderr_path = out_dir / f"{name}.stderr.log"
         stdout_path.write_text(stdout, encoding="utf-8")
         stderr_path.write_text("", encoding="utf-8")
-        return {
-            "name": name,
-            "command": f"secret command for {name}",
-            "passed": True,
-            "exit_code": 0,
-            "timed_out": False,
-            "duration_ms": 7,
-            "stdout_path": str(stdout_path),
-            "stdout_sha256": "a" * 64,
-            "stderr_path": str(stderr_path),
-            "stderr_sha256": "b" * 64,
-            "result_sha256": "c" * 64,
-        }
+        return UnsignedGateResult(
+            name=name,
+            command=f"secret command for {name}",
+            exit_code=0,
+            timed_out=False,
+            duration_ms=7,
+            stdout_path=str(stdout_path),
+            stdout_sha256="a" * 64,
+            stderr_path=str(stderr_path),
+            stderr_sha256="b" * 64,
+            result_format=ResultFormat.EXIT_CODE,
+        ).signed()
 
     def test_orders_quick_gates_before_full_gates(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

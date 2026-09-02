@@ -111,22 +111,21 @@ class JournalSummaryTests(unittest.TestCase):
             summary = book.summary()
 
             self.assertEqual(
-                {"path", "count", "head_sha256", "file_sha256"}, set(summary)
+                {"path", "count", "head_sha256", "file_sha256"},
+                set(summary.to_document()),
             )
-            self.assertEqual(JOURNAL_NAME, summary["path"])
-            self.assertEqual(2, summary["count"])
-            self.assertEqual(written(root)[-1]["sha256"], summary["head_sha256"])
-            self.assertEqual(
-                sha256_file(root / JOURNAL_NAME), summary["file_sha256"]
-            )
+            self.assertEqual(JOURNAL_NAME, summary.path)
+            self.assertEqual(2, summary.count)
+            self.assertEqual(written(root)[-1]["sha256"], summary.head_sha256)
+            self.assertEqual(sha256_file(root / JOURNAL_NAME), summary.file_sha256)
 
     def test_an_unopened_journal_describes_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             summary = journal(Path(temp)).summary()
 
-            self.assertEqual(0, summary["count"])
-            self.assertIsNone(summary["head_sha256"])
-            self.assertIsNone(summary["file_sha256"])
+            self.assertEqual(0, summary.count)
+            self.assertIsNone(summary.head_sha256)
+            self.assertIsNone(summary.file_sha256)
 
 
 class ChainReadingTests(unittest.TestCase):

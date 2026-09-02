@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ..domain.document import rendered
 from ..domain.run import RunStatus
 from ..evidence.digests import relative_evidence_paths, sha256_text, write_json
 from ..evidence.journal import Journal
@@ -50,10 +51,21 @@ class RunRecord:
         """Write the document as it stands.
 
         The events block describes the journal at the moment of writing, so a
-        finished record describes the complete journal.
+        finished record describes the complete journal. What the run holds is
+        rendered on the way out: a block the run built as a document becomes
+        the JSON object it declares, and a field it never measured is left out
+        rather than written as null.
         """
         self.document["events"] = self.journal.summary()
-        write_json(self.path, relative_evidence_paths(self.document, self.run_dir))
+        write_json(self.path, relative_evidence_paths(self.written(), self.run_dir))
+
+    def written(self) -> dict:
+        """The record as a reader of the run directory sees it.
+
+        The locations are the ones this machine used; only writing makes them
+        relative to the run directory.
+        """
+        return rendered(self.document)
 
     def close(
         self,
@@ -62,8 +74,12 @@ class RunRecord:
         *,
         worktree: Path,
         base_commit: str,
-    ) -> Evidence:
-        """State the decision, after the journal has closed on it."""
+    ) -> dict:
+        """State the decision, after the journal has closed on it.
+
+        What comes back is the record as it was written, so a caller reads the
+        document a run leaves behind rather than the objects that built it.
+        """
         patch = ""
         if worktree.exists():
             patch = make_patch(worktree, base_commit)
@@ -81,4 +97,4 @@ class RunRecord:
         )
         self.journal.record("run.finished", {"status": status})
         self.persist()
-        return self.document
+        return self.written()

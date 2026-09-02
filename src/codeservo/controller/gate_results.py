@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from ..domain.document import Unset
 from ..evidence.journal import Journal
 from ..runtime.process import tail
 from ..sensors import observations
@@ -40,13 +41,13 @@ def sensor_faults(results: list[GateResult]) -> list[str]:
     """
     faults: list[str] = []
     for result in results:
-        status = result.get("observation_status")
-        if status is None or status == observations.Classification.VALID:
+        status = result.observation_status
+        if isinstance(status, Unset) or status == observations.Classification.VALID:
             continue
-        if status == observations.Classification.ABSENT and result["timed_out"]:
+        if status == observations.Classification.ABSENT and result.timed_out:
             continue
         faults.append(
-            f"sensor error: gate {result['name']}: {result['observation_error']}"
+            f"sensor error: gate {result.name}: {result.observation_error}"
         )
     return faults
 
@@ -55,18 +56,18 @@ def gate_feedback(results: list[GateResult]) -> str:
     """What a failing phase tells the actuator, unchanged from what it emitted."""
     chunks: list[str] = []
     for result in results:
-        if result["passed"]:
+        if result.passed:
             continue
         chunks.append(
             "\n".join(
                 [
-                    f"Gate {result['name']} FAILED",
-                    f"Command: {result['command']}",
-                    f"Exit code: {result['exit_code']}",
+                    f"Gate {result.name} FAILED",
+                    f"Command: {result.command}",
+                    f"Exit code: {result.exit_code}",
                     "stdout (tail):",
-                    tail(result["stdout_path"]),
+                    tail(result.stdout_path),
                     "stderr (tail):",
-                    tail(result["stderr_path"]),
+                    tail(result.stderr_path),
                 ]
             )
         )
@@ -82,8 +83,8 @@ def record_gate_events(
             "gate.finished",
             {
                 "phase": phase,
-                "name": result["name"],
-                "passed": result["passed"],
-                "result_sha256": result["result_sha256"],
+                "name": result.name,
+                "passed": result.passed,
+                "result_sha256": result.result_sha256,
             },
         )

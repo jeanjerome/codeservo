@@ -191,7 +191,7 @@ def build_run(
                 "decision.recorded", {"status": status, "reasons": list(reasons)}
             )
             book.record("run.finished", {"status": status})
-        record["events"] = book.summary()
+        record["events"] = book.summary().to_document()
     write_json(run_dir / "evidence.json", record)
     return run_dir
 

@@ -1,8 +1,12 @@
 """Telling a broken sensor from a failing candidate."""
 
 import unittest
+from dataclasses import replace
 
 from codeservo.controller.gate_results import sensor_faults
+from codeservo.domain.constitution import ResultFormat
+from codeservo.sensors.gates import GateResult, UnsignedGateResult
+from codeservo.sensors.observations import Classification
 
 
 class SensorFaultTests(unittest.TestCase):
@@ -12,16 +16,36 @@ class SensorFaultTests(unittest.TestCase):
         self,
         name: str = "mutation",
         *,
-        status: str | None = "valid",
+        status: Classification | None = Classification.VALID,
         error: str | None = None,
         timed_out: bool = False,
         passed: bool = False,
-    ) -> dict:
-        record = {"name": name, "passed": passed, "timed_out": timed_out}
-        if status is not None:
-            record["observation_status"] = status
-            record["observation_error"] = error
-        return record
+    ) -> GateResult:
+        measured = UnsignedGateResult(
+            name=name,
+            command="true",
+            exit_code=0 if passed else 1,
+            timed_out=timed_out,
+            duration_ms=1,
+            stdout_path=f"{name}.stdout.log",
+            stdout_sha256="",
+            stderr_path=f"{name}.stderr.log",
+            stderr_sha256="",
+            result_format=(
+                ResultFormat.EXIT_CODE
+                if status is None
+                else ResultFormat.CODESERVO_JSON
+            ),
+        )
+        if status is None:
+            return measured.signed()
+        return replace(
+            measured,
+            observation_status=status,
+            observation_error=error,
+            observation_path=None,
+            observation_sha256=None,
+        ).signed()
 
     def test_a_gate_answering_with_its_exit_code_alone_is_never_a_fault(self) -> None:
         self.assertEqual([], sensor_faults([self._gate(status=None)]))
@@ -30,7 +54,11 @@ class SensorFaultTests(unittest.TestCase):
         self.assertEqual([], sensor_faults([self._gate()]))
 
     def test_names_the_fault_the_gate_and_the_sensor_error(self) -> None:
-        for status in ("absent", "invalid", "contradicted"):
+        for status in (
+            Classification.ABSENT,
+            Classification.INVALID,
+            Classification.CONTRADICTED,
+        ):
             with self.subTest(status=status):
                 faults = sensor_faults(
                     [self._gate(status=status, error="field status is wrong")]
@@ -42,10 +70,10 @@ class SensorFaultTests(unittest.TestCase):
 
     def test_a_timeout_excuses_only_a_document_never_written(self) -> None:
         excused = sensor_faults(
-            [self._gate(status="absent", error="wrote nothing", timed_out=True)]
+            [self._gate(status=Classification.ABSENT, error="wrote nothing", timed_out=True)]
         )
         judged = sensor_faults(
-            [self._gate(status="invalid", error="field status", timed_out=True)]
+            [self._gate(status=Classification.INVALID, error="field status", timed_out=True)]
         )
 
         self.assertEqual([], excused)
@@ -55,8 +83,8 @@ class SensorFaultTests(unittest.TestCase):
         faults = sensor_faults(
             [
                 self._gate("unit", passed=True),
-                self._gate("mutation", status="absent", error="wrote nothing"),
-                self._gate("runtime", status="invalid", error="field metrics"),
+                self._gate("mutation", status=Classification.ABSENT, error="wrote nothing"),
+                self._gate("runtime", status=Classification.INVALID, error="field metrics"),
             ]
         )
 

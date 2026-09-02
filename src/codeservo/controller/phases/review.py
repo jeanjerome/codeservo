@@ -61,22 +61,22 @@ def review_observations(
     gates: list[dict] = []
     for phase, results in ((Phase.QUICK, quick), (Phase.FULL, full)):
         for result in results:
-            sensor = sensors.get(result["name"])
+            sensor = sensors.get(result.name)
             gates.append(
                 {
                     "phase": phase,
-                    "name": result["name"],
+                    "name": result.name,
                     "kind": REPOSITORY_GATE if sensor is None else EXTERNAL_SENSOR,
                     "sensor": sensor,
-                    "passed": result["passed"],
-                    "exit_code": result["exit_code"],
-                    "timed_out": result["timed_out"],
-                    "duration_ms": result["duration_ms"],
-                    "stdout_sha256": result["stdout_sha256"],
-                    "stderr_sha256": result["stderr_sha256"],
-                    "result_sha256": result["result_sha256"],
-                    "stdout_tail": observed_tail(result["stdout_path"], locations),
-                    "stderr_tail": observed_tail(result["stderr_path"], locations),
+                    "passed": result.passed,
+                    "exit_code": result.exit_code,
+                    "timed_out": result.timed_out,
+                    "duration_ms": result.duration_ms,
+                    "stdout_sha256": result.stdout_sha256,
+                    "stderr_sha256": result.stderr_sha256,
+                    "result_sha256": result.result_sha256,
+                    "stdout_tail": observed_tail(result.stdout_path, locations),
+                    "stderr_tail": observed_tail(result.stderr_path, locations),
                 }
             )
     return {"schema_version": OBSERVATIONS_SCHEMA_VERSION, "gates": gates}

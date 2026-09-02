@@ -13,7 +13,6 @@ from ..actuators.inventory import DEFAULT_SPEED, Speed
 from ..domain.run import RunStatus
 from ..workspace.git import is_clean
 from .context import RunContext, RunRequest, prepare
-from .document import Evidence
 from .errors import Rejection
 from .inference import contradicted_profiles
 from .phases import (
@@ -46,7 +45,7 @@ def run(
     review_actuator: str | None = None,
     review_effort: str | None = None,
     review_speed: Speed = DEFAULT_SPEED,
-) -> Evidence:
+) -> dict:
     """Drive one controlled software change, and return the record it wrote."""
     context, record = prepare(
         RunRequest(
@@ -101,7 +100,7 @@ def _verify_control_inputs(context: RunContext) -> None:
 
 def _close(
     context: RunContext, record: RunRecord, status: RunStatus, reasons: list[str]
-) -> Evidence:
+) -> dict:
     return record.close(
         status,
         reasons,

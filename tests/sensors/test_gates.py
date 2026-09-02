@@ -109,7 +109,7 @@ class GateEnvironmentTests(unittest.TestCase):
                     sensor_paths={"acceptance": sensor},
                 )
 
-            self.assertTrue(all(result["passed"] for result in results))
+            self.assertTrue(all(result.passed for result in results))
 
     def test_no_gate_of_a_provider_run_can_resolve_or_install(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -139,7 +139,7 @@ class GateEnvironmentTests(unittest.TestCase):
                 execution=EXECUTION,
             )
 
-            self.assertTrue(all(result["passed"] for result in results))
+            self.assertTrue(all(result.passed for result in results))
 
     def test_a_run_without_a_provider_sets_none_of_them(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -157,7 +157,7 @@ class GateEnvironmentTests(unittest.TestCase):
                     repo=root, gates=(gate,), out_dir=root / "logs", execution=None
                 )
 
-            self.assertTrue(results[0]["passed"])
+            self.assertTrue(results[0].passed)
 
     def test_runs_a_task_gate_through_the_provider(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -181,15 +181,15 @@ class GateEnvironmentTests(unittest.TestCase):
                 )
 
             task, shell = results
-            self.assertTrue(task["passed"], Path(task["stderr_path"]).read_text())
-            self.assertTrue(shell["passed"])
+            self.assertTrue(task.passed, Path(task.stderr_path).read_text())
+            self.assertTrue(shell.passed)
             # A shell gate is built and run exactly as it was before.
-            self.assertEqual("test -f app.py", shell["command"])
+            self.assertEqual("test -f app.py", shell.command)
             self.assertEqual(
                 f"pixi run --as-is --clean-env --no-config"
                 f" --manifest-path '{root / 'pyproject.toml'}'"
                 f" --environment 'default' '{PIXI_TASK}'",
-                task["command"],
+                task.command,
             )
 
 
@@ -258,8 +258,8 @@ class GateObservationTests(unittest.TestCase):
 
         record = self._run(probe)
 
-        self.assertTrue(record["passed"], Path(record["stderr_path"]).read_text())
-        self.assertEqual("valid", record["observation_status"])
+        self.assertTrue(record.passed, Path(record.stderr_path).read_text())
+        self.assertEqual("valid", record.observation_status)
 
     def test_keeps_the_document_as_the_gate_wrote_it(self) -> None:
         # Neither canonical, nor sorted, nor reindented: whatever comes back
@@ -272,60 +272,60 @@ class GateObservationTests(unittest.TestCase):
 
         record = self._run(f"{writes(written)}; exit 1")
 
-        kept = Path(record["observation_path"])
+        kept = Path(record.observation_path)
         self.assertEqual("mutation.observation.json", kept.name)
         self.assertEqual(self.out_dir, kept.parent)
         self.assertEqual(written, kept.read_text(encoding="utf-8"))
         self.assertEqual(
-            hashlib_sha256(written.encode("utf-8")), record["observation_sha256"]
+            hashlib_sha256(written.encode("utf-8")), record.observation_sha256
         )
-        self.assertEqual("valid", record["observation_status"])
-        self.assertIsNone(record["observation_error"])
+        self.assertEqual("valid", record.observation_status)
+        self.assertIsNone(record.observation_error)
 
     def test_a_gate_that_wrote_nothing_is_absent(self) -> None:
         record = self._run("true")
 
-        self.assertEqual("absent", record["observation_status"])
-        self.assertEqual("the gate wrote no observation", record["observation_error"])
-        self.assertIsNone(record["observation_path"])
-        self.assertIsNone(record["observation_sha256"])
+        self.assertEqual("absent", record.observation_status)
+        self.assertEqual("the gate wrote no observation", record.observation_error)
+        self.assertIsNone(record.observation_path)
+        self.assertIsNone(record.observation_sha256)
 
     def test_a_document_breaking_the_contract_is_invalid_and_still_kept(self) -> None:
         broken = json.dumps({**DOCUMENT, "severity": "major"})
 
         record = self._run(f"{writes(broken)}; exit 1")
 
-        self.assertEqual("invalid", record["observation_status"])
-        self.assertIn("unknown field severity", record["observation_error"])
+        self.assertEqual("invalid", record.observation_status)
+        self.assertIn("unknown field severity", record.observation_error)
         # The document the controller refused is kept, like any it accepted.
         self.assertEqual(
-            broken, Path(record["observation_path"]).read_text(encoding="utf-8")
+            broken, Path(record.observation_path).read_text(encoding="utf-8")
         )
-        self.assertEqual(64, len(record["observation_sha256"]))
+        self.assertEqual(64, len(record.observation_sha256))
 
     def test_a_document_disagreeing_with_the_exit_code_is_contradicted(self) -> None:
         passing = json.dumps({**DOCUMENT, "status": "passed"})
 
         record = self._run(f"{writes(passing)}; exit 1")
 
-        self.assertFalse(record["passed"])
-        self.assertEqual(1, record["exit_code"])
-        self.assertEqual("contradicted", record["observation_status"])
-        self.assertIn("did not pass", record["observation_error"])
+        self.assertFalse(record.passed)
+        self.assertEqual(1, record.exit_code)
+        self.assertEqual("contradicted", record.observation_status)
+        self.assertIn("did not pass", record.observation_error)
 
     def test_nothing_a_document_says_changes_whether_the_gate_passed(self) -> None:
         failing = json.dumps({**DOCUMENT, "status": "failed"})
 
         record = self._run(f"{writes(failing)}; exit 0")
 
-        self.assertTrue(record["passed"])
-        self.assertEqual("contradicted", record["observation_status"])
+        self.assertTrue(record.passed)
+        self.assertEqual("contradicted", record.observation_status)
 
     def test_a_timeout_excuses_only_a_document_that_was_never_written(self) -> None:
         absent = self._run("sleep 30", timeout_seconds=1)
 
-        self.assertTrue(absent["timed_out"])
-        self.assertEqual("absent", absent["observation_status"])
+        self.assertTrue(absent.timed_out)
+        self.assertEqual("absent", absent.observation_status)
 
     def test_a_document_written_before_a_timeout_is_judged_like_any_other(
         self,
@@ -334,10 +334,10 @@ class GateObservationTests(unittest.TestCase):
 
         record = self._run(f"{writes(broken)}; sleep 30", timeout_seconds=1)
 
-        self.assertTrue(record["timed_out"])
-        self.assertIsNone(record["exit_code"])
-        self.assertEqual("invalid", record["observation_status"])
-        self.assertIn("field status", record["observation_error"])
+        self.assertTrue(record.timed_out)
+        self.assertIsNone(record.exit_code)
+        self.assertEqual("invalid", record.observation_status)
+        self.assertIn("field status", record.observation_error)
 
     def test_removes_the_location_once_the_result_is_recorded(self) -> None:
         record = self._run(
@@ -351,17 +351,18 @@ class GateObservationTests(unittest.TestCase):
             .strip()
         )
         self.assertFalse(location.exists())
-        self.assertEqual("valid", record["observation_status"])
+        self.assertEqual("valid", record.observation_status)
 
     def test_the_four_fields_are_flat_and_the_digest_recomputes(self) -> None:
         record = self._run(f"{writes(json.dumps(DOCUMENT))}; exit 1")
 
+        document = record.to_document()
         for field in OBSERVATION_FIELDS:
-            self.assertIn(field, record)
-        self.assertEqual(ResultFormat.CODESERVO_JSON, record["result_format"])
+            self.assertIn(field, document)
+        self.assertEqual(ResultFormat.CODESERVO_JSON, record.result_format)
         # `sha256_record` drops only top-level keys ending in `_path`, so the
         # digest recomputes from the record exactly as it is persisted.
-        self.assertEqual(record["result_sha256"], sha256_record(record))
+        self.assertEqual(record.result_sha256, sha256_record(document))
 
 
 class GateExitCodeModeTests(unittest.TestCase):
@@ -379,10 +380,11 @@ class GateExitCodeModeTests(unittest.TestCase):
             )
 
             record = results[0]
-            self.assertEqual(ResultFormat.EXIT_CODE, record["result_format"])
+            document = record.to_document()
+            self.assertEqual(ResultFormat.EXIT_CODE, record.result_format)
             for field in OBSERVATION_FIELDS:
-                self.assertNotIn(field, record)
-            self.assertEqual(record["result_sha256"], sha256_record(record))
+                self.assertNotIn(field, document)
+            self.assertEqual(record.result_sha256, sha256_record(document))
 
     def test_sees_the_variable_unset_even_when_the_controller_carries_one(
         self,
@@ -424,8 +426,8 @@ class GateExitCodeModeTests(unittest.TestCase):
             declared_nothing, declared = results
             # The variable is unset for the gate that declared nothing, and is
             # not the inherited value for the gate that declared the format.
-            self.assertTrue(declared_nothing["passed"])
-            self.assertTrue(declared["passed"])
+            self.assertTrue(declared_nothing.passed)
+            self.assertTrue(declared.passed)
             # The gate saw no path, so the file the inherited value named was
             # never written.
             self.assertFalse(inherited.exists())
@@ -548,12 +550,12 @@ class GateConfinementTests(unittest.TestCase):
             )
 
             reads, writes = results
-            self.assertTrue(reads["passed"])
-            self.assertFalse(writes["passed"])
+            self.assertTrue(reads.passed)
+            self.assertFalse(writes.passed)
             self.assertFalse((run_dir / "tampered.txt").exists())
             self.assertEqual(
                 "assert True\n",
-                Path(reads["stdout_path"]).read_text(encoding="utf-8"),
+                Path(reads.stdout_path).read_text(encoding="utf-8"),
             )
 
     def test_cannot_rewrite_the_frozen_sensor_it_runs(self) -> None:
@@ -589,7 +591,7 @@ class GateConfinementTests(unittest.TestCase):
                 isolation=Isolation(read_only=(run_dir,)),
             )
 
-            self.assertFalse(results[0]["passed"])
+            self.assertFalse(results[0].passed)
             self.assertEqual("assert True\n", contract.read_text(encoding="utf-8"))
 
     def test_reads_the_git_metadata_it_cannot_write(self) -> None:
@@ -638,13 +640,13 @@ class GateConfinementTests(unittest.TestCase):
 
             reading, records, writes = results
             self.assertTrue(
-                reading["passed"], Path(reading["stderr_path"]).read_text()
+                reading.passed, Path(reading.stderr_path).read_text()
             )
             self.assertIn(
-                "untracked.py", Path(reading["stdout_path"]).read_text()
+                "untracked.py", Path(reading.stdout_path).read_text()
             )
-            self.assertFalse(records["passed"])
-            self.assertFalse(writes["passed"])
+            self.assertFalse(records.passed)
+            self.assertFalse(writes.passed)
             self.assertFalse((metadata / "tampered.txt").exists())
 
     def test_a_task_gate_runs_on_an_environment_it_cannot_write(self) -> None:
@@ -683,8 +685,8 @@ class GateConfinementTests(unittest.TestCase):
                 )
 
             task, writes = results
-            self.assertTrue(task["passed"], Path(task["stderr_path"]).read_text())
-            self.assertFalse(writes["passed"])
+            self.assertTrue(task.passed, Path(task.stderr_path).read_text())
+            self.assertFalse(writes.passed)
             self.assertFalse((provider_dir / "envs" / "default" / "tampered").exists())
 
 

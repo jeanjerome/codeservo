@@ -55,7 +55,7 @@ def measure_full(
     # The candidate as the quick phase left it, against the candidate the full
     # gates have just finished measuring.
     reasons += mutated(Phase.FULL, accepted.state, full_state)
-    if not all(gate["passed"] for gate in full):
+    if not all(gate.passed for gate in full):
         reasons.append("full gate failed")
     if reasons:
         raise Rejection(reasons)

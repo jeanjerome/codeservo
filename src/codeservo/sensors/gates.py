@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
-from typing import NotRequired, TypedDict
 
 from ..domain.constitution import (
     Constitution,
@@ -11,6 +11,8 @@ from ..domain.constitution import (
     Gate,
     ResultFormat,
 )
+from ..domain.document import UNSET, Document, Unset
+from ..domain.results import CommandResult, succeeded
 from ..evidence.digests import sha256_file, sha256_record
 from ..runtime.process import run_command
 from ..runtime.sandbox import Isolation
@@ -24,24 +26,27 @@ OBSERVATION_FILENAME = "observation.json"
 OBSERVATION_SUFFIX = ".observation.json"
 
 
-class KeptObservation(TypedDict):
+@dataclass(frozen=True)
+class KeptObservation:
     """Where the record keeps a gate's document, and what it digests to."""
 
-    observation_path: str | None
-    observation_sha256: str | None
+    path: str | None = None
+    sha256: str | None = None
 
 
-class UnsignedGateResult(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class UnsignedGateResult(Document):
     """One gate's measurement, before it closes over itself.
 
     The four observation fields exist only for a gate that declared it answers
     with a document: a gate reporting its exit code alone has nothing to say
-    about one, and says nothing rather than saying null.
+    about one, and stays silent rather than saying null. `passed` follows from
+    the exit code and the timeout, so a result cannot report a verdict the
+    measurement it carries does not reach.
     """
 
     name: str
     command: str
-    passed: bool
     exit_code: int | None
     timed_out: bool
     duration_ms: int
@@ -50,12 +55,35 @@ class UnsignedGateResult(TypedDict):
     stderr_path: str
     stderr_sha256: str
     result_format: ResultFormat
-    observation_status: NotRequired[observations.Classification]
-    observation_error: NotRequired[str | None]
-    observation_path: NotRequired[str | None]
-    observation_sha256: NotRequired[str | None]
+    observation_status: observations.Classification | Unset = UNSET
+    observation_error: str | None | Unset = UNSET
+    observation_path: str | None | Unset = UNSET
+    observation_sha256: str | None | Unset = UNSET
+    passed: bool = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "passed", succeeded(self.exit_code, self.timed_out)
+        )
+
+    def signed(self) -> GateResult:
+        """This measurement, closed over the digest of what it holds.
+
+        The digest is taken over the document, so it covers what the record
+        will carry: the verdict and the observation of a gate that made one,
+        and neither the digest itself nor a location the run chose.
+        """
+        carried = {
+            declared.name: getattr(self, declared.name)
+            for declared in fields(UnsignedGateResult)
+            if declared.init
+        }
+        return GateResult(
+            **carried, result_sha256=sha256_record(self.to_document())
+        )
 
 
+@dataclass(frozen=True, kw_only=True)
 class GateResult(UnsignedGateResult):
     """One gate's measurement, and the digest recomputable from what it holds."""
 
@@ -126,10 +154,7 @@ def _kept_observation(
     raw = written.read_bytes()
     kept = out_dir / f"{name}{OBSERVATION_SUFFIX}"
     kept.write_bytes(raw)
-    return raw, {
-        "observation_path": str(kept),
-        "observation_sha256": sha256_file(kept),
-    }
+    return raw, KeptObservation(path=str(kept), sha256=sha256_file(kept))
 
 
 def run_gates(
@@ -179,40 +204,50 @@ def run_gates(
             ),
             isolation=isolation,
         )
-        record: UnsignedGateResult = {
-            "name": result.name,
-            "command": result.command,
-            "passed": result.passed,
-            "exit_code": result.exit_code,
-            "timed_out": result.timed_out,
-            "duration_ms": result.duration_ms,
-            "stdout_path": result.stdout_path,
-            "stdout_sha256": result.stdout_sha256,
-            "stderr_path": result.stderr_path,
-            "stderr_sha256": result.stderr_sha256,
-            "result_format": gate.result_format,
-        }
-        if location is not None:
-            written = location / OBSERVATION_FILENAME
-            raw: bytes | None = None
-            kept: KeptObservation = {
-                "observation_path": None,
-                "observation_sha256": None,
-            }
-            if written.is_file():
-                raw, kept = _kept_observation(written, out_dir, gate.name)
-            status, error = observations.classify(raw, passed=result.passed)
-            # Flat beside the logs, never nested: `sha256_record` drops only
-            # top-level keys ending in `_path`, so a location one level deeper
-            # would leave `result_sha256` unable to recompute from the record.
-            record["observation_status"] = status
-            record["observation_error"] = error
-            record["observation_path"] = kept["observation_path"]
-            record["observation_sha256"] = kept["observation_sha256"]
-            # The record now holds the only copy.
-            _remove(location)
-        results.append({**record, "result_sha256": sha256_record(record)})
+        results.append(_measured(result, gate, location, out_dir).signed())
     return results
+
+
+def _measured(
+    result: CommandResult,
+    gate: Gate,
+    location: Path | None,
+    out_dir: Path,
+) -> UnsignedGateResult:
+    """One gate's measurement, with the document it wrote if it declared one."""
+    measured = UnsignedGateResult(
+        name=result.name,
+        command=result.command,
+        exit_code=result.exit_code,
+        timed_out=result.timed_out,
+        duration_ms=result.duration_ms,
+        stdout_path=result.stdout_path,
+        stdout_sha256=result.stdout_sha256,
+        stderr_path=result.stderr_path,
+        stderr_sha256=result.stderr_sha256,
+        result_format=gate.result_format,
+    )
+    if location is None:
+        return measured
+
+    written = location / OBSERVATION_FILENAME
+    raw: bytes | None = None
+    kept = KeptObservation()
+    if written.is_file():
+        raw, kept = _kept_observation(written, out_dir, gate.name)
+    status, error = observations.classify(raw, passed=result.passed)
+    # The record now holds the only copy.
+    _remove(location)
+    # Flat beside the logs, never nested: `sha256_record` drops only top-level
+    # keys ending in `_path`, so a location one level deeper would leave
+    # `result_sha256` unable to recompute from the record.
+    return replace(
+        measured,
+        observation_status=status,
+        observation_error=error,
+        observation_path=kept.path,
+        observation_sha256=kept.sha256,
+    )
 
 
 def baseline_gates(constitution: Constitution) -> tuple[Gate, ...]:
