@@ -15,10 +15,11 @@ from ...actuators import ActuatorError
 from ...actuators.prompts import implementer_prompt
 from ...evidence.digests import sha256_text
 from ...runtime.sandbox import SandboxError
-from ...sensors.gates import run_gates
+from ...sensors.gates import GateResult, run_gates
 from ...sensors.observations import ObservationPathError
 from ...sensors.scope import scope_sensor
 from ..context import RunContext
+from ..document import Feedback, FileRecord, Iteration
 from ..environment import changed_environment
 from ..errors import Rejection
 from ..freeze import sensor_tampering
@@ -32,8 +33,8 @@ from ..snapshots import mutated, write_patch_snapshot
 class Converged:
     """The candidate the quick phase accepted, and what it looked like then."""
 
-    quick_gates: list[dict]
-    state: dict
+    quick_gates: list[GateResult]
+    state: FileRecord
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,7 @@ def _iterate(
     context: RunContext, record: RunRecord, iteration: int, feedback: str
 ) -> IterationOutcome:
     iteration_dir = context.run_dir / "iterations" / f"{iteration:02d}"
-    entry: dict = {
+    entry: Iteration = {
         "iteration": iteration,
         "feedback_received": feedback,
         "input_state": write_patch_snapshot(
@@ -80,7 +81,7 @@ def _iterate(
         quick = _measure(context, record, iteration_dir, entry)
         return _verdict(record, iteration_dir, entry, quick)
     finally:
-        record["iterations"].append(entry)
+        record.document["iterations"].append(entry)
         record.persist()
 
 
@@ -90,7 +91,7 @@ def _actuate(
     iteration_dir: Path,
     iteration: int,
     feedback: str,
-    entry: dict,
+    entry: Iteration,
 ) -> None:
     prompt = implementer_prompt(context.task, context.constitution, feedback)
     prompt_path = iteration_dir / "prompt.md"
@@ -144,8 +145,8 @@ def _actuate(
 
 
 def _measure(
-    context: RunContext, record: RunRecord, iteration_dir: Path, entry: dict
-) -> list[dict]:
+    context: RunContext, record: RunRecord, iteration_dir: Path, entry: Iteration
+) -> list[GateResult]:
     scope = scope_sensor(
         context.worktree, context.base_commit, context.constitution.scope
     )
@@ -179,7 +180,7 @@ def _measure(
 
     control_failures = sensor_tampering(context.sensor_paths, context.sensor_evidence)
     control_failures += changed_environment(
-        record["environment"], context.worktree, context.execution
+        record.document["environment"], context.worktree, context.execution
     )
     # The two snapshots bracket the quick phase: what the actuator left
     # behind, and what the gates were measuring when they finished.
@@ -194,8 +195,8 @@ def _measure(
 def _verdict(
     record: RunRecord,
     iteration_dir: Path,
-    entry: dict,
-    quick: list[dict],
+    entry: Iteration,
+    quick: list[GateResult],
 ) -> IterationOutcome:
     if entry["scope"]["passed"] and all(gate["passed"] for gate in quick):
         entry["controller_feedback"] = None
@@ -212,16 +213,14 @@ def _verdict(
 
     feedback_path = iteration_dir / "controller-feedback.md"
     feedback_path.write_text(feedback, encoding="utf-8")
-    entry["controller_feedback"] = {
+    emitted: Feedback = {
         "path": str(feedback_path),
         "sha256": sha256_text(feedback),
         "text": feedback,
     }
+    entry["controller_feedback"] = emitted
     record.record(
         "feedback.emitted",
-        {
-            "iteration": entry["iteration"],
-            "sha256": entry["controller_feedback"]["sha256"],
-        },
+        {"iteration": entry["iteration"], "sha256": emitted["sha256"]},
     )
     return IterationOutcome(accepted=None, feedback=feedback)

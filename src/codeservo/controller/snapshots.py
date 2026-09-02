@@ -11,9 +11,12 @@ from pathlib import Path
 
 from ..evidence.digests import sha256_text
 from ..workspace.git import make_patch
+from .document import FileRecord
 
 
-def write_patch_snapshot(path: Path, worktree: Path, base_commit: str) -> dict:
+def write_patch_snapshot(
+    path: Path, worktree: Path, base_commit: str
+) -> FileRecord:
     patch = make_patch(worktree, base_commit)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(patch, encoding="utf-8")
@@ -23,7 +26,7 @@ def write_patch_snapshot(path: Path, worktree: Path, base_commit: str) -> dict:
     }
 
 
-def mutated(phase: str, before: dict, after: dict) -> list[str]:
+def mutated(phase: str, before: FileRecord, after: FileRecord) -> list[str]:
     """Whether a measurement phase changed the tree it was measuring.
 
     A confinement refuses only the writes its profile names; the comparison

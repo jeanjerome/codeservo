@@ -13,8 +13,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from ..actuators.base import ReportedProfile
+from ..actuators.base import ObservedProfile, ReportedProfile
 from ..actuators.inventory import PROFILE_UNSUPPORTED, Speed, validate_profile
+from .document import Inference, InferenceProfile, ReportedBlock
 
 # What a run records about the profile a backend applied to itself, and the two
 # statements it makes per field. A backend's own output either carried the
@@ -36,7 +37,7 @@ class InferenceRequest:
     speed: Speed
 
 
-def observed_profile(observed: Mapping[str, object]) -> dict:
+def observed_profile(observed: Mapping[str, object]) -> ReportedBlock:
     """What a backend reported about its own profile, and why the rest is empty.
 
     Only the backend's own output speaks here. A value it did not carry stays
@@ -46,17 +47,22 @@ def observed_profile(observed: Mapping[str, object]) -> dict:
     than a record saying nothing. The two blocks are built together, so
     `observed` is non-null exactly where `provenance` says `reported`.
     """
-    reported: dict = {}
-    provenance: dict = {}
+    reported: dict[str, str | None] = {}
+    provenance: dict[str, str] = {}
     for name in OBSERVED_FIELDS:
         value = observed.get(name)
-        carried = isinstance(value, str) and bool(value)
-        reported[name] = value if carried else None
-        provenance[name] = REPORTED if carried else NOT_REPORTED
-    return {"observed": reported, "provenance": provenance}
+        carried = value if isinstance(value, str) and value else None
+        reported[name] = carried
+        provenance[name] = REPORTED if carried is not None else NOT_REPORTED
+    answered: ObservedProfile = {
+        "model": reported["model"],
+        "effort": reported["effort"],
+        "speed": reported["speed"],
+    }
+    return {"observed": answered, "provenance": provenance}
 
 
-def frozen_profile(request: InferenceRequest) -> dict:
+def frozen_profile(request: InferenceRequest) -> InferenceProfile:
     """Freeze one requested inference profile before anything actuates.
 
     The request is recorded as it was resolved, next to what the local
@@ -84,7 +90,7 @@ def frozen_profile(request: InferenceRequest) -> dict:
 
 def frozen_inference(
     *, implementer: InferenceRequest, reviewer: InferenceRequest
-) -> dict:
+) -> Inference:
     """Freeze the two requested inference profiles of a run.
 
     The roles are independent control inputs: each is checked against the
@@ -97,7 +103,7 @@ def frozen_inference(
     }
 
 
-def record_actuation(profile: dict, agent: ReportedProfile) -> None:
+def record_actuation(profile: InferenceProfile, agent: ReportedProfile) -> None:
     """Keep the profile of the last actuation, replacing any earlier one.
 
     The adapter owns what its backend reports and how it read it; the shape of
@@ -108,10 +114,18 @@ def record_actuation(profile: dict, agent: ReportedProfile) -> None:
     profile.update(observed_profile(agent["observed"]))
 
 
-def contradicted_profiles(inference: dict) -> list[str]:
+def roles(inference: Inference) -> list[tuple[str, InferenceProfile]]:
+    """The two roles of a run, named once, in the order a record states them."""
+    return [
+        ("implementer", inference["implementer"]),
+        ("reviewer", inference["reviewer"]),
+    ]
+
+
+def contradicted_profiles(inference: Inference) -> list[str]:
     """Roles whose request the inventory of their own backend contradicts."""
     return [
         f"configuration error: {role} profile: {profile['validation']['reason']}"
-        for role, profile in inference.items()
+        for role, profile in roles(inference)
         if profile["validation"]["status"] == PROFILE_UNSUPPORTED
     ]

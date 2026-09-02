@@ -19,16 +19,17 @@ from ..evidence.digests import sha256_text
 from ..evidence.journal import JOURNAL_NAME, Journal
 from ..policies.constitution import load_constitution
 from ..workspace.git import common_git_dir, head, root
+from .document import EnvironmentBlock, Evidence, FrozenSensor, Inference
 from .errors import ControlFailure
 from .freeze import freeze_sensors
-from .inference import InferenceRequest, frozen_inference
+from .inference import InferenceRequest, frozen_inference, roles
 from .isolation import Confinement, confinement
 from .provenance import runtime_metadata
 from .record import EVIDENCE_SCHEMA_VERSION, RUNNING, RunRecord, utc_now
 
 # A run that declares no execution provider measures through whatever the host
 # offers, and says so.
-NO_ENVIRONMENT = {"provider": "none"}
+NO_ENVIRONMENT: EnvironmentBlock = {"provider": "none"}
 
 DEFAULT_STATE_DIRECTORY = ".codeservo"
 
@@ -67,10 +68,10 @@ class RunContext:
     worktree: Path
     implementer: Actuator
     reviewer: Actuator
-    inference: dict
+    inference: Inference
     confinement: Confinement
     sensor_paths: dict[str, Path]
-    sensor_evidence: dict[str, dict]
+    sensor_evidence: dict[str, FrozenSensor]
 
     @property
     def execution(self) -> ExecutionEnvironment | None:
@@ -157,7 +158,7 @@ def prepare(request: RunRequest) -> tuple[RunContext, RunRecord]:
                 **profile["requested"],
                 "validation": profile["validation"]["status"],
             }
-            for role, profile in inference.items()
+            for role, profile in roles(inference)
         },
     )
 
@@ -187,33 +188,30 @@ def prepare(request: RunRequest) -> tuple[RunContext, RunRecord]:
         sensor_paths=sensor_paths,
         sensor_evidence=sensor_evidence,
     )
-    record = RunRecord(
-        run_dir=run_dir,
-        journal=journal,
-        document={
-            "schema_version": EVIDENCE_SCHEMA_VERSION,
-            "run_id": run_id,
-            "started_at": utc_now(),
-            "repo": str(repo),
-            "state_dir": str(state_root),
-            "base_commit": base_commit,
-            "task_sha256": sha256_text(task.raw_text),
-            "constitution_sha256": sha256_text(constitution.raw_text),
-            "runtime": runtime_metadata(
-                implementer, reviewer, request.model, request.review_model
-            ),
-            "inference": inference,
-            "sensors": sensor_evidence,
-            "environment": dict(NO_ENVIRONMENT),
-            "actuator_isolation": implementer.describe_isolation(profiles.actuator),
-            "gate_isolation": profiles.gate_evidence(),
-            "status": RUNNING,
-            "iterations": [],
-            "decision": {"reasons": []},
-            "run_dir": str(run_dir),
-            "worktree": None,
-            "events": journal.summary(),
-        },
-    )
+    skeleton: Evidence = {
+        "schema_version": EVIDENCE_SCHEMA_VERSION,
+        "run_id": run_id,
+        "started_at": utc_now(),
+        "repo": str(repo),
+        "state_dir": str(state_root),
+        "base_commit": base_commit,
+        "task_sha256": sha256_text(task.raw_text),
+        "constitution_sha256": sha256_text(constitution.raw_text),
+        "runtime": runtime_metadata(
+            implementer, reviewer, request.model, request.review_model
+        ),
+        "inference": inference,
+        "sensors": sensor_evidence,
+        "environment": NO_ENVIRONMENT.copy(),
+        "actuator_isolation": implementer.describe_isolation(profiles.actuator),
+        "gate_isolation": profiles.gate_evidence(),
+        "status": RUNNING,
+        "iterations": [],
+        "decision": {"reasons": []},
+        "run_dir": str(run_dir),
+        "worktree": None,
+        "events": journal.summary(),
+    }
+    record = RunRecord(run_dir=run_dir, journal=journal, document=skeleton)
     record.persist()
     return context, record

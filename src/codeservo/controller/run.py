@@ -12,6 +12,7 @@ from pathlib import Path
 from ..actuators.inventory import DEFAULT_SPEED, Speed
 from ..workspace.git import is_clean
 from .context import RunContext, RunRequest, prepare
+from .document import Evidence
 from .errors import Rejection
 from .inference import contradicted_profiles
 from .phases import (
@@ -44,7 +45,7 @@ def run(
     review_actuator: str | None = None,
     review_effort: str | None = None,
     review_speed: Speed = DEFAULT_SPEED,
-) -> dict:
+) -> Evidence:
     """Drive one controlled software change, and return the record it wrote."""
     context, record = prepare(
         RunRequest(
@@ -94,7 +95,7 @@ def _verify_control_inputs(context: RunContext) -> None:
 
 def _close(
     context: RunContext, record: RunRecord, status: str, reasons: list[str]
-) -> dict:
+) -> Evidence:
     return record.close(
         status,
         reasons,

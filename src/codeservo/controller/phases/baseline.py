@@ -29,7 +29,7 @@ def measure_baseline(context: RunContext, record: RunRecord) -> None:
     except ObservationPathError as exc:
         raise Rejection(str(exc)) from exc
 
-    record["baseline"] = baseline
+    record.document["baseline"] = baseline
     record_gate_events(record.journal, "baseline", baseline)
     record.record(
         "baseline.finished",
@@ -54,6 +54,6 @@ def measure_baseline(context: RunContext, record: RunRecord) -> None:
 def create_candidate(context: RunContext, record: RunRecord) -> None:
     """Create the isolated shallow checkout the run actuates in."""
     create_worktree(context.repo, context.worktree, context.base_commit)
-    record["worktree"] = str(context.worktree)
+    record.document["worktree"] = str(context.worktree)
     record.record("workspace.ready", {"base_commit": context.base_commit})
     record.persist()

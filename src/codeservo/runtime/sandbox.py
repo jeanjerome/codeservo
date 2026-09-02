@@ -3,10 +3,20 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict
 
 
 class SandboxError(RuntimeError):
     pass
+
+
+class IsolationEvidence(TypedDict):
+    """The confinement one process ran under, as the record states it."""
+
+    mechanism: str
+    denied_paths: list[str]
+    read_only_paths: list[str]
+    user_config_ignored: bool
 
 
 @dataclass(frozen=True)
@@ -46,7 +56,9 @@ def seatbelt_command(command: list[str], isolation: Isolation) -> list[str]:
     return ["/usr/bin/sandbox-exec", "-p", seatbelt_profile(isolation), *command]
 
 
-def isolation_evidence(isolation: Isolation, mechanism: str) -> dict:
+def isolation_evidence(
+    isolation: Isolation, mechanism: str
+) -> IsolationEvidence:
     return {
         "mechanism": mechanism,
         "denied_paths": [str(path.resolve()) for path in isolation.denied],

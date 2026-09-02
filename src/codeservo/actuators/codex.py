@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from ..evidence.digests import sha256_file, sha256_record
-from ..runtime.sandbox import Isolation, isolation_evidence, seatbelt_command
+from ..runtime.sandbox import (
+    Isolation,
+    IsolationEvidence,
+    isolation_evidence,
+    seatbelt_command,
+)
 from .base import ActuatorError, ObservedProfile
 from .inventory import DEFAULT_SPEED, Speed
 
@@ -160,7 +165,7 @@ def _sandbox(isolation: Isolation, native: str) -> str:
     return native if isolation.empty else "danger-full-access"
 
 
-def describe_isolation(isolation: Isolation) -> dict[str, Any]:
+def describe_isolation(isolation: Isolation) -> IsolationEvidence:
     return isolation_evidence(
         isolation,
         "codex-workspace-write" if isolation.empty else "macos-sandbox-exec",

@@ -3,12 +3,14 @@ from __future__ import annotations
 import shutil
 import tempfile
 from pathlib import Path
+from typing import NotRequired, TypedDict
 
 from ..domain.constitution import (
     CODESERVO_JSON,
     Constitution,
     ExecutionEnvironment,
     Gate,
+    ResultFormat,
 )
 from ..evidence.digests import sha256_file, sha256_record
 from ..runtime.process import run_command
@@ -21,6 +23,44 @@ from .observations import ObservationPathError
 # record keeps beside that gate's logs.
 OBSERVATION_FILENAME = "observation.json"
 OBSERVATION_SUFFIX = ".observation.json"
+
+
+class KeptObservation(TypedDict):
+    """Where the record keeps a gate's document, and what it digests to."""
+
+    observation_path: str | None
+    observation_sha256: str | None
+
+
+class UnsignedGateResult(TypedDict):
+    """One gate's measurement, before it closes over itself.
+
+    The four observation fields exist only for a gate that declared it answers
+    with a document: a gate reporting its exit code alone has nothing to say
+    about one, and says nothing rather than saying null.
+    """
+
+    name: str
+    command: str
+    passed: bool
+    exit_code: int | None
+    timed_out: bool
+    duration_ms: int
+    stdout_path: str
+    stdout_sha256: str
+    stderr_path: str
+    stderr_sha256: str
+    result_format: ResultFormat
+    observation_status: NotRequired[observations.Classification]
+    observation_error: NotRequired[str | None]
+    observation_path: NotRequired[str | None]
+    observation_sha256: NotRequired[str | None]
+
+
+class GateResult(UnsignedGateResult):
+    """One gate's measurement, and the digest recomputable from what it holds."""
+
+    result_sha256: str
 
 
 def gate_command(
@@ -76,7 +116,9 @@ def _remove(directory: Path) -> None:
         ) from exc
 
 
-def _kept_observation(written: Path, out_dir: Path, name: str) -> tuple[bytes, dict]:
+def _kept_observation(
+    written: Path, out_dir: Path, name: str
+) -> tuple[bytes, KeptObservation]:
     """Copy what the gate wrote, byte for byte, beside that gate's logs.
 
     Nothing is reparsed, reindented or reordered on the way in: the digest is
@@ -100,8 +142,8 @@ def run_gates(
     isolation: Isolation = Isolation(),
     execution: ExecutionEnvironment | None = None,
     run_dir: Path | None = None,
-) -> list[dict]:
-    results: list[dict] = []
+) -> list[GateResult]:
+    results: list[GateResult] = []
     sensors = sensor_paths or {}
     # The two locations no gate may write into: the record of the run, and the
     # tree the gates are measuring.
@@ -138,7 +180,7 @@ def run_gates(
             ),
             isolation=isolation,
         )
-        record = {
+        record: UnsignedGateResult = {
             "name": result.name,
             "command": result.command,
             "passed": result.passed,
@@ -154,7 +196,10 @@ def run_gates(
         if location is not None:
             written = location / OBSERVATION_FILENAME
             raw: bytes | None = None
-            kept = {"observation_path": None, "observation_sha256": None}
+            kept: KeptObservation = {
+                "observation_path": None,
+                "observation_sha256": None,
+            }
             if written.is_file():
                 raw, kept = _kept_observation(written, out_dir, gate.name)
             status, error = observations.classify(raw, passed=result.passed)
@@ -163,11 +208,11 @@ def run_gates(
             # would leave `result_sha256` unable to recompute from the record.
             record["observation_status"] = status
             record["observation_error"] = error
-            record.update(kept)
+            record["observation_path"] = kept["observation_path"]
+            record["observation_sha256"] = kept["observation_sha256"]
             # The record now holds the only copy.
             _remove(location)
-        record["result_sha256"] = sha256_record(record)
-        results.append(record)
+        results.append({**record, "result_sha256": sha256_record(record)})
     return results
 
 

@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from ..evidence.digests import relative_evidence_paths, sha256_text, write_json
 from ..evidence.journal import Journal
 from ..workspace.git import make_patch
+from .document import Evidence
 
 # The shape of evidence.json. The observation bundle versions its own shape.
 EVIDENCE_SCHEMA_VERSION = 16
@@ -34,28 +35,19 @@ def utc_now() -> str:
 class RunRecord:
     """The evidence document of one run, and the journal beside it.
 
-    Access reads and writes the document itself, so a phase names the field
-    it fills and nothing else. Every write reaches the file system through
-    `persist`, and `close` is the only way a run reaches a status.
+    A phase reaches the document by name, so a field the record does not
+    declare is refused where it is written. Every write reaches the file
+    system through `persist`, and `close` is the only way a run reaches a
+    status.
     """
 
-    def __init__(self, *, run_dir: Path, journal: Journal, document: dict) -> None:
+    def __init__(
+        self, *, run_dir: Path, journal: Journal, document: Evidence
+    ) -> None:
         self.run_dir = run_dir
         self.journal = journal
         self.document = document
         self.path = run_dir / "evidence.json"
-
-    def __getitem__(self, key: str) -> Any:
-        return self.document[key]
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        self.document[key] = value
-
-    def __contains__(self, key: str) -> bool:
-        return key in self.document
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return self.document.get(key, default)
 
     def record(self, event_type: str, payload: dict) -> None:
         """Append one transition to the journal."""
@@ -77,7 +69,7 @@ class RunRecord:
         *,
         worktree: Path,
         base_commit: str,
-    ) -> dict:
+    ) -> Evidence:
         """State the decision, after the journal has closed on it."""
         patch = ""
         if worktree.exists():

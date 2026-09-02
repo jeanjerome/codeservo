@@ -27,14 +27,14 @@ def freeze_execution_environment(context: RunContext, record: RunRecord) -> None
         gate.task for gate in context.constitution.gates if gate.task is not None
     )
     try:
-        record["environment"] = frozen_environment(
+        record.document["environment"] = frozen_environment(
             context.repo, context.base_commit, execution
         )
         record.persist()
         resolved, source_prefix = resolved_environment(
             context.repo, context.run_dir, execution, declared_tasks
         )
-        record["environment"].update(resolved)
+        record.document["environment"].update(resolved)
     except (ControlFailure, pixi.ProviderError) as exc:
         record.record(
             "environment.validated",
@@ -89,7 +89,7 @@ def prepare_candidate_environment(context: RunContext, record: RunRecord) -> Non
         record.record("environment.prepared", {"environment": name, "exit_code": None})
         raise Rejection(str(exc)) from exc
 
-    record["environment"]["candidate"] = candidate
+    record.document["environment"]["candidate"] = candidate
     record.record(
         "environment.prepared",
         {"environment": name, "exit_code": candidate["exit_code"]},

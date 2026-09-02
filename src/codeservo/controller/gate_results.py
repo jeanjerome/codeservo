@@ -10,9 +10,10 @@ from __future__ import annotations
 from ..evidence.journal import Journal
 from ..runtime.process import tail
 from ..sensors import observations
+from ..sensors.gates import GateResult
 
 
-def sensor_faults(results: list[dict]) -> list[str]:
+def sensor_faults(results: list[GateResult]) -> list[str]:
     """Gates whose document is a fault of the sensor rather than of the candidate.
 
     A gate that declared a structured result and could not say what it measured
@@ -34,7 +35,7 @@ def sensor_faults(results: list[dict]) -> list[str]:
     return faults
 
 
-def gate_feedback(results: list[dict]) -> str:
+def gate_feedback(results: list[GateResult]) -> str:
     """What a failing phase tells the actuator, unchanged from what it emitted."""
     chunks: list[str] = []
     for result in results:
@@ -56,7 +57,9 @@ def gate_feedback(results: list[dict]) -> str:
     return "\n\n".join(chunks)
 
 
-def record_gate_events(journal: Journal, phase: str, results: list[dict]) -> None:
+def record_gate_events(
+    journal: Journal, phase: str, results: list[GateResult]
+) -> None:
     """One event per gate of one phase, in the order the phase measured them."""
     for result in results:
         journal.record(

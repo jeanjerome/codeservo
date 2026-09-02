@@ -15,6 +15,12 @@ from pathlib import Path
 from ..domain.constitution import ExecutionEnvironment
 from ..evidence.digests import sha256_file, write_json
 from ..workspace import pixi
+from .document import (
+    CandidateDigests,
+    CandidateEnvironment,
+    EnvironmentBlock,
+    ResolvedEnvironment,
+)
 from .errors import ControlFailure
 
 # Where the inventory the lockfile resolves to is kept, under the run record.
@@ -41,7 +47,7 @@ def committed_sha256(repo: Path, commit: str, relative: str) -> str:
 
 def frozen_environment(
     repo: Path, base_commit: str, execution: ExecutionEnvironment
-) -> dict:
+) -> EnvironmentBlock:
     """The declaration and the two digests, before any provider command runs."""
     return {
         "provider": execution.provider,
@@ -58,7 +64,7 @@ def resolved_environment(
     run_dir: Path,
     execution: ExecutionEnvironment,
     tasks: tuple[str, ...],
-) -> tuple[dict, str]:
+) -> tuple[ResolvedEnvironment, str]:
     """What the lockfile resolves to, and the tasks the environment declares.
 
     The inventory is stored under the run record, so the packages a
@@ -74,7 +80,7 @@ def resolved_environment(
     )
     packages_path = run_dir / PACKAGES_RELATIVE_PATH
     write_json(packages_path, resolved.packages)
-    record = {
+    record: ResolvedEnvironment = {
         "provider_version": resolved.version,
         "platform": resolved.platform,
         "declared_tasks": list(resolved.tasks),
@@ -90,7 +96,9 @@ def optional_sha256(path: Path) -> str | None:
     return sha256_file(path) if path.is_file() else None
 
 
-def candidate_digests(worktree: Path, execution: ExecutionEnvironment) -> dict:
+def candidate_digests(
+    worktree: Path, execution: ExecutionEnvironment
+) -> CandidateDigests:
     """The three provider files of the candidate, as they are right now.
 
     A file that is gone digests to null, so a deleted manifest, lockfile or
@@ -106,7 +114,7 @@ def candidate_digests(worktree: Path, execution: ExecutionEnvironment) -> dict:
 
 def install_candidate(
     worktree: Path, execution: ExecutionEnvironment
-) -> tuple[dict, str]:
+) -> tuple[CandidateEnvironment, str]:
     """Install the declared environment into the isolated checkout.
 
     The candidate is the only tree the controller prepares. The digests are
@@ -116,7 +124,7 @@ def install_candidate(
     installation = pixi.install(
         manifest=worktree / execution.manifest, environment=execution.environment
     )
-    record = {
+    record: CandidateEnvironment = {
         "prefix_path": installation.prefix_path,
         "command": list(installation.command),
         "exit_code": installation.exit_code,
@@ -128,7 +136,9 @@ def install_candidate(
 
 
 def changed_environment(
-    environment: dict, worktree: Path, execution: ExecutionEnvironment | None
+    environment: EnvironmentBlock,
+    worktree: Path,
+    execution: ExecutionEnvironment | None,
 ) -> list[str]:
     """Provider files of the candidate that moved since it was prepared.
 
@@ -145,11 +155,16 @@ def changed_environment(
         "lock_sha256": execution.lock,
         "config_sha256": pixi.config_path(Path(execution.manifest)).as_posix(),
     }
+    prepared: dict[str, str | None] = {
+        "manifest_sha256": candidate["manifest_sha256"],
+        "lock_sha256": candidate["lock_sha256"],
+        "config_sha256": candidate["config_sha256"],
+    }
     current = candidate_digests(worktree, execution)
     reasons = [
         f"execution environment: {named[field]} changed during the run"
         for field, digest in current.items()
-        if digest != candidate[field]
+        if digest != prepared[field]
     ]
     candidate["unchanged_at_end"] = not reasons
     return reasons

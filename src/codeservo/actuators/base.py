@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict, get_args
 
-from ..runtime.sandbox import Isolation
+from ..runtime.sandbox import Isolation, IsolationEvidence
 from .inventory import Speed
 
 # The backends a run may drive. The tuple is read from the type, so a backend
@@ -108,7 +108,7 @@ class Review(Protocol):
 class DescribeIsolation(Protocol):
     """State the confinement this backend applies, before it applies it."""
 
-    def __call__(self, isolation: Isolation) -> dict[str, Any]: ...
+    def __call__(self, isolation: Isolation) -> IsolationEvidence: ...
 
 
 @dataclass(frozen=True)

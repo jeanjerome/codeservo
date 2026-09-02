@@ -13,6 +13,7 @@ import subprocess
 from .. import __version__
 from ..actuators import Actuator
 from ..resources import SOURCE_ROOT
+from .document import RuntimeMetadata
 
 UNAVAILABLE = "unavailable"
 
@@ -40,7 +41,7 @@ def runtime_metadata(
     reviewer: Actuator,
     model: str | None,
     review_model: str | None,
-) -> dict:
+) -> RuntimeMetadata:
     """Name the two backends a run drives, and the CLI each one answered with.
 
     Both roles are named even when a single backend serves them, so a record

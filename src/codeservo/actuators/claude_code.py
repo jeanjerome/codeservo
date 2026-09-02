@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from ..evidence.digests import sha256_file, sha256_record, sha256_text
-from ..runtime.sandbox import Isolation, isolation_evidence, seatbelt_command
+from ..runtime.sandbox import (
+    Isolation,
+    IsolationEvidence,
+    isolation_evidence,
+    seatbelt_command,
+)
 from .base import ActuatorError, ObservedProfile
 from .inventory import DEFAULT_SPEED, Speed
 
@@ -321,7 +326,7 @@ def _observed(events: list[dict]) -> ObservedProfile:
     }
 
 
-def describe_isolation(isolation: Isolation) -> dict[str, Any]:
+def describe_isolation(isolation: Isolation) -> IsolationEvidence:
     return isolation_evidence(isolation, "macos-sandbox-exec")
 
 

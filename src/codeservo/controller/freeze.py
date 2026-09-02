@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ..domain.constitution import Constitution
 from ..evidence.digests import sha256_path
+from .document import FrozenSensor
 from .errors import ControlFailure
 
 IGNORED_WHEN_COPYING = ("__pycache__", ".pytest_cache", "*.pyc", ".DS_Store")
@@ -20,10 +21,10 @@ IGNORED_WHEN_COPYING = ("__pycache__", ".pytest_cache", "*.pyc", ".DS_Store")
 
 def freeze_sensors(
     state_root: Path, run_dir: Path, constitution: Constitution
-) -> tuple[dict[str, Path], dict[str, dict]]:
+) -> tuple[dict[str, Path], dict[str, FrozenSensor]]:
     sensor_root = (state_root / "sensors").resolve()
     paths: dict[str, Path] = {}
-    evidence: dict[str, dict] = {}
+    evidence: dict[str, FrozenSensor] = {}
     for gate in constitution.gates:
         if gate.sensor is None:
             continue
@@ -69,7 +70,7 @@ def freeze_sensors(
 
 
 def altered_sensors(
-    sensor_paths: dict[str, Path], sensor_evidence: dict[str, dict]
+    sensor_paths: dict[str, Path], sensor_evidence: dict[str, FrozenSensor]
 ) -> list[str]:
     """Frozen sensors whose content changed after the controller froze them."""
     return sorted(
@@ -80,7 +81,7 @@ def altered_sensors(
 
 
 def sensor_tampering(
-    sensor_paths: dict[str, Path], sensor_evidence: dict[str, dict]
+    sensor_paths: dict[str, Path], sensor_evidence: dict[str, FrozenSensor]
 ) -> list[str]:
     """The control failures an altered sensor amounts to."""
     return [

@@ -13,7 +13,7 @@ import os
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, get_args
+from typing import Any, Literal, TypedDict, get_args
 
 SCHEMA_VERSION = 1
 Backend = Literal["claude", "codex"]
@@ -43,6 +43,14 @@ PROFILE_UNVERIFIED: ProfileStatus = "unverified"
 # beyond the projected fields reaches the inventory.
 NOT_LISTED_REASON = "the backend cache does not offer this model for selection"
 CLAUDE_UNVERIFIED_REASON = "no cache schema has been verified for this backend"
+
+
+class ProfileVerdict(TypedDict):
+    """What the local inventory of one backend can say about a request."""
+
+    status: ProfileStatus
+    reason: str
+    inventory_source: str
 
 
 class ModelSelectionError(ValueError):
@@ -216,7 +224,7 @@ def _select_model(backend: dict, model: str) -> dict:
     return {**backend, "models": matching}
 
 
-def _profile(status: str, reason: str, source: str) -> dict:
+def _profile(status: ProfileStatus, reason: str, source: str) -> ProfileVerdict:
     return {"status": status, "reason": reason, "inventory_source": source}
 
 
@@ -227,7 +235,7 @@ def validate_profile(
     effort: str | None,
     speed: str = DEFAULT_SPEED,
     env: Mapping[str, str] | None = None,
-) -> dict:
+) -> ProfileVerdict:
     """Compare a requested inference profile to the local inventory.
 
     The comparison reads the same projected cache the `models` command reports,

@@ -16,6 +16,7 @@ from ...evidence.digests import sha256_json, sha256_text
 from ...resources import review_schema
 from ...runtime.process import tail
 from ...runtime.sandbox import SandboxError
+from ...sensors.gates import GateResult
 from ..context import RunContext
 from ..decision import review_decision
 from ..errors import Rejection
@@ -47,8 +48,8 @@ def observed_tail(path: str, locations: tuple) -> str:
 
 def review_observations(
     constitution: Constitution,
-    quick: list[dict],
-    full: list[dict],
+    quick: list[GateResult],
+    full: list[GateResult],
     locations: tuple,
 ) -> dict:
     """The successful gate measurements handed to the read-only reviewer.
@@ -85,7 +86,7 @@ def review_candidate(
     context: RunContext,
     record: RunRecord,
     accepted: Converged,
-    full: list[dict],
+    full: list[GateResult],
 ) -> list[str]:
     # Deterministic runtime evidence the read-only reviewer cannot produce
     # itself, built only once every gate passed and every sensor is intact.
@@ -109,7 +110,7 @@ def review_candidate(
     # observations it was given. The reviewer is a read-only sensor: it reads
     # the candidate and writes nothing into it. The adapter denies those writes
     # itself; this describes the confinement it runs under.
-    record["review"] = {
+    record.document["review"] = {
         "prompt": {"path": str(prompt_path), "sha256": sha256_text(prompt_text)},
         "observations": bundle,
         "observations_sha256": sha256_text(bundle_json),
@@ -134,13 +135,13 @@ def review_candidate(
     except (ActuatorError, SandboxError) as exc:
         raise Rejection(str(exc)) from exc
 
-    record["review"].update(
+    record.document["review"].update(
         {"result": review, "result_sha256": sha256_json(review), "meta": meta}
     )
     record.record(
         "review.finished",
         {
-            "result_sha256": record["review"]["result_sha256"],
+            "result_sha256": record.document["review"]["result_sha256"],
             "meta_sha256": meta["meta_sha256"],
         },
     )

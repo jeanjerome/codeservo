@@ -14,6 +14,7 @@ from pathlib import Path
 from ..domain.constitution import ExecutionEnvironment
 from ..runtime.sandbox import Isolation, isolation_evidence
 from ..workspace import pixi
+from .document import GateIsolation
 
 MECHANISM = "macos-sandbox-exec"
 
@@ -64,7 +65,7 @@ class Confinement:
             ),
         )
 
-    def gate_evidence(self) -> dict:
+    def gate_evidence(self) -> GateIsolation:
         return {
             "source": isolation_evidence(self.source_gates, MECHANISM),
             "candidate": isolation_evidence(self.candidate_gates, MECHANISM),

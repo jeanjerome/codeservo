@@ -7,7 +7,7 @@ run.
 
 from __future__ import annotations
 
-from ...sensors.gates import run_gates
+from ...sensors.gates import GateResult, run_gates
 from ...sensors.observations import ObservationPathError
 from ..context import RunContext
 from ..environment import changed_environment
@@ -21,7 +21,7 @@ from .iteration import Converged
 
 def measure_full(
     context: RunContext, record: RunRecord, accepted: Converged
-) -> list[dict]:
+) -> list[GateResult]:
     try:
         full = run_gates(
             repo=context.worktree,
@@ -35,12 +35,12 @@ def measure_full(
     except ObservationPathError as exc:
         raise Rejection(str(exc)) from exc
 
-    record["full_gates"] = full
+    record.document["full_gates"] = full
     record_gate_events(record.journal, "full", full)
     full_state = write_patch_snapshot(
         context.run_dir / "full.patch", context.worktree, context.base_commit
     )
-    record["full_gate_state"] = full_state
+    record.document["full_gate_state"] = full_state
     record.persist()
 
     faults = sensor_faults(full)
@@ -49,7 +49,7 @@ def measure_full(
 
     reasons = sensor_tampering(context.sensor_paths, context.sensor_evidence)
     reasons += changed_environment(
-        record["environment"], context.worktree, context.execution
+        record.document["environment"], context.worktree, context.execution
     )
     # The candidate as the quick phase left it, against the candidate the full
     # gates have just finished measuring.
