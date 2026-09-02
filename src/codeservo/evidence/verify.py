@@ -282,6 +282,17 @@ def _check_patch(report: _Report, run_dir: Path, record: dict) -> None:
 # --- Digests a record takes over itself ------------------------------------
 
 
+def _sequence(value: Any) -> list:
+    """The list a record names at one place, or none where it names otherwise.
+
+    A record is the input this command exists to distrust, so a value of
+    another shape is one the run does not hold rather than one to walk: a
+    boolean where the baseline gates belong would otherwise raise through the
+    verification and leave the run with no verdict at all.
+    """
+    return value if isinstance(value, list) else []
+
+
 def _at(record: dict, trail: tuple[str, ...]) -> Any:
     value: Any = record
     for key in trail:
@@ -316,13 +327,13 @@ def _check_gate(report: _Report, location: str, gate: Any) -> None:
 
 def _check_recomputed(report: _Report, record: dict) -> None:
     """The digests a record recomputes from itself, each as it was produced."""
-    for index, gate in enumerate(record.get("baseline") or []):
+    for index, gate in enumerate(_sequence(record.get("baseline"))):
         _check_gate(report, f"baseline.{index}", gate)
-    for position, iteration in enumerate(record.get("iterations") or []):
+    for position, iteration in enumerate(_sequence(record.get("iterations"))):
         if not isinstance(iteration, dict):
             continue
         number = iteration.get("iteration", position)
-        for index, gate in enumerate(iteration.get("quick_gates") or []):
+        for index, gate in enumerate(_sequence(iteration.get("quick_gates"))):
             _check_gate(report, f"iterations.{number}.quick_gates.{index}", gate)
         agent = iteration.get("agent")
         if isinstance(agent, dict):
@@ -333,7 +344,7 @@ def _check_recomputed(report: _Report, record: dict) -> None:
                 agent.get("result_sha256"),
                 sha256_record(agent),
             )
-    for index, gate in enumerate(record.get("full_gates") or []):
+    for index, gate in enumerate(_sequence(record.get("full_gates"))):
         _check_gate(report, f"full_gates.{index}", gate)
 
     review = record.get("review")

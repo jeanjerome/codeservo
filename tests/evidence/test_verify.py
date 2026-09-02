@@ -9,6 +9,7 @@ from codeservo.evidence.journal import JOURNAL_NAME
 from codeservo.evidence.verify import (
     JOURNAL_EVIDENCE_VERSION,
     REPORT_SCHEMA_VERSION,
+    Verdict,
     VerificationError,
     render_report,
     verify_run,
@@ -384,6 +385,23 @@ class UnreadableRecordTests(unittest.TestCase):
 
             with self.assertRaises(VerificationError):
                 verify_run(Path(temp))
+
+    def test_a_record_naming_something_else_where_gates_belong(self) -> None:
+        """A verdict, not a traceback: the record is the input to distrust."""
+        for field in ("baseline", "iterations", "full_gates"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temp:
+                run_dir = build_run(Path(temp))
+                record = json.loads(
+                    (run_dir / "evidence.json").read_text(encoding="utf-8")
+                )
+                record[field] = True
+                (run_dir / "evidence.json").write_text(
+                    json.dumps(record), encoding="utf-8"
+                )
+
+                report = verify_run(run_dir)
+
+                self.assertIn(report["status"], set(Verdict))
 
 
 if __name__ == "__main__":
