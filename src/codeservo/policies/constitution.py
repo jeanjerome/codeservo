@@ -92,6 +92,68 @@ def _execution(repo: Path, data: dict) -> ExecutionEnvironment:
     )
 
 
+def _measurement(item: dict, name: str, execution: ExecutionEnvironment | None) -> None:
+    """What a gate names as the measurement it runs.
+
+    A gate names a shell command or a provider task and never both, and a task
+    means nothing without a provider to project it onto a command line.
+    """
+    command = "command" in item
+    task = "task" in item
+    if command and task:
+        raise ConstitutionError(f"gate {name}: declares both a command and a task")
+    if not command and not task:
+        raise ConstitutionError(f"gate {name}: declares neither command nor task")
+    if task:
+        if execution is None:
+            raise ConstitutionError(
+                f"gate {name}: task requires an [execution] provider"
+            )
+        _name(str(item["task"]), f"task name for gate {name}")
+
+
+def _sensor(item: dict, name: str) -> str | None:
+    """The external sensor a gate measures, or nothing when it measures the tree.
+
+    A gate outside the baseline exists to run a sensor frozen before the
+    actuation, and a baseline gate measures what the repository already
+    carries, so each of the two states excludes the other.
+    """
+    baseline = bool(item.get("baseline", True))
+    sensor = str(item["sensor"]) if "sensor" in item else None
+    if sensor is not None and not sensor.strip():
+        raise ConstitutionError(f"gate {name}: sensor reference cannot be empty")
+    if not baseline and sensor is None:
+        raise ConstitutionError(
+            f"gate {name}: baseline=false requires an external sensor"
+        )
+    if baseline and sensor is not None:
+        raise ConstitutionError(
+            f"gate {name}: external sensor requires baseline=false"
+        )
+    return sensor
+
+
+def _gate(item: dict, execution: ExecutionEnvironment | None) -> Gate:
+    """One declared gate, held to the shape a gate must have."""
+    name = _name(str(item["name"]), "gate name")
+    _measurement(item, name, execution)
+    return Gate(
+        name=name,
+        phase=_declared(Phase, str(item["phase"]), f"gate {name}: phase"),
+        command=str(item["command"]) if "command" in item else None,
+        task=str(item["task"]) if "task" in item else None,
+        timeout_seconds=int(item.get("timeout_seconds", 300)),
+        baseline=bool(item.get("baseline", True)),
+        sensor=_sensor(item, name),
+        result_format=_declared(
+            ResultFormat,
+            str(item.get("result_format", ResultFormat.EXIT_CODE)),
+            f"gate {name}: result_format",
+        ),
+    )
+
+
 def load_constitution(repo: Path) -> Constitution:
     path = repo / ".codeservo" / "constitution.toml"
     if not path.is_file():
@@ -119,54 +181,11 @@ def load_constitution(repo: Path) -> Constitution:
     gates: list[Gate] = []
     names: set[str] = set()
     for item in gate_items:
-        name = _name(str(item["name"]), "gate name")
-        if name in names:
-            raise ConstitutionError(f"duplicate gate name: {name}")
-        names.add(name)
-        phase = _declared(Phase, str(item["phase"]), f"gate {name}: phase")
-        command = str(item["command"]) if "command" in item else None
-        task = str(item["task"]) if "task" in item else None
-        if command is not None and task is not None:
-            raise ConstitutionError(
-                f"gate {name}: declares both a command and a task"
-            )
-        if command is None and task is None:
-            raise ConstitutionError(f"gate {name}: declares neither command nor task")
-        if task is not None:
-            if execution is None:
-                raise ConstitutionError(
-                    f"gate {name}: task requires an [execution] provider"
-                )
-            _name(task, f"task name for gate {name}")
-        result_format = _declared(
-            ResultFormat,
-            str(item.get("result_format", ResultFormat.EXIT_CODE)),
-            f"gate {name}: result_format",
-        )
-        baseline = bool(item.get("baseline", True))
-        sensor = str(item["sensor"]) if "sensor" in item else None
-        if sensor is not None and not sensor.strip():
-            raise ConstitutionError(f"gate {name}: sensor reference cannot be empty")
-        if not baseline and sensor is None:
-            raise ConstitutionError(
-                f"gate {name}: baseline=false requires an external sensor"
-            )
-        if baseline and sensor is not None:
-            raise ConstitutionError(
-                f"gate {name}: external sensor requires baseline=false"
-            )
-        gates.append(
-            Gate(
-                name=name,
-                phase=phase,
-                command=command,
-                task=task,
-                timeout_seconds=int(item.get("timeout_seconds", 300)),
-                baseline=baseline,
-                sensor=sensor,
-                result_format=result_format,
-            )
-        )
+        gate = _gate(item, execution)
+        if gate.name in names:
+            raise ConstitutionError(f"duplicate gate name: {gate.name}")
+        names.add(gate.name)
+        gates.append(gate)
 
     phases = {gate.phase for gate in gates}
     for required in Phase:

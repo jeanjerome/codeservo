@@ -193,6 +193,27 @@ def _finding(finding: Any, index: int) -> str | None:
     return None
 
 
+def _findings(findings: Any) -> str | None:
+    """What the findings array violates, each finding held to its own shape."""
+    if not isinstance(findings, list):
+        return "field findings must be an array of objects"
+    for index, finding in enumerate(findings):
+        wrong = _finding(finding, index)
+        if wrong is not None:
+            return wrong
+    return None
+
+
+def _metrics(metrics: Any) -> str | None:
+    """What the metrics object violates, every value being a JSON number."""
+    if not isinstance(metrics, dict):
+        return "field metrics must be an object"
+    for key in sorted(metrics):
+        if not is_json_number(metrics[key]):
+            return f"field metrics.{key} must be a number"
+    return None
+
+
 def _contract(document: Any) -> str | None:
     """What the document violates, or nothing when it violates nothing."""
     if not isinstance(document, dict):
@@ -209,20 +230,7 @@ def _contract(document: Any) -> str | None:
         return f"field status must be one of {_listed(Status)}"
     if not isinstance(document["summary"], str):
         return "field summary must be a string"
-    findings = document["findings"]
-    if not isinstance(findings, list):
-        return "field findings must be an array of objects"
-    for index, finding in enumerate(findings):
-        wrong = _finding(finding, index)
-        if wrong is not None:
-            return wrong
-    metrics = document["metrics"]
-    if not isinstance(metrics, dict):
-        return "field metrics must be an object"
-    for key in sorted(metrics):
-        if not is_json_number(metrics[key]):
-            return f"field metrics.{key} must be a number"
-    return None
+    return _findings(document["findings"]) or _metrics(document["metrics"])
 
 
 def _read(raw: bytes) -> dict:
