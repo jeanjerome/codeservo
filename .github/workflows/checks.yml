@@ -59,7 +59,7 @@ jobs:
           if declared != here:
               sys.exit(f"the constitution declares {sorted(declared)}, this workflow runs {sorted(here)}")
           print(f"both name {sorted(declared)}")
-          ' lint types test compile architecture coverage fuzz
+          ' lint types test compile architecture coverage fuzz duration
 
       - run: pixi run --locked --no-config lint
       - run: pixi run --locked --no-config types
@@ -68,6 +68,7 @@ jobs:
       - run: pixi run --locked --no-config architecture
       - run: pixi run --locked --no-config coverage
       - run: pixi run --locked --no-config fuzz
+      - run: pixi run --locked --no-config duration
 
       - name: The record is what the committed reference says it is
         # Record parity was a manual discipline, so a forgettable one. The

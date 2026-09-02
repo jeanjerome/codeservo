@@ -62,6 +62,9 @@ coverage = "coverage run -m unittest discover -s tests && coverage report"
 # same tree answers the same way twice; the driver keeps every byte it writes
 # under the temporary directory.
 fuzz = "python tools/fuzz.py"
+# A ceiling on the two durations the loop repeats: the suite, which every
+# iteration of the quick phase pays for, and one verification of a run record.
+duration = "python tools/duration.py"
 
 # The dependency audit is not a gate and does not belong in the environment the
 # gates run through. It reaches a remote advisory service, so its verdict is a

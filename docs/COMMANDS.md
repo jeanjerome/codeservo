@@ -10,7 +10,7 @@ gate, invariant, or architecture check to make an experiment pass.
 ## Reference Validation
 
 For the controller, the reference validation is the locked Pixi environment,
-and it is the same seven measurements the repository's own gates name:
+and it is the same eight measurements the repository's own gates name:
 
 ```bash
 pixi lock --check --no-config
@@ -21,9 +21,10 @@ pixi run --locked --no-config compile       # byte compilation
 pixi run --locked --no-config architecture  # the layer contract of .importlinter
 pixi run --locked --no-config coverage      # the suite again, over the decision core
 pixi run --locked --no-config fuzz          # the boundaries another party supplies
+pixi run --locked --no-config duration      # what the loop repeats, under a ceiling
 ```
 
-None of the seven writes into the tree it measures: `ruff` and `lint-imports`
+None of the eight writes into the tree it measures: `ruff` and `lint-imports`
 run with their caches disabled, `mypy` sends its cache to `/dev/null`,
 `coverage` declares a data file under the temporary directory, and the fuzz
 driver keeps the fuzzer's corpus and its crashing inputs there too — so a gate
@@ -143,6 +144,29 @@ that take a document start from committed seeds in `tools/fuzz_corpus/`,
 copied where the fuzzer may write. An input found to crash becomes a named
 case in the suite rather than a file there: the suite runs everywhere, and a
 corpus entry proves nothing about what it once caught.
+
+## Duration Ceilings
+
+```bash
+pixi run --locked --no-config duration
+```
+
+Two durations decide what a run costs. The suite runs at every iteration of
+the quick phase, and `verify-run` is what an auditor runs over a record
+afterwards. Three readings are taken over them: the suite's total, its slowest
+single case, and the median of several verifications of one run directory.
+
+The total is the loosest on purpose — it grows whenever tests are added, which
+is what should happen, so it is set to catch a change of order rather than a
+change of percent. The slowest case is the reading that names a regression,
+because it does not move when the suite grows.
+
+Every ceiling is a wall clock, which is the noisiest sensor here: it measures
+the machine as much as the tree. So each reading is printed beside the one
+this tree was read at, whether or not it held, and the ceilings carry the
+difference between the fastest machine that runs them and the slowest. A suite
+that does not pass is refused rather than timed: what it took would be a
+duration over a different amount of work.
 
 ## Mutation Testing
 
