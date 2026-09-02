@@ -57,8 +57,29 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 # Rules that name a defect rather than a taste: pyflakes, import order the
 # guidelines already require, the bugbear traps, comprehension and idiom
-# modernisation, return-statement shape, and arguments nothing reads.
-select = ["E4", "E7", "E9", "F", "I", "B", "C4", "UP", "RET", "ARG"]
+# modernisation, return-statement shape, arguments nothing reads, the patterns
+# a Python security scan looks for, a declared complexity ceiling, the costly
+# shapes in a loop, and reaching into another object's private members.
+select = [
+  "E4", "E7", "E9", "F", "I", "B", "C4", "UP", "RET", "ARG",
+  "S", "C90", "PERF", "SLF",
+]
+# A controller runs processes. `S603` fires on every `subprocess` call whatever
+# it carries, and `S607` on every command the locked environment's PATH is
+# meant to resolve, which is what a measurement declaring its tools relies on.
+ignore = ["S603", "S607"]
+
+[tool.ruff.lint.mccabe]
+# The smallest ceiling that does not force a straight-line validator apart for
+# a metric's sake. A model reads denser code than the historic threshold of 4
+# assumed, so the number is set from what this tree measures, not inherited.
+max-complexity = 12
+
+[tool.ruff.lint.per-file-ignores]
+# The Codex fixtures name `/tmp/worktree` as a string in an argv assertion
+# rather than as a file, and the constitution tests reach for the writer they
+# are measuring.
+"tests/**" = ["S108", "SLF001"]
 
 [tool.ruff.lint.flake8-bugbear]
 # `Isolation` is a frozen dataclass of tuples, so one built in a default
