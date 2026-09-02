@@ -36,6 +36,7 @@ python = "3.12.*"
 # A measurement runs with the environment's PATH and nothing else, so every
 # command a gate reaches for is declared here rather than found on the host.
 git = ">=2.43"
+atheris = ">=3.0,<4"
 coverage = ">=7.16,<8"
 hypothesis = ">=6.167,<7"
 mypy = ">=1.13,<2"
@@ -56,6 +57,11 @@ types = "mypy --cache-dir=/dev/null src"
 compile = "python -m compileall -q src tests"
 architecture = "lint-imports --no-cache --no-logo"
 coverage = "coverage run -m unittest discover -s tests && coverage report"
+# Coverage-guided fuzzing of the three boundaries another party supplies. It
+# is a gate because its budget is fixed and its seed is not the clock, so the
+# same tree answers the same way twice; the driver keeps every byte it writes
+# under the temporary directory.
+fuzz = "python tools/fuzz.py"
 
 # The dependency audit is not a gate and does not belong in the environment the
 # gates run through. It reaches a remote advisory service, so its verdict is a

@@ -10,7 +10,7 @@ gate, invariant, or architecture check to make an experiment pass.
 ## Reference Validation
 
 For the controller, the reference validation is the locked Pixi environment,
-and it is the same six measurements the repository's own gates name:
+and it is the same seven measurements the repository's own gates name:
 
 ```bash
 pixi lock --check --no-config
@@ -20,15 +20,17 @@ pixi run --locked --no-config test          # the suite
 pixi run --locked --no-config compile       # byte compilation
 pixi run --locked --no-config architecture  # the layer contract of .importlinter
 pixi run --locked --no-config coverage      # the suite again, over the decision core
+pixi run --locked --no-config fuzz          # the boundaries another party supplies
 ```
 
-None of the six writes into the tree it measures: `ruff` and `lint-imports`
-run with their caches disabled, `mypy` sends its cache to `/dev/null`, and
-`coverage` declares a data file under the temporary directory, so a gate
+None of the seven writes into the tree it measures: `ruff` and `lint-imports`
+run with their caches disabled, `mypy` sends its cache to `/dev/null`,
+`coverage` declares a data file under the temporary directory, and the fuzz
+driver keeps the fuzzer's corpus and its crashing inputs there too — so a gate
 cannot change the candidate it is only observing.
 
 `coverage` reports on the decision core alone — the acceptance rules, the
-constitution reader and run verification — and fails under 93 percent. The
+constitution reader and run verification — and fails under 94 percent. The
 package as a whole measures higher, but a total over the package would let a
 well covered periphery answer for the code that decides.
 
@@ -95,12 +97,52 @@ detection was deferred and it was the run that failed rather than the commit.
 
 It runs the reference validation above and the record comparison, on
 `macos-15`. The gates are named twice, in the constitution and in the
-workflow, so a step holds the two sets to being equal. The dependency audit is
-a job of its own and also runs weekly, because it is the one check that can go
-red without this repository moving.
+workflow, so a step holds the two sets to being equal. Two jobs stand apart
+and also run weekly, because they are the checks that can go red without this
+repository moving: the dependency audit, and the longer fuzz search.
 
 Only `osx-arm64` is exercised. The lockfile check resolves `osx-64` and
 nothing runs it.
+
+## Fuzzing
+
+A gate, and a maintainer command that searches further:
+
+```bash
+pixi run --locked --no-config fuzz     # the gate: a fixed budget, a fixed seed
+python tools/fuzz.py --search 600      # a longer search, per boundary
+```
+
+A property states a rule over every input of a shape someone described. A
+fuzzer looks for the input nobody described: it mutates bytes, watches which
+branches they reach, and keeps what reached a new one. The three boundaries it
+drives are the ones another party supplies — the constitution, a run directory
+handed to `verify-run`, and what the execution provider prints about itself.
+
+The failure signal needs no oracle. A constitution is read or refused by name;
+a record reaches `VALID`, `INVALID` or `INCOMPLETE`, or is refused; a
+description gives four facts or a refusal. An interpreter traceback is none of
+those, and it ends a run with the actuation already applied and nothing
+recorded about it.
+
+Three things make it a gate rather than a search. The seed and the run count
+are fixed, so the same tree answers the same way twice. Crashing inputs and the
+working corpus go under the temporary directory, where libFuzzer would
+otherwise drop them into the tree being measured. And the coverage each run
+gained is read back from the fuzzer's own last line, because a target that
+instrumented nothing prints that line without a `cov:` field and still exits
+zero after every requested run — a green measuring nothing.
+
+The number beside each boundary is reported and never compared: it moves by a
+few edges between two runs on one tree, so it says how much of the boundary
+the search saw and not whether the tree changed. What does not move is the
+verdict.
+
+Random bytes never reach a boundary that sits behind a decoder, so the two
+that take a document start from committed seeds in `tools/fuzz_corpus/`,
+copied where the fuzzer may write. An input found to crash becomes a named
+case in the suite rather than a file there: the suite runs everywhere, and a
+corpus entry proves nothing about what it once caught.
 
 ## Mutation Testing
 

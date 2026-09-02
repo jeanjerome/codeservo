@@ -1,0 +1,8 @@
+version = 1
+
+[[gate]]
+name = "unit"
+phase = "quick"
+command = "true"
+timeout_seconds = 60
+baseline = true

@@ -1,0 +1,29 @@
+version = 1
+
+[scope]
+protected = [".codeservo/**", "tools/**"]
+max_changed_files = 14
+max_diff_lines = 2200
+
+[execution]
+provider = "pixi"
+manifest = "pyproject.toml"
+environment = "default"
+
+[[gate]]
+name = "lint"
+phase = "quick"
+task = "lint"
+timeout_seconds = 120
+baseline = true
+
+[[gate]]
+name = "compile"
+phase = "full"
+task = "compile"
+timeout_seconds = 120
+baseline = true
+result_format = "json"
+
+[review]
+blocking_severities = ["blocker", "major"]

@@ -45,6 +45,19 @@ them are in [COMMANDS.md](COMMANDS.md).
   `tests/properties.py`, which derandomises the seed so a gate gives the same
   verdict twice and moves Hypothesis's database and cache out of the tree a
   gate may not write into.
+- A boundary another party supplies is also searched, because a property is
+  written over the shapes someone thought of and generated text is always
+  text. What arrives at those three — the constitution, a run directory handed
+  to `verify-run`, the provider's own output — is bytes, so `tools/fuzz.py`
+  drives them as bytes under coverage guidance. An input it finds becomes a
+  named case in the suite, where it stays a regression test after the search
+  moves on.
+- What crosses into the record carries what the record declares. A field typed
+  `str | None` holds a string or nothing whatever the producer wrote there,
+  and a number is one JSON can carry back: `json.loads` reads `NaN` and
+  `json.dumps` writes it as a literal nothing else accepts. A value of another
+  shape is not a measurement the record can hold, and reporting nothing is
+  the honest answer.
 - Treat `.codeservo/constitution.toml`, external sensors, and protected paths as
   controller-owned configuration. Never expose sensor source or run evidence to
   the actuator. Do not commit secrets.

@@ -52,5 +52,12 @@ task = "coverage"
 timeout_seconds = 600
 baseline = true
 
+[[gate]]
+name = "fuzz"
+phase = "full"
+task = "fuzz"
+timeout_seconds = 300
+baseline = true
+
 [review]
 blocking_severities = ["blocker", "major"]
