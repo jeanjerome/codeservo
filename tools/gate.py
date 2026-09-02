@@ -91,6 +91,21 @@ def _run(*command: str) -> tuple[int, str, str]:
     return done.returncode, done.stdout, done.stderr
 
 
+def _stream(*command: str) -> int:
+    """Run one tool on the gate's own streams, and read only its exit code.
+
+    Nothing is placed between the tool and the descriptors the controller
+    handed the gate. A pipe there is invisible in the log and still changes
+    what the tool's children can observe about where their output goes, which
+    is how a suite that checks it is running confined stops being able to
+    tell: `tests/isolation_harness` finds the write-protected run directory
+    through the directory of its own descriptors. Every tool that executes
+    this repository's tests is therefore run this way, and only a tool whose
+    text is the projection's only source is captured.
+    """
+    return subprocess.run(command, cwd=ROOT).returncode
+
+
 def _quiet(*command: str) -> tuple[int, str]:
     """Ask a tool the same question again, in the form a machine reads."""
     done = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
@@ -116,11 +131,11 @@ def _module_file(module: str) -> str:
 def lint() -> Projection:
     """Every violation `ruff` raised, where it raised it.
 
-    Asked twice: once in the form a person reads, which is what a failing gate
+    Asked twice: once on the gate's own streams, which is what a failing gate
     feeds back, and once as JSON. The second pass costs a fraction of a second
     and spares this from parsing a format meant for eyes.
     """
-    exit_code, _, _ = _run("ruff", "check", "--no-cache", *LINTED)
+    exit_code = _stream("ruff", "check", "--no-cache", *LINTED)
     _, raw = _quiet("ruff", "check", "--no-cache", "--output-format", "json", *LINTED)
     violations = json.loads(raw or "[]")
     findings = [
@@ -292,14 +307,14 @@ def coverage() -> Projection:
     import tempfile
     import tomllib
 
-    suite, _, _ = _run("coverage", "run", "-m", "unittest", "discover", "-s", "tests")
+    suite = _stream("coverage", "run", "-m", "unittest", "discover", "-s", "tests")
     if suite != 0:
         return Projection(
             suite or 1,
             "the suite does not pass, so nothing was covered that this reports",
             {},
         )
-    verdict, _, _ = _run("coverage", "report")
+    verdict = _stream("coverage", "report")
     with tempfile.TemporaryDirectory(prefix="codeservo-coverage-") as tmp:
         report = Path(tmp) / "coverage.json"
         _quiet("coverage", "json", "-o", str(report))
