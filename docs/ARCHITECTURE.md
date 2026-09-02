@@ -15,6 +15,12 @@ is the backend port and its two adapters, `evidence` is what a run leaves
 behind, `controller` is the loop and its `phases`, `cli` is the command line,
 and `resources` locates the documents the package publishes.
 
+That direction exists twice. The paragraph above explains it; `.importlinter`
+declares it as an ordered contract that the `architecture` gate reads, failing
+on any import that climbs a layer, including one that climbs through a chain of
+modules. The file is a protected path, so a candidate cannot loosen the rule to
+pass the gate that measures it against.
+
 ## The Control Loop
 
 The controller:

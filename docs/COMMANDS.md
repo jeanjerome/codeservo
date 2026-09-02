@@ -10,15 +10,20 @@ gate, invariant, or architecture check to make an experiment pass.
 ## Reference Validation
 
 For the controller, the reference validation is the locked Pixi environment,
-and it is the same four measurements the repository's own gates name:
+and it is the same five measurements the repository's own gates name:
 
 ```bash
 pixi lock --check --no-config
-pixi run --locked --no-config lint     # ruff, on src and tests
-pixi run --locked --no-config types    # mypy, on the shipped tree
-pixi run --locked --no-config test     # the suite
-pixi run --locked --no-config compile  # byte compilation
+pixi run --locked --no-config lint          # ruff, on src, tests and tools
+pixi run --locked --no-config types         # mypy, on the shipped tree
+pixi run --locked --no-config test          # the suite
+pixi run --locked --no-config compile       # byte compilation
+pixi run --locked --no-config architecture  # the layer contract of .importlinter
 ```
+
+None of the five writes into the tree it measures: `ruff` and `lint-imports`
+run with their caches disabled and `mypy` with its cache sent to `/dev/null`,
+so a gate cannot change the candidate it is only observing.
 
 `pixi.lock` is a control input. It is committed, and it is never updated
 implicitly while measuring; `--locked` fails rather than resolving, and
