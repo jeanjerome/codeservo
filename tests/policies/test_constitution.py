@@ -37,6 +37,14 @@ class ConstitutionTests(unittest.TestCase):
             (repo / "pixi.lock").write_text("version: 6\n", encoding="utf-8")
         return repo
 
+    def test_refuses_a_constitution_that_is_not_text(self) -> None:
+        """Bytes no decoder accepts are a control input, refused by name."""
+        repo = self._write("version = 1\n")
+        (repo / ".codeservo" / "constitution.toml").write_bytes(b"\xff\xfe[scope]")
+
+        with self.assertRaisesRegex(ConstitutionError, "not readable as text"):
+            load_constitution(repo)
+
     def test_requires_quick_and_full_gates(self) -> None:
         repo = self._write(
             '''

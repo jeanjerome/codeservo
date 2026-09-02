@@ -218,7 +218,13 @@ def load_constitution(repo: Path) -> Constitution:
     if not path.is_file():
         raise ConstitutionError(f"missing constitution: {path}")
 
-    raw = path.read_text(encoding="utf-8")
+    # A constitution is a file, so what arrives is bytes: an editor that saved
+    # in another encoding produces a control input no decoder accepts, and
+    # letting that raise here would end the run before anything was recorded.
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConstitutionError(f"constitution is not readable as text: {exc}") from None
     try:
         document = tomllib.loads(raw)
     except tomllib.TOMLDecodeError as exc:
