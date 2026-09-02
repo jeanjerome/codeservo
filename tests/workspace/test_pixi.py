@@ -372,5 +372,77 @@ class ProviderFreezeTests(unittest.TestCase):
             self.assertNotIn(private, serialized)
 
 
+class DescriptionReadingTests(unittest.TestCase):
+    """What the provider printed, projected onto what a record carries.
+
+    The description is another program's output. Every shape below parses as
+    JSON and is not the shape the reader was written for, so each one is a way
+    the run could have ended in a traceback rather than in a refusal.
+    """
+
+    def read(self, document: object) -> pixi.Description:
+        return pixi.read_description(
+            json.dumps(document), manifest_name="pyproject.toml", environment="default"
+        )
+
+    def described(self, **environment: object) -> dict:
+        return {
+            "version": "0.77.1",
+            "platform": "osx-arm64",
+            "environments_info": [
+                {
+                    "name": "default",
+                    "tasks": ["lint", "test"],
+                    "prefix": "/tree/.pixi/envs/default",
+                    **environment,
+                }
+            ],
+        }
+
+    def test_reads_the_four_facts_a_run_measures_through(self) -> None:
+        described = self.read(self.described())
+
+        self.assertEqual("0.77.1", described.version)
+        self.assertEqual("osx-arm64", described.platform)
+        self.assertEqual(("lint", "test"), described.tasks)
+        self.assertEqual("/tree/.pixi/envs/default", described.prefix)
+
+    def test_refuses_a_description_that_is_not_an_object(self) -> None:
+        for document in ([], "0.77.1", 1, None):
+            with self.subTest(document=document):
+                with self.assertRaisesRegex(
+                    pixi.ProviderError, "description is not an object"
+                ):
+                    self.read(document)
+
+    def test_refuses_an_environment_list_that_is_not_a_list(self) -> None:
+        with self.assertRaisesRegex(pixi.ProviderError, "no list of environments"):
+            self.read({"environments_info": {"default": {}}})
+
+    def test_refuses_a_task_set_that_is_not_a_list(self) -> None:
+        with self.assertRaisesRegex(pixi.ProviderError, "no task set"):
+            self.read(self.described(tasks="lint"))
+
+    def test_refuses_an_environment_reporting_no_directory(self) -> None:
+        for prefix in ("", "   ", None, {"path": "/tree"}):
+            with self.subTest(prefix=prefix):
+                with self.assertRaisesRegex(pixi.ProviderError, "no directory"):
+                    self.read(self.described(prefix=prefix))
+
+    def test_reports_a_self_description_the_provider_did_not_make(self) -> None:
+        """`str()` of a mapping would state something the provider never said."""
+        described = self.read(
+            {**self.described(), "version": {"pixi": "0.77.1"}, "platform": None}
+        )
+
+        self.assertEqual(pixi.UNREPORTED, described.version)
+        self.assertEqual(pixi.UNREPORTED, described.platform)
+
+    def test_keeps_only_the_tasks_named_as_strings(self) -> None:
+        described = self.read(self.described(tasks=["test", 1, None, "lint"]))
+
+        self.assertEqual(("lint", "test"), described.tasks)
+
+
 if __name__ == "__main__":
     unittest.main()

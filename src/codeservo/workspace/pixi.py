@@ -36,6 +36,9 @@ from pathlib import Path
 PROVIDER = "pixi"
 LOCKFILE = "pixi.lock"
 
+# What the record carries for a self-description the provider did not make.
+UNREPORTED = "unknown"
+
 # The directory the provider owns inside a workspace. The installed
 # environments and the workspace-local configuration both live under it, so it
 # is the whole of what a run measures through and never a measurement's output.
@@ -75,6 +78,21 @@ class Environment:
     platform: str
     tasks: tuple[str, ...]
     packages: list
+    prefix: str
+
+
+@dataclass(frozen=True)
+class Description:
+    """What the provider says about itself and about one declared environment.
+
+    Only these four facts are read. The cache directory, the credentials
+    location, the configuration locations and the global directories the
+    description also carries are the operator's, not the run's.
+    """
+
+    version: str
+    platform: str
+    tasks: tuple[str, ...]
     prefix: str
 
 
@@ -254,42 +272,80 @@ def _inventory(manifest: Path, lock_path: str) -> list:
     return document
 
 
-def _description(
-    manifest: Path, environment: str
-) -> tuple[str, str, tuple[str, ...], str]:
-    completed = _capture(description_command(manifest), _DESCRIPTION_TIMEOUT_SECONDS)
+def _reported(document: dict, key: str) -> str:
+    """One self-description of the provider, where it is a string.
+
+    A value of another shape is not rendered into the record: `str()` of a
+    mapping would state something the provider never said, and the field
+    already has a word for what was not reported.
+    """
+    value = document.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else UNREPORTED
+
+
+def read_description(
+    stdout: str, *, manifest_name: str, environment: str
+) -> Description:
+    """Project what the provider printed about itself onto what a run reads.
+
+    Everything below the JSON decoding is a shape the provider is trusted to
+    hold and therefore a shape this refuses by name when it does not: a
+    description that parses without being an object, an environment list that
+    is not a list, or a task set that is not one. Reaching for a key on
+    whatever `json.loads` returned would end the run in an interpreter
+    traceback instead of a named refusal, in a controller whose whole business
+    is closing a run with a decision.
+    """
+    refusal = (
+        f"execution environment: {PROVIDER} described no environment"
+        f" of {manifest_name}"
+    )
     try:
-        document = json.loads(completed.stdout)
+        document = json.loads(stdout)
     except json.JSONDecodeError as exc:
-        raise ProviderError(
-            f"execution environment: {PROVIDER} described no environment"
-            f" of {manifest.name}: {exc}"
-        ) from exc
+        raise ProviderError(f"{refusal}: {exc}") from exc
+    if not isinstance(document, dict):
+        raise ProviderError(f"{refusal}: the description is not an object")
+
+    described = document.get("environments_info", [])
+    if not isinstance(described, list):
+        raise ProviderError(f"{refusal}: it names no list of environments")
     declared = {
-        str(item.get("name")): item
-        for item in document.get("environments_info", [])
-        if isinstance(item, dict)
+        item.get("name"): item
+        for item in described
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
     }
     if environment not in declared:
         raise ProviderError(
             f"execution environment: {PROVIDER} declares no environment"
             f" {environment}"
         )
+
     selected = declared[environment]
-    prefix = str(selected.get("prefix", "")).strip()
-    if not prefix:
+    prefix = _reported(selected, "prefix")
+    if prefix == UNREPORTED:
         raise ProviderError(
             f"execution environment: {PROVIDER} reports no directory for"
             f" environment {environment}"
         )
-    # Only these four facts are read. The cache directory, the credentials
-    # location, the configuration locations and the global directories the
-    # description also carries are the operator's, not the run's.
-    return (
-        str(document.get("version", "unknown")),
-        str(document.get("platform", "unknown")),
-        tuple(sorted(str(task) for task in selected.get("tasks", []))),
-        prefix,
+    tasks = selected.get("tasks", [])
+    if not isinstance(tasks, list):
+        raise ProviderError(
+            f"execution environment: {PROVIDER} names no task set for"
+            f" environment {environment}"
+        )
+    return Description(
+        version=_reported(document, "version"),
+        platform=_reported(document, "platform"),
+        tasks=tuple(sorted(task for task in tasks if isinstance(task, str))),
+        prefix=prefix,
+    )
+
+
+def _description(manifest: Path, environment: str) -> Description:
+    completed = _capture(description_command(manifest), _DESCRIPTION_TIMEOUT_SECONDS)
+    return read_description(
+        completed.stdout, manifest_name=manifest.name, environment=environment
     )
 
 
@@ -300,7 +356,7 @@ def environment_prefix(*, manifest: Path, environment: str) -> str:
     controller checks for and what the provider would create are the same
     location by construction.
     """
-    return _description(manifest, environment)[3]
+    return _description(manifest, environment).prefix
 
 
 def _installing_environment() -> dict[str, str]:
@@ -347,17 +403,17 @@ def freeze(
     lockfile ends the run before the description is even asked for.
     """
     packages = _inventory(manifest, lock_path)
-    version, platform, declared, prefix = _description(manifest, environment)
-    missing = sorted(set(tasks) - set(declared))
+    described = _description(manifest, environment)
+    missing = sorted(set(tasks) - set(described.tasks))
     if missing:
         raise ProviderError(
             f"execution environment: environment {environment} declares no"
             f" task {', '.join(missing)}"
         )
     return Environment(
-        version=version,
-        platform=platform,
-        tasks=declared,
+        version=described.version,
+        platform=described.platform,
+        tasks=described.tasks,
         packages=packages,
-        prefix=prefix,
+        prefix=described.prefix,
     )
