@@ -149,11 +149,36 @@ def _load_record(path: Path) -> dict:
 # --- Artefacts the record names -------------------------------------------
 
 
+def _inside(run_dir: Path, location: str) -> Path | None:
+    """The file a record names, or nothing when it names one outside the run.
+
+    A record is the input this command exists to distrust, and the run
+    directory is what the command says is its only intake. A location that is
+    absolute, or that climbs out of the directory, names a file this run does
+    not hold whatever that file turns out to be, so it is refused before it is
+    read rather than read and then judged. Resolving both sides settles the
+    spellings that normalise away and the symbolic links that do not.
+    """
+    try:
+        resolved = Path(run_dir, location).resolve()
+        root = run_dir.resolve()
+    except (OSError, ValueError):
+        return None
+    if resolved != root and not resolved.is_relative_to(root):
+        return None
+    return resolved
+
+
+OUTSIDE = "the record names a path outside this run"
+
+
 def _check_file(
     report: _Report, name: str, run_dir: Path, location: str, digest: str
 ) -> None:
-    target = Path(run_dir, location)
-    if not target.is_file():
+    target = _inside(run_dir, location)
+    if target is None:
+        report.failed(name, f"{location}: {OUTSIDE}")
+    elif not target.is_file():
         report.failed(
             name, f"{location}: the record names an artefact this run does not hold"
         )
@@ -187,8 +212,10 @@ def _check_sensors(report: _Report, run_dir: Path, record: dict) -> None:
         if not isinstance(location, str) or not isinstance(digest, str):
             continue
         name = f"sensor.{gate}"
-        target = Path(run_dir, location)
-        if not target.exists():
+        target = _inside(run_dir, location)
+        if target is None:
+            report.failed(name, f"{location}: {OUTSIDE}")
+        elif not target.exists():
             report.failed(
                 name, f"{location}: the record names a sensor this run does not hold"
             )
@@ -360,7 +387,10 @@ def _check_journal(report: _Report, run_dir: Path, record: dict) -> None:
         )
         return
 
-    journal_path = Path(run_dir, location)
+    journal_path = _inside(run_dir, location)
+    if journal_path is None:
+        report.failed("journal", f"{location}: {OUTSIDE}")
+        return
     if not journal_path.is_file():
         statement = f"{location}: the run directory holds no journal"
         if running:
