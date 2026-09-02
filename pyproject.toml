@@ -56,7 +56,10 @@ lint = "ruff check --no-cache src tests tools"
 types = "mypy --cache-dir=/dev/null src"
 compile = "python -m compileall -q src tests"
 architecture = "lint-imports --no-cache --no-logo"
-coverage = "coverage run -m unittest discover -s tests && coverage report"
+# The gate answers twice: an exit code, and a document saying what it
+# measured. The adapter is what projects one onto the other, so the tool keeps
+# its own output and the controller reads the six fields it knows.
+coverage = "python tools/coverage_observation.py"
 # Coverage-guided fuzzing of the three boundaries another party supplies. It
 # is a gate because its budget is fixed and its seed is not the clock, so the
 # same tree answers the same way twice; the driver keeps every byte it writes

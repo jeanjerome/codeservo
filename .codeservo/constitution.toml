@@ -51,6 +51,7 @@ phase = "full"
 task = "coverage"
 timeout_seconds = 600
 baseline = true
+result_format = "codeservo-json"
 
 [[gate]]
 name = "fuzz"

@@ -35,6 +35,15 @@ constitution reader and run verification — and fails under 94 percent. The
 package as a whole measures higher, but a total over the package would let a
 well covered periphery answer for the code that decides.
 
+It is also the one gate here that answers twice. `tools/coverage_observation.py`
+runs the suite under coverage, keeps the exit code as the verdict, and writes
+the six-field observation document the controller validates and keeps in the
+record: the percentage, the statement counts, the floor, and one finding per
+file under it. The number the gate computed then survives the run instead of
+existing only in a log, and two runs can be set beside each other. Run by hand
+there is no location to write to and no document is written — the adapter is
+given one, it does not choose one.
+
 `pixi.lock` is a control input. It is committed, and it is never updated
 implicitly while measuring; `--locked` fails rather than resolving, and
 `--no-config` keeps user and system Pixi configuration out of the run. That
