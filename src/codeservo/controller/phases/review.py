@@ -1,0 +1,158 @@
+"""The independent semantic review, and what the run is allowed to tell it.
+
+The reviewer is a read-only sensor. It is handed the task, the constitution
+and an immutable summary of the gates that passed, and nothing about where
+the controller keeps the record or the candidate.
+"""
+
+from __future__ import annotations
+
+import json
+
+from ...actuators import ActuatorError
+from ...actuators.prompts import reviewer_prompt
+from ...domain.constitution import Constitution
+from ...evidence.digests import sha256_json, sha256_text
+from ...resources import review_schema
+from ...runtime.process import tail
+from ...runtime.sandbox import SandboxError
+from ..context import RunContext
+from ..decision import review_decision
+from ..errors import Rejection
+from ..inference import record_actuation
+from ..record import RunRecord
+from .iteration import Converged
+
+# The shape of the bundle handed to the reviewer. It versions its own shape.
+OBSERVATIONS_SCHEMA_VERSION = 1
+
+REDACTED = "<redacted>"
+
+REPOSITORY_GATE = "repository_gate"
+EXTERNAL_SENSOR = "external_sensor"
+
+
+def observed_tail(path: str, locations: tuple) -> str:
+    """Bounded gate output with controller-owned locations removed.
+
+    The reviewer is told what a gate emitted, never where the controller keeps
+    the record or the candidate.
+    """
+    text = tail(path)
+    # Longest first, so a location nested in another is redacted whole.
+    for location in sorted(locations, key=lambda item: len(str(item)), reverse=True):
+        text = text.replace(str(location), REDACTED)
+    return text
+
+
+def review_observations(
+    constitution: Constitution,
+    quick: list[dict],
+    full: list[dict],
+    locations: tuple,
+) -> dict:
+    """The successful gate measurements handed to the read-only reviewer.
+
+    Classification comes from the frozen constitution, so a repository gate
+    cannot present itself as an external acceptance sensor by naming itself one.
+    """
+    sensors = {gate.name: gate.sensor for gate in constitution.gates}
+    gates: list[dict] = []
+    for phase, results in (("quick", quick), ("full", full)):
+        for result in results:
+            sensor = sensors.get(result["name"])
+            gates.append(
+                {
+                    "phase": phase,
+                    "name": result["name"],
+                    "kind": REPOSITORY_GATE if sensor is None else EXTERNAL_SENSOR,
+                    "sensor": sensor,
+                    "passed": result["passed"],
+                    "exit_code": result["exit_code"],
+                    "timed_out": result["timed_out"],
+                    "duration_ms": result["duration_ms"],
+                    "stdout_sha256": result["stdout_sha256"],
+                    "stderr_sha256": result["stderr_sha256"],
+                    "result_sha256": result["result_sha256"],
+                    "stdout_tail": observed_tail(result["stdout_path"], locations),
+                    "stderr_tail": observed_tail(result["stderr_path"], locations),
+                }
+            )
+    return {"schema_version": OBSERVATIONS_SCHEMA_VERSION, "gates": gates}
+
+
+def review_candidate(
+    context: RunContext,
+    record: RunRecord,
+    accepted: Converged,
+    full: list[dict],
+) -> list[str]:
+    # Deterministic runtime evidence the read-only reviewer cannot produce
+    # itself, built only once every gate passed and every sensor is intact.
+    bundle = review_observations(
+        context.constitution,
+        accepted.quick_gates,
+        full,
+        (context.run_dir, context.worktree),
+    )
+    # Serialized once: the prompted bytes are the hashed bytes.
+    bundle_json = json.dumps(
+        bundle, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+
+    prompt_text = reviewer_prompt(context.task, context.constitution, bundle_json)
+    prompt_path = context.run_dir / "review" / "prompt.md"
+    prompt_path.parent.mkdir(parents=True, exist_ok=True)
+    prompt_path.write_text(prompt_text, encoding="utf-8")
+
+    # Recorded before the reviewer runs, so a reviewer failure cannot erase the
+    # observations it was given. The reviewer is a read-only sensor: it reads
+    # the candidate and writes nothing into it. The adapter denies those writes
+    # itself; this describes the confinement it runs under.
+    record["review"] = {
+        "prompt": {"path": str(prompt_path), "sha256": sha256_text(prompt_text)},
+        "observations": bundle,
+        "observations_sha256": sha256_text(bundle_json),
+        "isolation": context.reviewer.describe_isolation(
+            context.confinement.reviewer(context.worktree)
+        ),
+    }
+    record.persist()
+
+    try:
+        review, meta = context.reviewer.review(
+            worktree=context.worktree,
+            prompt=prompt_text,
+            schema_path=review_schema(),
+            out_dir=context.run_dir / "review",
+            model=context.request.review_model,
+            timeout_seconds=context.request.agent_timeout_seconds,
+            isolation=context.confinement.actuator,
+            effort=context.request.review_effort,
+            speed=context.request.review_speed,
+        )
+    except (ActuatorError, SandboxError) as exc:
+        raise Rejection(str(exc)) from exc
+
+    record["review"].update(
+        {"result": review, "result_sha256": sha256_json(review), "meta": meta}
+    )
+    record.record(
+        "review.finished",
+        {
+            "result_sha256": record["review"]["result_sha256"],
+            "meta_sha256": meta["meta_sha256"],
+        },
+    )
+    reviewer = context.inference["reviewer"]
+    record_actuation(reviewer, meta)
+    record.record(
+        "review.profile_observed",
+        {
+            "model": reviewer["observed"]["model"],
+            "provenance": reviewer["provenance"],
+        },
+    )
+    return review_decision(
+        review, context.task.criteria, context.constitution.review.blocking_severities
+    )

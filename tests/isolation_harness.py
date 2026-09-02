@@ -110,14 +110,14 @@ def controller_test_isolation():
     gate_record = protected_gate_record()
     with ExitStack() as stack:
         stack.enter_context(
-            patch("codeservo.process.seatbelt_command", _without_additional_seatbelt)
+            patch("codeservo.runtime.process.seatbelt_command", _without_additional_seatbelt)
         )
         stack.enter_context(
-            patch("codeservo.codex.seatbelt_command", _without_additional_seatbelt)
+            patch("codeservo.actuators.codex.seatbelt_command", _without_additional_seatbelt)
         )
         stack.enter_context(
             patch(
-                "codeservo.claude_code.seatbelt_command",
+                "codeservo.actuators.claude_code.seatbelt_command",
                 _without_additional_seatbelt,
             )
         )

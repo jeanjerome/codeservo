@@ -21,9 +21,9 @@ path = "src/codeservo/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/codeservo"]
 include = [
-  "src/codeservo/constitution.example.toml",
-  "src/codeservo/observation.schema.json",
-  "src/codeservo/review.schema.json",
+  "src/codeservo/resources/constitution.example.toml",
+  "src/codeservo/resources/observation.schema.json",
+  "src/codeservo/resources/review.schema.json",
 ]
 
 [tool.pixi.workspace]
