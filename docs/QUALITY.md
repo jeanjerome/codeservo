@@ -52,6 +52,13 @@ them are in [COMMANDS.md](COMMANDS.md).
   drives them as bytes under coverage guidance. An input it finds becomes a
   named case in the suite, where it stays a regression test after the search
   moves on.
+- A gate adapter projects and never decides. The exit code stays the tool's, a
+  document claiming to have passed beside a non-zero exit is a contradiction the
+  controller refuses, and nothing may come between a tool that runs the tests
+  and the streams the controller handed the gate: those bytes are what gets fed
+  back to the actuator, and `tests/isolation_harness` recognises an active
+  confinement through the directory of its own descriptors. A tool whose text is
+  the projection's only source may be captured, and none of those runs a test.
 - What crosses into the record carries what the record declares. A field typed
   `str | None` holds a string or nothing whatever the producer wrote there,
   and a number is one JSON can carry back: `json.loads` reads `NaN` and
