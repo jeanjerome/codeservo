@@ -75,11 +75,21 @@ test -d .pixi/envs/default/lib/python3.12/site-packages &&
 pip-audit --progress-spinner=off --path .pixi/envs/default/lib/python3.12/site-packages
 """
 
+# Mutation testing edits the source file to make each mutant, so it modifies
+# the tree it measures and can never be a gate. Its own environment, for the
+# same reason as the audit: the tool brings an HTTP client and an ORM with it.
+[tool.pixi.feature.mutation.pypi-dependencies]
+cosmic-ray = ">=8.7,<9"
+
+[tool.pixi.feature.mutation.tasks]
+mutation = "python tools/mutation.py"
+
 [tool.pixi.environments]
 # Declared apart and solved apart, so that what the gates are measured through
 # stays exactly what it was.
 default = []
 audit = ["audit"]
+mutation = ["mutation"]
 
 [tool.coverage.run]
 source = ["codeservo"]
