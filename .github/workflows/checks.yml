@@ -1,0 +1,96 @@
+# What measures a maintainer's commit.
+#
+# The control loop measures a candidate; nothing measured this repository's own
+# commits. A documentation change, a generation checkpoint or a constitution
+# change was verified only at the baseline of the next run, so detection was
+# deferred and it was the run that failed rather than the commit.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # The audit reads a database that moves without this repository moving.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned rather than resolved, like every tool a measurement reaches for.
+  # The manifest requires >=0.77,<0.78.
+  PIXI_VERSION: 0.77.1
+
+jobs:
+  gates:
+    # The workspace declares osx-arm64 and osx-64 because sandbox-exec is the
+    # isolation mechanism. Only arm64 is exercised here; osx-64 is resolved by
+    # the lockfile check and run by nothing.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Pixi
+        run: |
+          curl -fsSL https://pixi.sh/install.sh | bash
+          echo "$HOME/.pixi/bin" >> "$GITHUB_PATH"
+
+      - name: The lockfile agrees with the manifest
+        # A maintainer command, and this is a maintainer's checkout: where the
+        # two disagree it exits 1 and rewrites pixi.lock. The exit code is the
+        # verdict and the rewrite dies with the runner.
+        run: pixi lock --check --no-config
+
+      - name: Install the locked environment
+        run: pixi install --locked --no-config
+
+      - name: This workflow runs every gate the constitution declares
+        # The gates below are named twice, in the constitution and here. A gate
+        # added to one and not the other would leave a green workflow that
+        # measures less than the loop does.
+        run: |
+          pixi run --locked --no-config python -c '
+          import pathlib, sys, tomllib
+          text = pathlib.Path(".codeservo/constitution.toml").read_text()
+          declared = {g["task"] for g in tomllib.loads(text)["gate"] if "task" in g}
+          here = set(sys.argv[1:])
+          if declared != here:
+              sys.exit(f"the constitution declares {sorted(declared)}, this workflow runs {sorted(here)}")
+          print(f"both name {sorted(declared)}")
+          ' lint types test compile architecture coverage
+
+      - run: pixi run --locked --no-config lint
+      - run: pixi run --locked --no-config types
+      - run: pixi run --locked --no-config test
+      - run: pixi run --locked --no-config compile
+      - run: pixi run --locked --no-config architecture
+      - run: pixi run --locked --no-config coverage
+
+      - name: The record is what the committed reference says it is
+        # Record parity was a manual discipline, so a forgettable one. The
+        # reference is a control input: a change that moves the record moves it
+        # too, in the same commit, where the diff says what moved.
+        run: |
+          pixi run --locked --no-config python tools/record_parity.py capture "$RUNNER_TEMP/head.json"
+          pixi run --locked --no-config python tools/record_parity.py compare tools/record_parity.reference.json "$RUNNER_TEMP/head.json"
+
+  audit:
+    # Its own job because it is the one check that can go red without this
+    # repository moving: an advisory published overnight is a real signal and
+    # not a defect of the commit under test.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Pixi
+        run: |
+          curl -fsSL https://pixi.sh/install.sh | bash
+          echo "$HOME/.pixi/bin" >> "$GITHUB_PATH"
+
+      - name: Install the audit environment
+        run: pixi install -e audit --locked --no-config
+
+      - name: The environment's Python distributions carry no known advisory
+        run: pixi run -e audit --locked --no-config audit
