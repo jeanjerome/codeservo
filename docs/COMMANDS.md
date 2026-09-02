@@ -10,7 +10,7 @@ gate, invariant, or architecture check to make an experiment pass.
 ## Reference Validation
 
 For the controller, the reference validation is the locked Pixi environment,
-and it is the same five measurements the repository's own gates name:
+and it is the same six measurements the repository's own gates name:
 
 ```bash
 pixi lock --check --no-config
@@ -19,11 +19,18 @@ pixi run --locked --no-config types         # mypy, on the shipped tree
 pixi run --locked --no-config test          # the suite
 pixi run --locked --no-config compile       # byte compilation
 pixi run --locked --no-config architecture  # the layer contract of .importlinter
+pixi run --locked --no-config coverage      # the suite again, over the decision core
 ```
 
-None of the five writes into the tree it measures: `ruff` and `lint-imports`
-run with their caches disabled and `mypy` with its cache sent to `/dev/null`,
-so a gate cannot change the candidate it is only observing.
+None of the six writes into the tree it measures: `ruff` and `lint-imports`
+run with their caches disabled, `mypy` sends its cache to `/dev/null`, and
+`coverage` declares a data file under the temporary directory, so a gate
+cannot change the candidate it is only observing.
+
+`coverage` reports on the decision core alone — the acceptance rules, the
+constitution reader and run verification — and fails under 93 percent. The
+package as a whole measures higher, but a total over the package would let a
+well covered periphery answer for the code that decides.
 
 `pixi.lock` is a control input. It is committed, and it is never updated
 implicitly while measuring; `--locked` fails rather than resolving, and
