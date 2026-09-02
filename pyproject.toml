@@ -97,11 +97,11 @@ include = [
   "*/policies/*",
   "*/evidence/verify.py",
 ]
-# Read off this tree, which measures 93.30 percent over 373 statements. A floor
-# is a ratchet and carries no margin on purpose: one more uncovered statement
-# in the core still passes, a second does not.
+# Read off this tree, which measures 94.38 percent over 427 statements. A floor
+# is a ratchet and carries no margin on purpose: leaving it under what the tree
+# reaches would license exactly that much regression.
 precision = 2
-fail_under = 93
+fail_under = 94
 
 [tool.ruff]
 target-version = "py312"
