@@ -1,7 +1,7 @@
 version = 1
 
 [scope]
-protected = [".codeservo/**", ".github/workflows/**"]
+protected = [".codeservo/**", ".github/workflows/**", ".importlinter"]
 max_changed_files = 14
 max_diff_lines = 3000
 
@@ -35,6 +35,13 @@ baseline = true
 name = "compile"
 phase = "full"
 task = "compile"
+timeout_seconds = 120
+baseline = true
+
+[[gate]]
+name = "architecture"
+phase = "full"
+task = "architecture"
 timeout_seconds = 120
 baseline = true
 

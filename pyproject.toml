@@ -41,6 +41,9 @@ ruff = ">=0.12,<0.13"
 
 [tool.pixi.pypi-dependencies]
 codeservo = { path = ".", editable = true }
+# From PyPI rather than conda-forge, whose 2.14 package pulls a web framework
+# and two task runners into an environment that measures a controller.
+import-linter = ">=2.14,<3"
 
 [tool.pixi.tasks]
 # Every check names the tree it measures and writes nothing into it: a gate
@@ -49,6 +52,7 @@ test = "python -m unittest discover -s tests -v"
 lint = "ruff check --no-cache src tests tools"
 types = "mypy --cache-dir=/dev/null src"
 compile = "python -m compileall -q src tests"
+architecture = "lint-imports --no-cache --no-logo"
 
 [tool.ruff]
 target-version = "py312"

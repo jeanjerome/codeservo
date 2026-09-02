@@ -1,0 +1,24 @@
+# The dependency direction ARCHITECTURE.md states, in a form that fails.
+#
+# This file is a control input: the constitution protects it, so a candidate
+# cannot loosen the contract to pass the gate that reads it. The order below is
+# the import graph the package actually has, highest level first; `runtime`
+# reaches for a digest, so `evidence` sits under it, and `actuators` and
+# `sensors` are siblings neither of which may import the other.
+
+[importlinter]
+root_package = codeservo
+
+[importlinter:contract:layers]
+name = The package layers point inward
+type = layers
+layers =
+    codeservo.cli
+    codeservo.controller
+    codeservo.actuators : codeservo.sensors
+    codeservo.policies
+    codeservo.workspace
+    codeservo.runtime
+    codeservo.evidence
+    codeservo.resources
+    codeservo.domain
