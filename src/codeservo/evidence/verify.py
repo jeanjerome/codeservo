@@ -126,14 +126,12 @@ def render_report(report: dict) -> str:
     """The human listing: every check, how it ended, and the status."""
     lines = [f"run: {report['run_id']}"]
     width = max((len(check["name"]) for check in report["checks"]), default=0)
-    for check in report["checks"]:
-        lines.append(
-            f"  {check['name']:<{width}}  {check['status']:<14}  {check['detail']}"
-        )
-    for failure in report["failures"]:
-        lines.append(f"  failure: {failure}")
-    for absent in report["missing"]:
-        lines.append(f"  missing: {absent}")
+    lines.extend(
+        f"  {check['name']:<{width}}  {check['status']:<14}  {check['detail']}"
+        for check in report["checks"]
+    )
+    lines.extend(f"  failure: {failure}" for failure in report["failures"])
+    lines.extend(f"  missing: {absent}" for absent in report["missing"])
     lines.append(f"status: {report['status']}")
     return "\n".join(lines) + "\n"
 

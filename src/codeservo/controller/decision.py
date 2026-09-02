@@ -30,8 +30,7 @@ def review_decision(
             reasons.append(f"criterion {criterion_id} is {reported}")
 
     extras = sorted(set(seen) - set(task_criteria))
-    for extra in extras:
-        reasons.append(f"review returned unknown criterion {extra}")
+    reasons.extend(f"review returned unknown criterion {extra}" for extra in extras)
 
     blocking_set = set(blocking)
     for finding in review.get("findings", []):
