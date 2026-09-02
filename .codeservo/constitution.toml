@@ -45,5 +45,12 @@ task = "architecture"
 timeout_seconds = 120
 baseline = true
 
+[[gate]]
+name = "coverage"
+phase = "full"
+task = "coverage"
+timeout_seconds = 600
+baseline = true
+
 [review]
 blocking_severities = ["blocker", "major"]

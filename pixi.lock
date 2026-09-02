@@ -26,6 +26,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/bzip2-1.0.8-h374f1ed_10.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/c-ares-1.34.8-had63097_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/coverage-7.16.0-py312hbbaf924_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/git-2.55.0-pl5321h083a29a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/icu-78.3-py313hbf1d544_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/krb5-1.22.2-h69064fd_2.conda
@@ -72,6 +73,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/bzip2-1.0.8-h4e30115_10.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/c-ares-1.34.8-h74c22ad_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/coverage-7.16.0-py312hf1f8172_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/git-2.55.0-pl5321h545aa0d_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/icu-78.3-py310h579977c_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/krb5-1.22.2-h34f8a20_2.conda
@@ -203,6 +205,20 @@ packages:
     - c-ares >=1.34.8,<2.0a0
   size: 205559
   timestamp: 1787170041830
+- conda: https://conda.anaconda.org/conda-forge/osx-64/coverage-7.16.0-py312hbbaf924_0.conda
+  sha256: aa9ab5701212afff15ff9f6925f798dc73ea1723ba68071f28ae4597a0ee7a87
+  md5: 8b4dc39c3fe3d775606a93f2984f8d80
+  depends:
+  - python
+  - __osx >=11.0
+  - python_abi 3.12.* *_cp312
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/coverage?source=hash-mapping
+  run_exports: {}
+  size: 414946
+  timestamp: 1787965838198
 - conda: https://conda.anaconda.org/conda-forge/osx-64/git-2.55.0-pl5321h083a29a_1.conda
   sha256: d98399f38bcd3a85e5a3754a27d3941595e5ea669eba8e08c8d45fef031e063f
   md5: 2ff69e4705c0cca7db9804f75c053150
@@ -665,6 +681,20 @@ packages:
     - c-ares >=1.34.8,<2.0a0
   size: 197819
   timestamp: 1787169996553
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/coverage-7.16.0-py312hf1f8172_0.conda
+  sha256: 3448886701e50337465d42bfb11d8e7350dc0e952d4899fef7d11883728882d5
+  md5: 2755581efb3e986c40953b40b7d74f88
+  depends:
+  - python
+  - __osx >=11.0
+  - python_abi 3.12.* *_cp312
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/coverage?source=hash-mapping
+  run_exports: {}
+  size: 414767
+  timestamp: 1787965739867
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/git-2.55.0-pl5321h545aa0d_1.conda
   sha256: 4bb0bfe6b0fcb2830689e2b6b99090b458ad791b6adca570e5d3a322eb912cbc
   md5: d041b375de31a576c37b8c52044c94b7

@@ -36,6 +36,7 @@ python = "3.12.*"
 # A measurement runs with the environment's PATH and nothing else, so every
 # command a gate reaches for is declared here rather than found on the host.
 git = ">=2.43"
+coverage = ">=7.16,<8"
 mypy = ">=1.13,<2"
 ruff = ">=0.12,<0.13"
 
@@ -53,6 +54,29 @@ lint = "ruff check --no-cache src tests tools"
 types = "mypy --cache-dir=/dev/null src"
 compile = "python -m compileall -q src tests"
 architecture = "lint-imports --no-cache --no-logo"
+coverage = "coverage run -m unittest discover -s tests && coverage report"
+
+[tool.coverage.run]
+source = ["codeservo"]
+# Coverage is the one measurement here that has to write, so it writes outside
+# the tree it measures rather than dropping a data file into the candidate.
+# `coverage run` erases before it collects, so nothing stale is ever read; two
+# runs overlapping on one machine would share this path.
+data_file = "${TMPDIR-/tmp}/codeservo-coverage"
+
+[tool.coverage.report]
+# The decision core first, rather than the package: a well covered periphery
+# would otherwise carry a total that hides the code deciding acceptance.
+include = [
+  "*/controller/decision.py",
+  "*/policies/*",
+  "*/evidence/verify.py",
+]
+# Read off this tree, which measures 93.30 percent over 373 statements. A floor
+# is a ratchet and carries no margin on purpose: one more uncovered statement
+# in the core still passes, a second does not.
+precision = 2
+fail_under = 93
 
 [tool.ruff]
 target-version = "py312"
