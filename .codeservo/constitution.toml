@@ -1,7 +1,7 @@
 version = 1
 
 [scope]
-protected = [".codeservo/**", ".github/workflows/**", ".importlinter"]
+protected = [".codeservo/**", ".github/workflows/**", ".importlinter", "tools/**"]
 max_changed_files = 14
 max_diff_lines = 2200
 

@@ -1,0 +1,3958 @@
+[
+  {
+    "artifacts": [
+      "TASK.md",
+      "baseline/full.stderr.log",
+      "baseline/full.stdout.log",
+      "baseline/syntax.stderr.log",
+      "baseline/syntax.stdout.log",
+      "change.patch",
+      "constitution.toml",
+      "events.jsonl",
+      "evidence.json",
+      "full.patch",
+      "full/full.stderr.log",
+      "full/full.stdout.log",
+      "iterations/01/actuator.patch",
+      "iterations/01/agent/events.jsonl",
+      "iterations/01/agent/last-message.md",
+      "iterations/01/agent/stderr.log",
+      "iterations/01/input.patch",
+      "iterations/01/observed.patch",
+      "iterations/01/prompt.md",
+      "iterations/01/quick/syntax.stderr.log",
+      "iterations/01/quick/syntax.stdout.log",
+      "iterations/01/quick/task-outcome.stderr.log",
+      "iterations/01/quick/task-outcome.stdout.log",
+      "review/prompt.md",
+      "review/review.json",
+      "review/stderr.log",
+      "review/stdout.log",
+      "sensors/task-outcome/README.md"
+    ],
+    "case": "accepted",
+    "event_payload_keys": [
+      [
+        "base_commit",
+        "max_iterations"
+      ],
+      [
+        "constitution_sha256",
+        "sensors",
+        "task_sha256"
+      ],
+      [
+        "implementer",
+        "reviewer"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "gate_count",
+        "passed"
+      ],
+      [
+        "base_commit"
+      ],
+      [
+        "iteration",
+        "prompt_sha256"
+      ],
+      [
+        "exit_code",
+        "iteration",
+        "result_sha256"
+      ],
+      [
+        "iteration",
+        "model",
+        "provenance"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "meta_sha256",
+        "result_sha256"
+      ],
+      [
+        "model",
+        "provenance"
+      ],
+      [
+        "reasons",
+        "status"
+      ],
+      [
+        "status"
+      ]
+    ],
+    "event_types": [
+      "run.started",
+      "inputs.frozen",
+      "inference.profiles_frozen",
+      "gate.finished",
+      "gate.finished",
+      "baseline.finished",
+      "workspace.ready",
+      "actuator.started",
+      "actuator.finished",
+      "actuator.profile_observed",
+      "gate.finished",
+      "gate.finished",
+      "gate.finished",
+      "review.finished",
+      "review.profile_observed",
+      "decision.recorded",
+      "run.finished"
+    ],
+    "reasons": [],
+    "record": {
+      "actuator_isolation": {
+        "denied_paths": [
+          "../..",
+          "../../../sensors",
+          "../../../.git",
+          "../../../../repo/.git"
+        ],
+        "mechanism": "macos-sandbox-exec",
+        "read_only_paths": [
+          "../../../../repo",
+          "../../../worktrees/repo/<run-id>/.git"
+        ],
+        "user_config_ignored": true
+      },
+      "base_commit": "<str>",
+      "baseline": [
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "syntax",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        },
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "full",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        }
+      ],
+      "constitution_sha256": "<str>",
+      "decision": {
+        "reasons": []
+      },
+      "environment": {
+        "provider": "none"
+      },
+      "events": {
+        "count": 17,
+        "file_sha256": "<str>",
+        "head_sha256": "<str>",
+        "path": "<str>"
+      },
+      "finished_at": "<str>",
+      "full_gate_state": {
+        "path": "<str>",
+        "sha256": "<str>"
+      },
+      "full_gates": [
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "full",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        }
+      ],
+      "gate_isolation": {
+        "candidate": {
+          "denied_paths": [],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            ".",
+            "../../../worktrees/repo/<run-id>/.git"
+          ],
+          "user_config_ignored": true
+        },
+        "source": {
+          "denied_paths": [],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            ".",
+            "../../../../repo/.git"
+          ],
+          "user_config_ignored": true
+        }
+      },
+      "inference": {
+        "implementer": {
+          "native": {},
+          "observed": {
+            "effort": null,
+            "model": "harness-agent-model",
+            "speed": "standard"
+          },
+          "provenance": {
+            "effort": "not_reported",
+            "model": "reported",
+            "speed": "reported"
+          },
+          "requested": {
+            "backend": "claude",
+            "effort": null,
+            "model": null,
+            "speed": "standard"
+          },
+          "validation": {
+            "inventory_source": "unavailable",
+            "reason": "the claude inventory is unavailable: no cache schema has been verified for this backend",
+            "status": "unverified"
+          }
+        },
+        "reviewer": {
+          "native": {},
+          "observed": {
+            "effort": null,
+            "model": "harness-review-model",
+            "speed": "standard"
+          },
+          "provenance": {
+            "effort": "not_reported",
+            "model": "reported",
+            "speed": "reported"
+          },
+          "requested": {
+            "backend": "claude",
+            "effort": null,
+            "model": null,
+            "speed": "standard"
+          },
+          "validation": {
+            "inventory_source": "unavailable",
+            "reason": "the claude inventory is unavailable: no cache schema has been verified for this backend",
+            "status": "unverified"
+          }
+        }
+      },
+      "iterations": [
+        {
+          "actuator_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "agent": {
+            "command": "<list>",
+            "duration_ms": "<int>",
+            "events_path": "iterations/01/agent/events.jsonl",
+            "events_sha256": "a17331664034dbb562d243b5a4f74997d70f8fb981e8d040eaaa721592076d52",
+            "exit_code": 0,
+            "last_message_path": "iterations/01/agent/last-message.md",
+            "last_message_sha256": "6842ca7df10554ecae09529503fafc52abfb2b8dca1747a0811da4adc6290f52",
+            "models": {
+              "session_model": "harness-agent-model",
+              "usage": "<dict>"
+            },
+            "native": {},
+            "observed": {
+              "effort": null,
+              "model": "harness-agent-model",
+              "speed": "standard"
+            },
+            "result_sha256": "<str>",
+            "session": {
+              "is_error": false,
+              "num_turns": "<int>",
+              "session_id": "<str>",
+              "subtype": "success",
+              "terminal_reason": null,
+              "total_cost_usd": "<NoneType>"
+            },
+            "stderr_path": "<str>",
+            "stderr_sha256": "<str>"
+          },
+          "controller_feedback": null,
+          "feedback_received": "",
+          "input_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "iteration": 1,
+          "observed_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "prompt": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "quick_gates": [
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "name": "syntax",
+              "passed": true,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            },
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "name": "task-outcome",
+              "passed": true,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            }
+          ],
+          "scope": {
+            "details": "<dict>",
+            "passed": true,
+            "summary": "<str>"
+          }
+        }
+      ],
+      "patch_sha256": "<str>",
+      "repo": "<str>",
+      "review": {
+        "isolation": {
+          "denied_paths": [
+            "../..",
+            "../../../sensors",
+            "../../../.git",
+            "../../../../repo/.git"
+          ],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            "../../../../repo",
+            "../../../worktrees/repo/<run-id>"
+          ],
+          "user_config_ignored": true
+        },
+        "meta": {
+          "command": "<list>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "meta_sha256": "<str>",
+          "models": {
+            "session_model": null,
+            "usage": "<dict>"
+          },
+          "native": {},
+          "observed": {
+            "effort": null,
+            "model": "harness-review-model",
+            "speed": "standard"
+          },
+          "result_path": "review/review.json",
+          "result_sha256": "<str>",
+          "schema_sha256": "83f4c991574067c52722d1d7be46614a92c920fae273f118b508858473c51e0d",
+          "session": {
+            "is_error": false,
+            "num_turns": "<int>",
+            "session_id": "<str>",
+            "subtype": "success",
+            "terminal_reason": null,
+            "total_cost_usd": "<NoneType>"
+          },
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>"
+        },
+        "observations": {
+          "gates": [
+            {
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "kind": "repository_gate",
+              "name": "syntax",
+              "passed": true,
+              "phase": "quick",
+              "result_sha256": "<str>",
+              "sensor": null,
+              "stderr_sha256": "<str>",
+              "stderr_tail": "<str>",
+              "stdout_sha256": "<str>",
+              "stdout_tail": "<str>",
+              "timed_out": false
+            },
+            {
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "kind": "external_sensor",
+              "name": "task-outcome",
+              "passed": true,
+              "phase": "quick",
+              "result_sha256": "<str>",
+              "sensor": "test/task-outcome",
+              "stderr_sha256": "<str>",
+              "stderr_tail": "<str>",
+              "stdout_sha256": "<str>",
+              "stdout_tail": "<str>",
+              "timed_out": false
+            },
+            {
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "kind": "repository_gate",
+              "name": "full",
+              "passed": true,
+              "phase": "full",
+              "result_sha256": "<str>",
+              "sensor": null,
+              "stderr_sha256": "<str>",
+              "stderr_tail": "<str>",
+              "stdout_sha256": "<str>",
+              "stdout_tail": "<str>",
+              "timed_out": false
+            }
+          ],
+          "schema_version": 1
+        },
+        "observations_sha256": "<str>",
+        "prompt": {
+          "path": "<str>",
+          "sha256": "<str>"
+        },
+        "result": {
+          "criteria": [
+            {
+              "evidence": "<str>",
+              "id": "AC1",
+              "status": "satisfied"
+            }
+          ],
+          "findings": []
+        },
+        "result_sha256": "<str>"
+      },
+      "run_dir": "<str>",
+      "run_id": "<str>",
+      "runtime": {
+        "actuator": "claude",
+        "actuator_version": "<str>",
+        "codeservo_commit": "<str>",
+        "codeservo_version": "<str>",
+        "git_version": "<str>",
+        "implementer_model": "claude-default",
+        "python_version": "<str>",
+        "review_actuator": "claude",
+        "review_actuator_version": "<str>",
+        "reviewer_model": "claude-default"
+      },
+      "schema_version": 16,
+      "sensors": {
+        "task-outcome": {
+          "path": "<str>",
+          "reference": "<str>",
+          "sha256": "<str>"
+        }
+      },
+      "started_at": "<str>",
+      "state_dir": "<str>",
+      "status": "ACCEPTED",
+      "task_sha256": "56817011cc5f488735d50b6877fcb589532fe6d63d7d878d31ece070f671ea51",
+      "worktree": "<str>"
+    },
+    "status": "ACCEPTED",
+    "verify_checks": {
+      "checks": [
+        {
+          "detail": "TASK.md",
+          "name": "input.TASK.md",
+          "status": "ok"
+        },
+        {
+          "detail": "constitution.toml",
+          "name": "input.constitution.toml",
+          "status": "ok"
+        },
+        {
+          "detail": "sensors/task-outcome",
+          "name": "sensor.task-outcome",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/syntax.stderr.log",
+          "name": "artifact.baseline/syntax.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/syntax.stdout.log",
+          "name": "artifact.baseline/syntax.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/full.stderr.log",
+          "name": "artifact.baseline/full.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/full.stdout.log",
+          "name": "artifact.baseline/full.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "full.patch",
+          "name": "artifact.full.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "full/full.stderr.log",
+          "name": "artifact.full/full.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "full/full.stdout.log",
+          "name": "artifact.full/full.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/actuator.patch",
+          "name": "artifact.iterations/01/actuator.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/events.jsonl",
+          "name": "artifact.iterations/01/agent/events.jsonl",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/last-message.md",
+          "name": "artifact.iterations/01/agent/last-message.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/stderr.log",
+          "name": "artifact.iterations/01/agent/stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/input.patch",
+          "name": "artifact.iterations/01/input.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/observed.patch",
+          "name": "artifact.iterations/01/observed.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/prompt.md",
+          "name": "artifact.iterations/01/prompt.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/syntax.stderr.log",
+          "name": "artifact.iterations/01/quick/syntax.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/syntax.stdout.log",
+          "name": "artifact.iterations/01/quick/syntax.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/task-outcome.stderr.log",
+          "name": "artifact.iterations/01/quick/task-outcome.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/task-outcome.stdout.log",
+          "name": "artifact.iterations/01/quick/task-outcome.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "review/review.json",
+          "name": "artifact.review/review.json",
+          "status": "ok"
+        },
+        {
+          "detail": "review/stderr.log",
+          "name": "artifact.review/stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "review/stdout.log",
+          "name": "artifact.review/stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "review/prompt.md",
+          "name": "artifact.review/prompt.md",
+          "status": "ok"
+        },
+        {
+          "detail": "change.patch",
+          "name": "artifact.change.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline.0.result_sha256",
+          "name": "digest.baseline.0",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline.1.result_sha256",
+          "name": "digest.baseline.1",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.quick_gates.0.result_sha256",
+          "name": "digest.iterations.1.quick_gates.0",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.quick_gates.1.result_sha256",
+          "name": "digest.iterations.1.quick_gates.1",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.agent.result_sha256",
+          "name": "digest.iterations.1.agent",
+          "status": "ok"
+        },
+        {
+          "detail": "full_gates.0.result_sha256",
+          "name": "digest.full_gates.0",
+          "status": "ok"
+        },
+        {
+          "detail": "review.result_sha256",
+          "name": "digest.review.result",
+          "status": "ok"
+        },
+        {
+          "detail": "review.observations_sha256",
+          "name": "digest.review.observations",
+          "status": "ok"
+        },
+        {
+          "detail": "review.meta.meta_sha256",
+          "name": "digest.review.meta",
+          "status": "ok"
+        },
+        {
+          "detail": "17 events",
+          "name": "journal.shape",
+          "status": "ok"
+        },
+        {
+          "detail": "17 events",
+          "name": "journal.sequence",
+          "status": "ok"
+        },
+        {
+          "detail": "17 events",
+          "name": "journal.chain",
+          "status": "ok"
+        },
+        {
+          "detail": "17 events",
+          "name": "journal.digests",
+          "status": "ok"
+        },
+        {
+          "detail": "17 events",
+          "name": "journal.events",
+          "status": "ok"
+        },
+        {
+          "detail": "ACCEPTED",
+          "name": "journal.decision",
+          "status": "ok"
+        }
+      ],
+      "failures": [],
+      "missing": [],
+      "run_id": "<str>",
+      "schema_version": 1,
+      "status": "VALID"
+    },
+    "verify_status": "VALID"
+  },
+  {
+    "artifacts": [
+      "TASK.md",
+      "baseline/full.stderr.log",
+      "baseline/full.stdout.log",
+      "baseline/syntax.stderr.log",
+      "baseline/syntax.stdout.log",
+      "change.patch",
+      "constitution.toml",
+      "events.jsonl",
+      "evidence.json",
+      "full.patch",
+      "full/full.stderr.log",
+      "full/full.stdout.log",
+      "iterations/01/actuator.patch",
+      "iterations/01/agent/events.jsonl",
+      "iterations/01/agent/last-message.md",
+      "iterations/01/agent/stderr.log",
+      "iterations/01/controller-feedback.md",
+      "iterations/01/input.patch",
+      "iterations/01/observed.patch",
+      "iterations/01/prompt.md",
+      "iterations/01/quick/syntax.stderr.log",
+      "iterations/01/quick/syntax.stdout.log",
+      "iterations/01/quick/task-outcome.stderr.log",
+      "iterations/01/quick/task-outcome.stdout.log",
+      "iterations/02/actuator.patch",
+      "iterations/02/agent/events.jsonl",
+      "iterations/02/agent/last-message.md",
+      "iterations/02/agent/stderr.log",
+      "iterations/02/input.patch",
+      "iterations/02/observed.patch",
+      "iterations/02/prompt.md",
+      "iterations/02/quick/syntax.stderr.log",
+      "iterations/02/quick/syntax.stdout.log",
+      "iterations/02/quick/task-outcome.stderr.log",
+      "iterations/02/quick/task-outcome.stdout.log",
+      "review/prompt.md",
+      "review/review.json",
+      "review/stderr.log",
+      "review/stdout.log",
+      "sensors/task-outcome/README.md"
+    ],
+    "case": "converges",
+    "event_payload_keys": [
+      [
+        "base_commit",
+        "max_iterations"
+      ],
+      [
+        "constitution_sha256",
+        "sensors",
+        "task_sha256"
+      ],
+      [
+        "implementer",
+        "reviewer"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "gate_count",
+        "passed"
+      ],
+      [
+        "base_commit"
+      ],
+      [
+        "iteration",
+        "prompt_sha256"
+      ],
+      [
+        "exit_code",
+        "iteration",
+        "result_sha256"
+      ],
+      [
+        "iteration",
+        "model",
+        "provenance"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "iteration",
+        "sha256"
+      ],
+      [
+        "iteration",
+        "prompt_sha256"
+      ],
+      [
+        "exit_code",
+        "iteration",
+        "result_sha256"
+      ],
+      [
+        "iteration",
+        "model",
+        "provenance"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "meta_sha256",
+        "result_sha256"
+      ],
+      [
+        "model",
+        "provenance"
+      ],
+      [
+        "reasons",
+        "status"
+      ],
+      [
+        "status"
+      ]
+    ],
+    "event_types": [
+      "run.started",
+      "inputs.frozen",
+      "inference.profiles_frozen",
+      "gate.finished",
+      "gate.finished",
+      "baseline.finished",
+      "workspace.ready",
+      "actuator.started",
+      "actuator.finished",
+      "actuator.profile_observed",
+      "gate.finished",
+      "gate.finished",
+      "feedback.emitted",
+      "actuator.started",
+      "actuator.finished",
+      "actuator.profile_observed",
+      "gate.finished",
+      "gate.finished",
+      "gate.finished",
+      "review.finished",
+      "review.profile_observed",
+      "decision.recorded",
+      "run.finished"
+    ],
+    "reasons": [],
+    "record": {
+      "actuator_isolation": {
+        "denied_paths": [
+          "../..",
+          "../../../sensors",
+          "../../../.git",
+          "../../../../repo/.git"
+        ],
+        "mechanism": "macos-sandbox-exec",
+        "read_only_paths": [
+          "../../../../repo",
+          "../../../worktrees/repo/<run-id>/.git"
+        ],
+        "user_config_ignored": true
+      },
+      "base_commit": "<str>",
+      "baseline": [
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "syntax",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        },
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "full",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        }
+      ],
+      "constitution_sha256": "<str>",
+      "decision": {
+        "reasons": []
+      },
+      "environment": {
+        "provider": "none"
+      },
+      "events": {
+        "count": 23,
+        "file_sha256": "<str>",
+        "head_sha256": "<str>",
+        "path": "<str>"
+      },
+      "finished_at": "<str>",
+      "full_gate_state": {
+        "path": "<str>",
+        "sha256": "<str>"
+      },
+      "full_gates": [
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "full",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        }
+      ],
+      "gate_isolation": {
+        "candidate": {
+          "denied_paths": [],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            ".",
+            "../../../worktrees/repo/<run-id>/.git"
+          ],
+          "user_config_ignored": true
+        },
+        "source": {
+          "denied_paths": [],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            ".",
+            "../../../../repo/.git"
+          ],
+          "user_config_ignored": true
+        }
+      },
+      "inference": {
+        "implementer": {
+          "native": {},
+          "observed": {
+            "effort": null,
+            "model": "harness-agent-model",
+            "speed": "standard"
+          },
+          "provenance": {
+            "effort": "not_reported",
+            "model": "reported",
+            "speed": "reported"
+          },
+          "requested": {
+            "backend": "claude",
+            "effort": null,
+            "model": null,
+            "speed": "standard"
+          },
+          "validation": {
+            "inventory_source": "unavailable",
+            "reason": "the claude inventory is unavailable: no cache schema has been verified for this backend",
+            "status": "unverified"
+          }
+        },
+        "reviewer": {
+          "native": {},
+          "observed": {
+            "effort": null,
+            "model": "harness-review-model",
+            "speed": "standard"
+          },
+          "provenance": {
+            "effort": "not_reported",
+            "model": "reported",
+            "speed": "reported"
+          },
+          "requested": {
+            "backend": "claude",
+            "effort": null,
+            "model": null,
+            "speed": "standard"
+          },
+          "validation": {
+            "inventory_source": "unavailable",
+            "reason": "the claude inventory is unavailable: no cache schema has been verified for this backend",
+            "status": "unverified"
+          }
+        }
+      },
+      "iterations": [
+        {
+          "actuator_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "agent": {
+            "command": "<list>",
+            "duration_ms": "<int>",
+            "events_path": "iterations/01/agent/events.jsonl",
+            "events_sha256": "a17331664034dbb562d243b5a4f74997d70f8fb981e8d040eaaa721592076d52",
+            "exit_code": 0,
+            "last_message_path": "iterations/01/agent/last-message.md",
+            "last_message_sha256": "6842ca7df10554ecae09529503fafc52abfb2b8dca1747a0811da4adc6290f52",
+            "models": {
+              "session_model": "harness-agent-model",
+              "usage": "<dict>"
+            },
+            "native": {},
+            "observed": {
+              "effort": null,
+              "model": "harness-agent-model",
+              "speed": "standard"
+            },
+            "result_sha256": "<str>",
+            "session": {
+              "is_error": false,
+              "num_turns": "<int>",
+              "session_id": "<str>",
+              "subtype": "success",
+              "terminal_reason": null,
+              "total_cost_usd": "<NoneType>"
+            },
+            "stderr_path": "<str>",
+            "stderr_sha256": "<str>"
+          },
+          "controller_feedback": {
+            "path": "<str>",
+            "sha256": "<str>",
+            "text": "<str>"
+          },
+          "feedback_received": "",
+          "input_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "iteration": 1,
+          "observed_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "prompt": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "quick_gates": [
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "name": "syntax",
+              "passed": true,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            },
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 1,
+              "name": "task-outcome",
+              "passed": false,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            }
+          ],
+          "scope": {
+            "details": "<dict>",
+            "passed": true,
+            "summary": "<str>"
+          }
+        },
+        {
+          "actuator_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "agent": {
+            "command": "<list>",
+            "duration_ms": "<int>",
+            "events_path": "iterations/02/agent/events.jsonl",
+            "events_sha256": "a17331664034dbb562d243b5a4f74997d70f8fb981e8d040eaaa721592076d52",
+            "exit_code": 0,
+            "last_message_path": "iterations/02/agent/last-message.md",
+            "last_message_sha256": "6842ca7df10554ecae09529503fafc52abfb2b8dca1747a0811da4adc6290f52",
+            "models": {
+              "session_model": "harness-agent-model",
+              "usage": "<dict>"
+            },
+            "native": {},
+            "observed": {
+              "effort": null,
+              "model": "harness-agent-model",
+              "speed": "standard"
+            },
+            "result_sha256": "<str>",
+            "session": {
+              "is_error": false,
+              "num_turns": "<int>",
+              "session_id": "<str>",
+              "subtype": "success",
+              "terminal_reason": null,
+              "total_cost_usd": "<NoneType>"
+            },
+            "stderr_path": "<str>",
+            "stderr_sha256": "<str>"
+          },
+          "controller_feedback": null,
+          "feedback_received": "Gate task-outcome FAILED\nCommand: test -f \"$CODESERVO_SENSOR_PATH/README.md\" && grep -q \"return 2\" app.py\nExit code: 1\nstdout (tail):\n\nstderr (tail):",
+          "input_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "iteration": 2,
+          "observed_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "prompt": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "quick_gates": [
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "name": "syntax",
+              "passed": true,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            },
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "name": "task-outcome",
+              "passed": true,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            }
+          ],
+          "scope": {
+            "details": "<dict>",
+            "passed": true,
+            "summary": "<str>"
+          }
+        }
+      ],
+      "patch_sha256": "<str>",
+      "repo": "<str>",
+      "review": {
+        "isolation": {
+          "denied_paths": [
+            "../..",
+            "../../../sensors",
+            "../../../.git",
+            "../../../../repo/.git"
+          ],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            "../../../../repo",
+            "../../../worktrees/repo/<run-id>"
+          ],
+          "user_config_ignored": true
+        },
+        "meta": {
+          "command": "<list>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "meta_sha256": "<str>",
+          "models": {
+            "session_model": null,
+            "usage": "<dict>"
+          },
+          "native": {},
+          "observed": {
+            "effort": null,
+            "model": "harness-review-model",
+            "speed": "standard"
+          },
+          "result_path": "review/review.json",
+          "result_sha256": "<str>",
+          "schema_sha256": "83f4c991574067c52722d1d7be46614a92c920fae273f118b508858473c51e0d",
+          "session": {
+            "is_error": false,
+            "num_turns": "<int>",
+            "session_id": "<str>",
+            "subtype": "success",
+            "terminal_reason": null,
+            "total_cost_usd": "<NoneType>"
+          },
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>"
+        },
+        "observations": {
+          "gates": [
+            {
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "kind": "repository_gate",
+              "name": "syntax",
+              "passed": true,
+              "phase": "quick",
+              "result_sha256": "<str>",
+              "sensor": null,
+              "stderr_sha256": "<str>",
+              "stderr_tail": "<str>",
+              "stdout_sha256": "<str>",
+              "stdout_tail": "<str>",
+              "timed_out": false
+            },
+            {
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "kind": "external_sensor",
+              "name": "task-outcome",
+              "passed": true,
+              "phase": "quick",
+              "result_sha256": "<str>",
+              "sensor": "test/task-outcome",
+              "stderr_sha256": "<str>",
+              "stderr_tail": "<str>",
+              "stdout_sha256": "<str>",
+              "stdout_tail": "<str>",
+              "timed_out": false
+            },
+            {
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "kind": "repository_gate",
+              "name": "full",
+              "passed": true,
+              "phase": "full",
+              "result_sha256": "<str>",
+              "sensor": null,
+              "stderr_sha256": "<str>",
+              "stderr_tail": "<str>",
+              "stdout_sha256": "<str>",
+              "stdout_tail": "<str>",
+              "timed_out": false
+            }
+          ],
+          "schema_version": 1
+        },
+        "observations_sha256": "<str>",
+        "prompt": {
+          "path": "<str>",
+          "sha256": "<str>"
+        },
+        "result": {
+          "criteria": [
+            {
+              "evidence": "<str>",
+              "id": "AC1",
+              "status": "satisfied"
+            }
+          ],
+          "findings": []
+        },
+        "result_sha256": "<str>"
+      },
+      "run_dir": "<str>",
+      "run_id": "<str>",
+      "runtime": {
+        "actuator": "claude",
+        "actuator_version": "<str>",
+        "codeservo_commit": "<str>",
+        "codeservo_version": "<str>",
+        "git_version": "<str>",
+        "implementer_model": "claude-default",
+        "python_version": "<str>",
+        "review_actuator": "claude",
+        "review_actuator_version": "<str>",
+        "reviewer_model": "claude-default"
+      },
+      "schema_version": 16,
+      "sensors": {
+        "task-outcome": {
+          "path": "<str>",
+          "reference": "<str>",
+          "sha256": "<str>"
+        }
+      },
+      "started_at": "<str>",
+      "state_dir": "<str>",
+      "status": "ACCEPTED",
+      "task_sha256": "56817011cc5f488735d50b6877fcb589532fe6d63d7d878d31ece070f671ea51",
+      "worktree": "<str>"
+    },
+    "status": "ACCEPTED",
+    "verify_checks": {
+      "checks": [
+        {
+          "detail": "TASK.md",
+          "name": "input.TASK.md",
+          "status": "ok"
+        },
+        {
+          "detail": "constitution.toml",
+          "name": "input.constitution.toml",
+          "status": "ok"
+        },
+        {
+          "detail": "sensors/task-outcome",
+          "name": "sensor.task-outcome",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/syntax.stderr.log",
+          "name": "artifact.baseline/syntax.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/syntax.stdout.log",
+          "name": "artifact.baseline/syntax.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/full.stderr.log",
+          "name": "artifact.baseline/full.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/full.stdout.log",
+          "name": "artifact.baseline/full.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "full.patch",
+          "name": "artifact.full.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "full/full.stderr.log",
+          "name": "artifact.full/full.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "full/full.stdout.log",
+          "name": "artifact.full/full.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/actuator.patch",
+          "name": "artifact.iterations/01/actuator.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/events.jsonl",
+          "name": "artifact.iterations/01/agent/events.jsonl",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/last-message.md",
+          "name": "artifact.iterations/01/agent/last-message.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/stderr.log",
+          "name": "artifact.iterations/01/agent/stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/controller-feedback.md",
+          "name": "artifact.iterations/01/controller-feedback.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/input.patch",
+          "name": "artifact.iterations/01/input.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/observed.patch",
+          "name": "artifact.iterations/01/observed.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/prompt.md",
+          "name": "artifact.iterations/01/prompt.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/syntax.stderr.log",
+          "name": "artifact.iterations/01/quick/syntax.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/syntax.stdout.log",
+          "name": "artifact.iterations/01/quick/syntax.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/task-outcome.stderr.log",
+          "name": "artifact.iterations/01/quick/task-outcome.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/task-outcome.stdout.log",
+          "name": "artifact.iterations/01/quick/task-outcome.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/actuator.patch",
+          "name": "artifact.iterations/02/actuator.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/agent/events.jsonl",
+          "name": "artifact.iterations/02/agent/events.jsonl",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/agent/last-message.md",
+          "name": "artifact.iterations/02/agent/last-message.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/agent/stderr.log",
+          "name": "artifact.iterations/02/agent/stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/input.patch",
+          "name": "artifact.iterations/02/input.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/observed.patch",
+          "name": "artifact.iterations/02/observed.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/prompt.md",
+          "name": "artifact.iterations/02/prompt.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/quick/syntax.stderr.log",
+          "name": "artifact.iterations/02/quick/syntax.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/quick/syntax.stdout.log",
+          "name": "artifact.iterations/02/quick/syntax.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/quick/task-outcome.stderr.log",
+          "name": "artifact.iterations/02/quick/task-outcome.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/quick/task-outcome.stdout.log",
+          "name": "artifact.iterations/02/quick/task-outcome.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "review/review.json",
+          "name": "artifact.review/review.json",
+          "status": "ok"
+        },
+        {
+          "detail": "review/stderr.log",
+          "name": "artifact.review/stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "review/stdout.log",
+          "name": "artifact.review/stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "review/prompt.md",
+          "name": "artifact.review/prompt.md",
+          "status": "ok"
+        },
+        {
+          "detail": "change.patch",
+          "name": "artifact.change.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline.0.result_sha256",
+          "name": "digest.baseline.0",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline.1.result_sha256",
+          "name": "digest.baseline.1",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.quick_gates.0.result_sha256",
+          "name": "digest.iterations.1.quick_gates.0",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.quick_gates.1.result_sha256",
+          "name": "digest.iterations.1.quick_gates.1",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.agent.result_sha256",
+          "name": "digest.iterations.1.agent",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.2.quick_gates.0.result_sha256",
+          "name": "digest.iterations.2.quick_gates.0",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.2.quick_gates.1.result_sha256",
+          "name": "digest.iterations.2.quick_gates.1",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.2.agent.result_sha256",
+          "name": "digest.iterations.2.agent",
+          "status": "ok"
+        },
+        {
+          "detail": "full_gates.0.result_sha256",
+          "name": "digest.full_gates.0",
+          "status": "ok"
+        },
+        {
+          "detail": "review.result_sha256",
+          "name": "digest.review.result",
+          "status": "ok"
+        },
+        {
+          "detail": "review.observations_sha256",
+          "name": "digest.review.observations",
+          "status": "ok"
+        },
+        {
+          "detail": "review.meta.meta_sha256",
+          "name": "digest.review.meta",
+          "status": "ok"
+        },
+        {
+          "detail": "23 events",
+          "name": "journal.shape",
+          "status": "ok"
+        },
+        {
+          "detail": "23 events",
+          "name": "journal.sequence",
+          "status": "ok"
+        },
+        {
+          "detail": "23 events",
+          "name": "journal.chain",
+          "status": "ok"
+        },
+        {
+          "detail": "23 events",
+          "name": "journal.digests",
+          "status": "ok"
+        },
+        {
+          "detail": "23 events",
+          "name": "journal.events",
+          "status": "ok"
+        },
+        {
+          "detail": "ACCEPTED",
+          "name": "journal.decision",
+          "status": "ok"
+        }
+      ],
+      "failures": [],
+      "missing": [],
+      "run_id": "<str>",
+      "schema_version": 1,
+      "status": "VALID"
+    },
+    "verify_status": "VALID"
+  },
+  {
+    "artifacts": [
+      "TASK.md",
+      "baseline/full.stderr.log",
+      "baseline/full.stdout.log",
+      "baseline/syntax.stderr.log",
+      "baseline/syntax.stdout.log",
+      "change.patch",
+      "constitution.toml",
+      "events.jsonl",
+      "evidence.json",
+      "iterations/01/actuator.patch",
+      "iterations/01/agent/events.jsonl",
+      "iterations/01/agent/last-message.md",
+      "iterations/01/agent/stderr.log",
+      "iterations/01/controller-feedback.md",
+      "iterations/01/input.patch",
+      "iterations/01/observed.patch",
+      "iterations/01/prompt.md",
+      "iterations/01/quick/syntax.stderr.log",
+      "iterations/01/quick/syntax.stdout.log",
+      "iterations/01/quick/task-outcome.stderr.log",
+      "iterations/01/quick/task-outcome.stdout.log",
+      "iterations/02/actuator.patch",
+      "iterations/02/agent/events.jsonl",
+      "iterations/02/agent/last-message.md",
+      "iterations/02/agent/stderr.log",
+      "iterations/02/controller-feedback.md",
+      "iterations/02/input.patch",
+      "iterations/02/observed.patch",
+      "iterations/02/prompt.md",
+      "iterations/02/quick/syntax.stderr.log",
+      "iterations/02/quick/syntax.stdout.log",
+      "iterations/02/quick/task-outcome.stderr.log",
+      "iterations/02/quick/task-outcome.stdout.log",
+      "sensors/task-outcome/README.md"
+    ],
+    "case": "never-converges",
+    "event_payload_keys": [
+      [
+        "base_commit",
+        "max_iterations"
+      ],
+      [
+        "constitution_sha256",
+        "sensors",
+        "task_sha256"
+      ],
+      [
+        "implementer",
+        "reviewer"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "gate_count",
+        "passed"
+      ],
+      [
+        "base_commit"
+      ],
+      [
+        "iteration",
+        "prompt_sha256"
+      ],
+      [
+        "exit_code",
+        "iteration",
+        "result_sha256"
+      ],
+      [
+        "iteration",
+        "model",
+        "provenance"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "iteration",
+        "sha256"
+      ],
+      [
+        "iteration",
+        "prompt_sha256"
+      ],
+      [
+        "exit_code",
+        "iteration",
+        "result_sha256"
+      ],
+      [
+        "iteration",
+        "model",
+        "provenance"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "iteration",
+        "sha256"
+      ],
+      [
+        "max_iterations"
+      ],
+      [
+        "reasons",
+        "status"
+      ],
+      [
+        "status"
+      ]
+    ],
+    "event_types": [
+      "run.started",
+      "inputs.frozen",
+      "inference.profiles_frozen",
+      "gate.finished",
+      "gate.finished",
+      "baseline.finished",
+      "workspace.ready",
+      "actuator.started",
+      "actuator.finished",
+      "actuator.profile_observed",
+      "gate.finished",
+      "gate.finished",
+      "feedback.emitted",
+      "actuator.started",
+      "actuator.finished",
+      "actuator.profile_observed",
+      "gate.finished",
+      "gate.finished",
+      "feedback.emitted",
+      "budget.exhausted",
+      "decision.recorded",
+      "run.finished"
+    ],
+    "reasons": [
+      "quick gates did not converge within 2 iterations"
+    ],
+    "record": {
+      "actuator_isolation": {
+        "denied_paths": [
+          "../..",
+          "../../../sensors",
+          "../../../.git",
+          "../../../../repo/.git"
+        ],
+        "mechanism": "macos-sandbox-exec",
+        "read_only_paths": [
+          "../../../../repo",
+          "../../../worktrees/repo/<run-id>/.git"
+        ],
+        "user_config_ignored": true
+      },
+      "base_commit": "<str>",
+      "baseline": [
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "syntax",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        },
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "full",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        }
+      ],
+      "constitution_sha256": "<str>",
+      "decision": {
+        "reasons": [
+          "quick gates did not converge within 2 iterations"
+        ]
+      },
+      "environment": {
+        "provider": "none"
+      },
+      "events": {
+        "count": 22,
+        "file_sha256": "<str>",
+        "head_sha256": "<str>",
+        "path": "<str>"
+      },
+      "finished_at": "<str>",
+      "gate_isolation": {
+        "candidate": {
+          "denied_paths": [],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            ".",
+            "../../../worktrees/repo/<run-id>/.git"
+          ],
+          "user_config_ignored": true
+        },
+        "source": {
+          "denied_paths": [],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            ".",
+            "../../../../repo/.git"
+          ],
+          "user_config_ignored": true
+        }
+      },
+      "inference": {
+        "implementer": {
+          "native": {},
+          "observed": {
+            "effort": null,
+            "model": "harness-agent-model",
+            "speed": "standard"
+          },
+          "provenance": {
+            "effort": "not_reported",
+            "model": "reported",
+            "speed": "reported"
+          },
+          "requested": {
+            "backend": "claude",
+            "effort": null,
+            "model": null,
+            "speed": "standard"
+          },
+          "validation": {
+            "inventory_source": "unavailable",
+            "reason": "the claude inventory is unavailable: no cache schema has been verified for this backend",
+            "status": "unverified"
+          }
+        },
+        "reviewer": {
+          "native": null,
+          "observed": {
+            "effort": null,
+            "model": null,
+            "speed": null
+          },
+          "provenance": {
+            "effort": "not_reported",
+            "model": "not_reported",
+            "speed": "not_reported"
+          },
+          "requested": {
+            "backend": "claude",
+            "effort": null,
+            "model": null,
+            "speed": "standard"
+          },
+          "validation": {
+            "inventory_source": "unavailable",
+            "reason": "the claude inventory is unavailable: no cache schema has been verified for this backend",
+            "status": "unverified"
+          }
+        }
+      },
+      "iterations": [
+        {
+          "actuator_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "agent": {
+            "command": "<list>",
+            "duration_ms": "<int>",
+            "events_path": "iterations/01/agent/events.jsonl",
+            "events_sha256": "a17331664034dbb562d243b5a4f74997d70f8fb981e8d040eaaa721592076d52",
+            "exit_code": 0,
+            "last_message_path": "iterations/01/agent/last-message.md",
+            "last_message_sha256": "6842ca7df10554ecae09529503fafc52abfb2b8dca1747a0811da4adc6290f52",
+            "models": {
+              "session_model": "harness-agent-model",
+              "usage": "<dict>"
+            },
+            "native": {},
+            "observed": {
+              "effort": null,
+              "model": "harness-agent-model",
+              "speed": "standard"
+            },
+            "result_sha256": "<str>",
+            "session": {
+              "is_error": false,
+              "num_turns": "<int>",
+              "session_id": "<str>",
+              "subtype": "success",
+              "terminal_reason": null,
+              "total_cost_usd": "<NoneType>"
+            },
+            "stderr_path": "<str>",
+            "stderr_sha256": "<str>"
+          },
+          "controller_feedback": {
+            "path": "<str>",
+            "sha256": "<str>",
+            "text": "<str>"
+          },
+          "feedback_received": "",
+          "input_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "iteration": 1,
+          "observed_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "prompt": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "quick_gates": [
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "name": "syntax",
+              "passed": true,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            },
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 1,
+              "name": "task-outcome",
+              "passed": false,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            }
+          ],
+          "scope": {
+            "details": "<dict>",
+            "passed": true,
+            "summary": "<str>"
+          }
+        },
+        {
+          "actuator_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "agent": {
+            "command": "<list>",
+            "duration_ms": "<int>",
+            "events_path": "iterations/02/agent/events.jsonl",
+            "events_sha256": "a17331664034dbb562d243b5a4f74997d70f8fb981e8d040eaaa721592076d52",
+            "exit_code": 0,
+            "last_message_path": "iterations/02/agent/last-message.md",
+            "last_message_sha256": "6842ca7df10554ecae09529503fafc52abfb2b8dca1747a0811da4adc6290f52",
+            "models": {
+              "session_model": "harness-agent-model",
+              "usage": "<dict>"
+            },
+            "native": {},
+            "observed": {
+              "effort": null,
+              "model": "harness-agent-model",
+              "speed": "standard"
+            },
+            "result_sha256": "<str>",
+            "session": {
+              "is_error": false,
+              "num_turns": "<int>",
+              "session_id": "<str>",
+              "subtype": "success",
+              "terminal_reason": null,
+              "total_cost_usd": "<NoneType>"
+            },
+            "stderr_path": "<str>",
+            "stderr_sha256": "<str>"
+          },
+          "controller_feedback": {
+            "path": "<str>",
+            "sha256": "<str>",
+            "text": "<str>"
+          },
+          "feedback_received": "Gate task-outcome FAILED\nCommand: test -f \"$CODESERVO_SENSOR_PATH/README.md\" && grep -q \"return 2\" app.py\nExit code: 1\nstdout (tail):\n\nstderr (tail):",
+          "input_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "iteration": 2,
+          "observed_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "prompt": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "quick_gates": [
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "name": "syntax",
+              "passed": true,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            },
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 1,
+              "name": "task-outcome",
+              "passed": false,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            }
+          ],
+          "scope": {
+            "details": "<dict>",
+            "passed": true,
+            "summary": "<str>"
+          }
+        }
+      ],
+      "patch_sha256": "<str>",
+      "repo": "<str>",
+      "run_dir": "<str>",
+      "run_id": "<str>",
+      "runtime": {
+        "actuator": "claude",
+        "actuator_version": "<str>",
+        "codeservo_commit": "<str>",
+        "codeservo_version": "<str>",
+        "git_version": "<str>",
+        "implementer_model": "claude-default",
+        "python_version": "<str>",
+        "review_actuator": "claude",
+        "review_actuator_version": "<str>",
+        "reviewer_model": "claude-default"
+      },
+      "schema_version": 16,
+      "sensors": {
+        "task-outcome": {
+          "path": "<str>",
+          "reference": "<str>",
+          "sha256": "<str>"
+        }
+      },
+      "started_at": "<str>",
+      "state_dir": "<str>",
+      "status": "REJECTED",
+      "task_sha256": "56817011cc5f488735d50b6877fcb589532fe6d63d7d878d31ece070f671ea51",
+      "worktree": "<str>"
+    },
+    "status": "REJECTED",
+    "verify_checks": {
+      "checks": [
+        {
+          "detail": "TASK.md",
+          "name": "input.TASK.md",
+          "status": "ok"
+        },
+        {
+          "detail": "constitution.toml",
+          "name": "input.constitution.toml",
+          "status": "ok"
+        },
+        {
+          "detail": "sensors/task-outcome",
+          "name": "sensor.task-outcome",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/syntax.stderr.log",
+          "name": "artifact.baseline/syntax.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/syntax.stdout.log",
+          "name": "artifact.baseline/syntax.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/full.stderr.log",
+          "name": "artifact.baseline/full.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/full.stdout.log",
+          "name": "artifact.baseline/full.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/actuator.patch",
+          "name": "artifact.iterations/01/actuator.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/events.jsonl",
+          "name": "artifact.iterations/01/agent/events.jsonl",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/last-message.md",
+          "name": "artifact.iterations/01/agent/last-message.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/stderr.log",
+          "name": "artifact.iterations/01/agent/stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/controller-feedback.md",
+          "name": "artifact.iterations/01/controller-feedback.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/input.patch",
+          "name": "artifact.iterations/01/input.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/observed.patch",
+          "name": "artifact.iterations/01/observed.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/prompt.md",
+          "name": "artifact.iterations/01/prompt.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/syntax.stderr.log",
+          "name": "artifact.iterations/01/quick/syntax.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/syntax.stdout.log",
+          "name": "artifact.iterations/01/quick/syntax.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/task-outcome.stderr.log",
+          "name": "artifact.iterations/01/quick/task-outcome.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/task-outcome.stdout.log",
+          "name": "artifact.iterations/01/quick/task-outcome.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/actuator.patch",
+          "name": "artifact.iterations/02/actuator.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/agent/events.jsonl",
+          "name": "artifact.iterations/02/agent/events.jsonl",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/agent/last-message.md",
+          "name": "artifact.iterations/02/agent/last-message.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/agent/stderr.log",
+          "name": "artifact.iterations/02/agent/stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/controller-feedback.md",
+          "name": "artifact.iterations/02/controller-feedback.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/input.patch",
+          "name": "artifact.iterations/02/input.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/observed.patch",
+          "name": "artifact.iterations/02/observed.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/prompt.md",
+          "name": "artifact.iterations/02/prompt.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/quick/syntax.stderr.log",
+          "name": "artifact.iterations/02/quick/syntax.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/quick/syntax.stdout.log",
+          "name": "artifact.iterations/02/quick/syntax.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/quick/task-outcome.stderr.log",
+          "name": "artifact.iterations/02/quick/task-outcome.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/02/quick/task-outcome.stdout.log",
+          "name": "artifact.iterations/02/quick/task-outcome.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "change.patch",
+          "name": "artifact.change.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline.0.result_sha256",
+          "name": "digest.baseline.0",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline.1.result_sha256",
+          "name": "digest.baseline.1",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.quick_gates.0.result_sha256",
+          "name": "digest.iterations.1.quick_gates.0",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.quick_gates.1.result_sha256",
+          "name": "digest.iterations.1.quick_gates.1",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.agent.result_sha256",
+          "name": "digest.iterations.1.agent",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.2.quick_gates.0.result_sha256",
+          "name": "digest.iterations.2.quick_gates.0",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.2.quick_gates.1.result_sha256",
+          "name": "digest.iterations.2.quick_gates.1",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.2.agent.result_sha256",
+          "name": "digest.iterations.2.agent",
+          "status": "ok"
+        },
+        {
+          "detail": "22 events",
+          "name": "journal.shape",
+          "status": "ok"
+        },
+        {
+          "detail": "22 events",
+          "name": "journal.sequence",
+          "status": "ok"
+        },
+        {
+          "detail": "22 events",
+          "name": "journal.chain",
+          "status": "ok"
+        },
+        {
+          "detail": "22 events",
+          "name": "journal.digests",
+          "status": "ok"
+        },
+        {
+          "detail": "22 events",
+          "name": "journal.events",
+          "status": "ok"
+        },
+        {
+          "detail": "REJECTED",
+          "name": "journal.decision",
+          "status": "ok"
+        }
+      ],
+      "failures": [],
+      "missing": [],
+      "run_id": "<str>",
+      "schema_version": 1,
+      "status": "VALID"
+    },
+    "verify_status": "VALID"
+  },
+  {
+    "artifacts": [
+      "TASK.md",
+      "baseline/full.stderr.log",
+      "baseline/full.stdout.log",
+      "baseline/syntax.stderr.log",
+      "baseline/syntax.stdout.log",
+      "change.patch",
+      "constitution.toml",
+      "events.jsonl",
+      "evidence.json",
+      "full.patch",
+      "full/full.stderr.log",
+      "full/full.stdout.log",
+      "iterations/01/actuator.patch",
+      "iterations/01/agent/events.jsonl",
+      "iterations/01/agent/last-message.md",
+      "iterations/01/agent/stderr.log",
+      "iterations/01/input.patch",
+      "iterations/01/observed.patch",
+      "iterations/01/prompt.md",
+      "iterations/01/quick/syntax.stderr.log",
+      "iterations/01/quick/syntax.stdout.log",
+      "iterations/01/quick/task-outcome.stderr.log",
+      "iterations/01/quick/task-outcome.stdout.log",
+      "review/prompt.md",
+      "review/review.json",
+      "review/stderr.log",
+      "review/stdout.log",
+      "sensors/task-outcome/README.md"
+    ],
+    "case": "review-rejects",
+    "event_payload_keys": [
+      [
+        "base_commit",
+        "max_iterations"
+      ],
+      [
+        "constitution_sha256",
+        "sensors",
+        "task_sha256"
+      ],
+      [
+        "implementer",
+        "reviewer"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "gate_count",
+        "passed"
+      ],
+      [
+        "base_commit"
+      ],
+      [
+        "iteration",
+        "prompt_sha256"
+      ],
+      [
+        "exit_code",
+        "iteration",
+        "result_sha256"
+      ],
+      [
+        "iteration",
+        "model",
+        "provenance"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "meta_sha256",
+        "result_sha256"
+      ],
+      [
+        "model",
+        "provenance"
+      ],
+      [
+        "reasons",
+        "status"
+      ],
+      [
+        "status"
+      ]
+    ],
+    "event_types": [
+      "run.started",
+      "inputs.frozen",
+      "inference.profiles_frozen",
+      "gate.finished",
+      "gate.finished",
+      "baseline.finished",
+      "workspace.ready",
+      "actuator.started",
+      "actuator.finished",
+      "actuator.profile_observed",
+      "gate.finished",
+      "gate.finished",
+      "gate.finished",
+      "review.finished",
+      "review.profile_observed",
+      "decision.recorded",
+      "run.finished"
+    ],
+    "reasons": [
+      "criterion AC1 is unsatisfied",
+      "blocker finding: m"
+    ],
+    "record": {
+      "actuator_isolation": {
+        "denied_paths": [
+          "../..",
+          "../../../sensors",
+          "../../../.git",
+          "../../../../repo/.git"
+        ],
+        "mechanism": "macos-sandbox-exec",
+        "read_only_paths": [
+          "../../../../repo",
+          "../../../worktrees/repo/<run-id>/.git"
+        ],
+        "user_config_ignored": true
+      },
+      "base_commit": "<str>",
+      "baseline": [
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "syntax",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        },
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "full",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        }
+      ],
+      "constitution_sha256": "<str>",
+      "decision": {
+        "reasons": [
+          "criterion AC1 is unsatisfied",
+          "blocker finding: m"
+        ]
+      },
+      "environment": {
+        "provider": "none"
+      },
+      "events": {
+        "count": 17,
+        "file_sha256": "<str>",
+        "head_sha256": "<str>",
+        "path": "<str>"
+      },
+      "finished_at": "<str>",
+      "full_gate_state": {
+        "path": "<str>",
+        "sha256": "<str>"
+      },
+      "full_gates": [
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "full",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        }
+      ],
+      "gate_isolation": {
+        "candidate": {
+          "denied_paths": [],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            ".",
+            "../../../worktrees/repo/<run-id>/.git"
+          ],
+          "user_config_ignored": true
+        },
+        "source": {
+          "denied_paths": [],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            ".",
+            "../../../../repo/.git"
+          ],
+          "user_config_ignored": true
+        }
+      },
+      "inference": {
+        "implementer": {
+          "native": {},
+          "observed": {
+            "effort": null,
+            "model": "harness-agent-model",
+            "speed": "standard"
+          },
+          "provenance": {
+            "effort": "not_reported",
+            "model": "reported",
+            "speed": "reported"
+          },
+          "requested": {
+            "backend": "claude",
+            "effort": null,
+            "model": null,
+            "speed": "standard"
+          },
+          "validation": {
+            "inventory_source": "unavailable",
+            "reason": "the claude inventory is unavailable: no cache schema has been verified for this backend",
+            "status": "unverified"
+          }
+        },
+        "reviewer": {
+          "native": {},
+          "observed": {
+            "effort": null,
+            "model": "harness-review-model",
+            "speed": "standard"
+          },
+          "provenance": {
+            "effort": "not_reported",
+            "model": "reported",
+            "speed": "reported"
+          },
+          "requested": {
+            "backend": "claude",
+            "effort": null,
+            "model": null,
+            "speed": "standard"
+          },
+          "validation": {
+            "inventory_source": "unavailable",
+            "reason": "the claude inventory is unavailable: no cache schema has been verified for this backend",
+            "status": "unverified"
+          }
+        }
+      },
+      "iterations": [
+        {
+          "actuator_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "agent": {
+            "command": "<list>",
+            "duration_ms": "<int>",
+            "events_path": "iterations/01/agent/events.jsonl",
+            "events_sha256": "a17331664034dbb562d243b5a4f74997d70f8fb981e8d040eaaa721592076d52",
+            "exit_code": 0,
+            "last_message_path": "iterations/01/agent/last-message.md",
+            "last_message_sha256": "6842ca7df10554ecae09529503fafc52abfb2b8dca1747a0811da4adc6290f52",
+            "models": {
+              "session_model": "harness-agent-model",
+              "usage": "<dict>"
+            },
+            "native": {},
+            "observed": {
+              "effort": null,
+              "model": "harness-agent-model",
+              "speed": "standard"
+            },
+            "result_sha256": "<str>",
+            "session": {
+              "is_error": false,
+              "num_turns": "<int>",
+              "session_id": "<str>",
+              "subtype": "success",
+              "terminal_reason": null,
+              "total_cost_usd": "<NoneType>"
+            },
+            "stderr_path": "<str>",
+            "stderr_sha256": "<str>"
+          },
+          "controller_feedback": null,
+          "feedback_received": "",
+          "input_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "iteration": 1,
+          "observed_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "prompt": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "quick_gates": [
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "name": "syntax",
+              "passed": true,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            },
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "name": "task-outcome",
+              "passed": true,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            }
+          ],
+          "scope": {
+            "details": "<dict>",
+            "passed": true,
+            "summary": "<str>"
+          }
+        }
+      ],
+      "patch_sha256": "<str>",
+      "repo": "<str>",
+      "review": {
+        "isolation": {
+          "denied_paths": [
+            "../..",
+            "../../../sensors",
+            "../../../.git",
+            "../../../../repo/.git"
+          ],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            "../../../../repo",
+            "../../../worktrees/repo/<run-id>"
+          ],
+          "user_config_ignored": true
+        },
+        "meta": {
+          "command": "<list>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "meta_sha256": "<str>",
+          "models": {
+            "session_model": null,
+            "usage": "<dict>"
+          },
+          "native": {},
+          "observed": {
+            "effort": null,
+            "model": "harness-review-model",
+            "speed": "standard"
+          },
+          "result_path": "review/review.json",
+          "result_sha256": "<str>",
+          "schema_sha256": "83f4c991574067c52722d1d7be46614a92c920fae273f118b508858473c51e0d",
+          "session": {
+            "is_error": false,
+            "num_turns": "<int>",
+            "session_id": "<str>",
+            "subtype": "success",
+            "terminal_reason": null,
+            "total_cost_usd": "<NoneType>"
+          },
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>"
+        },
+        "observations": {
+          "gates": [
+            {
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "kind": "repository_gate",
+              "name": "syntax",
+              "passed": true,
+              "phase": "quick",
+              "result_sha256": "<str>",
+              "sensor": null,
+              "stderr_sha256": "<str>",
+              "stderr_tail": "<str>",
+              "stdout_sha256": "<str>",
+              "stdout_tail": "<str>",
+              "timed_out": false
+            },
+            {
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "kind": "external_sensor",
+              "name": "task-outcome",
+              "passed": true,
+              "phase": "quick",
+              "result_sha256": "<str>",
+              "sensor": "test/task-outcome",
+              "stderr_sha256": "<str>",
+              "stderr_tail": "<str>",
+              "stdout_sha256": "<str>",
+              "stdout_tail": "<str>",
+              "timed_out": false
+            },
+            {
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "kind": "repository_gate",
+              "name": "full",
+              "passed": true,
+              "phase": "full",
+              "result_sha256": "<str>",
+              "sensor": null,
+              "stderr_sha256": "<str>",
+              "stderr_tail": "<str>",
+              "stdout_sha256": "<str>",
+              "stdout_tail": "<str>",
+              "timed_out": false
+            }
+          ],
+          "schema_version": 1
+        },
+        "observations_sha256": "<str>",
+        "prompt": {
+          "path": "<str>",
+          "sha256": "<str>"
+        },
+        "result": {
+          "criteria": [
+            {
+              "evidence": "<str>",
+              "id": "AC1",
+              "status": "unsatisfied"
+            }
+          ],
+          "findings": [
+            {
+              "line": 1,
+              "message": "<str>",
+              "path": "<str>",
+              "severity": "blocker"
+            }
+          ]
+        },
+        "result_sha256": "<str>"
+      },
+      "run_dir": "<str>",
+      "run_id": "<str>",
+      "runtime": {
+        "actuator": "claude",
+        "actuator_version": "<str>",
+        "codeservo_commit": "<str>",
+        "codeservo_version": "<str>",
+        "git_version": "<str>",
+        "implementer_model": "claude-default",
+        "python_version": "<str>",
+        "review_actuator": "claude",
+        "review_actuator_version": "<str>",
+        "reviewer_model": "claude-default"
+      },
+      "schema_version": 16,
+      "sensors": {
+        "task-outcome": {
+          "path": "<str>",
+          "reference": "<str>",
+          "sha256": "<str>"
+        }
+      },
+      "started_at": "<str>",
+      "state_dir": "<str>",
+      "status": "REJECTED",
+      "task_sha256": "56817011cc5f488735d50b6877fcb589532fe6d63d7d878d31ece070f671ea51",
+      "worktree": "<str>"
+    },
+    "status": "REJECTED",
+    "verify_checks": {
+      "checks": [
+        {
+          "detail": "TASK.md",
+          "name": "input.TASK.md",
+          "status": "ok"
+        },
+        {
+          "detail": "constitution.toml",
+          "name": "input.constitution.toml",
+          "status": "ok"
+        },
+        {
+          "detail": "sensors/task-outcome",
+          "name": "sensor.task-outcome",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/syntax.stderr.log",
+          "name": "artifact.baseline/syntax.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/syntax.stdout.log",
+          "name": "artifact.baseline/syntax.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/full.stderr.log",
+          "name": "artifact.baseline/full.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/full.stdout.log",
+          "name": "artifact.baseline/full.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "full.patch",
+          "name": "artifact.full.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "full/full.stderr.log",
+          "name": "artifact.full/full.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "full/full.stdout.log",
+          "name": "artifact.full/full.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/actuator.patch",
+          "name": "artifact.iterations/01/actuator.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/events.jsonl",
+          "name": "artifact.iterations/01/agent/events.jsonl",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/last-message.md",
+          "name": "artifact.iterations/01/agent/last-message.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/stderr.log",
+          "name": "artifact.iterations/01/agent/stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/input.patch",
+          "name": "artifact.iterations/01/input.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/observed.patch",
+          "name": "artifact.iterations/01/observed.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/prompt.md",
+          "name": "artifact.iterations/01/prompt.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/syntax.stderr.log",
+          "name": "artifact.iterations/01/quick/syntax.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/syntax.stdout.log",
+          "name": "artifact.iterations/01/quick/syntax.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/task-outcome.stderr.log",
+          "name": "artifact.iterations/01/quick/task-outcome.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/task-outcome.stdout.log",
+          "name": "artifact.iterations/01/quick/task-outcome.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "review/review.json",
+          "name": "artifact.review/review.json",
+          "status": "ok"
+        },
+        {
+          "detail": "review/stderr.log",
+          "name": "artifact.review/stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "review/stdout.log",
+          "name": "artifact.review/stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "review/prompt.md",
+          "name": "artifact.review/prompt.md",
+          "status": "ok"
+        },
+        {
+          "detail": "change.patch",
+          "name": "artifact.change.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline.0.result_sha256",
+          "name": "digest.baseline.0",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline.1.result_sha256",
+          "name": "digest.baseline.1",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.quick_gates.0.result_sha256",
+          "name": "digest.iterations.1.quick_gates.0",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.quick_gates.1.result_sha256",
+          "name": "digest.iterations.1.quick_gates.1",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.agent.result_sha256",
+          "name": "digest.iterations.1.agent",
+          "status": "ok"
+        },
+        {
+          "detail": "full_gates.0.result_sha256",
+          "name": "digest.full_gates.0",
+          "status": "ok"
+        },
+        {
+          "detail": "review.result_sha256",
+          "name": "digest.review.result",
+          "status": "ok"
+        },
+        {
+          "detail": "review.observations_sha256",
+          "name": "digest.review.observations",
+          "status": "ok"
+        },
+        {
+          "detail": "review.meta.meta_sha256",
+          "name": "digest.review.meta",
+          "status": "ok"
+        },
+        {
+          "detail": "17 events",
+          "name": "journal.shape",
+          "status": "ok"
+        },
+        {
+          "detail": "17 events",
+          "name": "journal.sequence",
+          "status": "ok"
+        },
+        {
+          "detail": "17 events",
+          "name": "journal.chain",
+          "status": "ok"
+        },
+        {
+          "detail": "17 events",
+          "name": "journal.digests",
+          "status": "ok"
+        },
+        {
+          "detail": "17 events",
+          "name": "journal.events",
+          "status": "ok"
+        },
+        {
+          "detail": "REJECTED",
+          "name": "journal.decision",
+          "status": "ok"
+        }
+      ],
+      "failures": [],
+      "missing": [],
+      "run_id": "<str>",
+      "schema_version": 1,
+      "status": "VALID"
+    },
+    "verify_status": "VALID"
+  },
+  {
+    "artifacts": [
+      "TASK.md",
+      "baseline/full.stderr.log",
+      "baseline/full.stdout.log",
+      "baseline/syntax.stderr.log",
+      "baseline/syntax.stdout.log",
+      "change.patch",
+      "constitution.toml",
+      "environment/packages.json",
+      "events.jsonl",
+      "evidence.json",
+      "full.patch",
+      "full/full.stderr.log",
+      "full/full.stdout.log",
+      "iterations/01/actuator.patch",
+      "iterations/01/agent/events.jsonl",
+      "iterations/01/agent/last-message.md",
+      "iterations/01/agent/stderr.log",
+      "iterations/01/input.patch",
+      "iterations/01/observed.patch",
+      "iterations/01/prompt.md",
+      "iterations/01/quick/syntax.stderr.log",
+      "iterations/01/quick/syntax.stdout.log",
+      "iterations/01/quick/task-outcome.stderr.log",
+      "iterations/01/quick/task-outcome.stdout.log",
+      "review/prompt.md",
+      "review/review.json",
+      "review/stderr.log",
+      "review/stdout.log",
+      "sensors/task-outcome/README.md"
+    ],
+    "case": "provider",
+    "event_payload_keys": [
+      [
+        "base_commit",
+        "max_iterations"
+      ],
+      [
+        "constitution_sha256",
+        "sensors",
+        "task_sha256"
+      ],
+      [
+        "implementer",
+        "reviewer"
+      ],
+      [
+        "environment",
+        "passed",
+        "provider"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "gate_count",
+        "passed"
+      ],
+      [
+        "base_commit"
+      ],
+      [
+        "environment",
+        "exit_code"
+      ],
+      [
+        "iteration",
+        "prompt_sha256"
+      ],
+      [
+        "exit_code",
+        "iteration",
+        "result_sha256"
+      ],
+      [
+        "iteration",
+        "model",
+        "provenance"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "name",
+        "passed",
+        "phase",
+        "result_sha256"
+      ],
+      [
+        "meta_sha256",
+        "result_sha256"
+      ],
+      [
+        "model",
+        "provenance"
+      ],
+      [
+        "reasons",
+        "status"
+      ],
+      [
+        "status"
+      ]
+    ],
+    "event_types": [
+      "run.started",
+      "inputs.frozen",
+      "inference.profiles_frozen",
+      "environment.validated",
+      "gate.finished",
+      "gate.finished",
+      "baseline.finished",
+      "workspace.ready",
+      "environment.prepared",
+      "actuator.started",
+      "actuator.finished",
+      "actuator.profile_observed",
+      "gate.finished",
+      "gate.finished",
+      "gate.finished",
+      "review.finished",
+      "review.profile_observed",
+      "decision.recorded",
+      "run.finished"
+    ],
+    "reasons": [],
+    "record": {
+      "actuator_isolation": {
+        "denied_paths": [
+          "../..",
+          "../../../sensors",
+          "../../../.git",
+          "../../../../repo/.git"
+        ],
+        "mechanism": "macos-sandbox-exec",
+        "read_only_paths": [
+          "../../../../repo",
+          "../../../worktrees/repo/<run-id>/.git",
+          "../../../worktrees/repo/<run-id>/.pixi"
+        ],
+        "user_config_ignored": true
+      },
+      "base_commit": "<str>",
+      "baseline": [
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "syntax",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        },
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "full",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        }
+      ],
+      "constitution_sha256": "<str>",
+      "decision": {
+        "reasons": []
+      },
+      "environment": {
+        "candidate": {
+          "command": "<list>",
+          "config_sha256": "<NoneType>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "lock_sha256": "<str>",
+          "manifest_sha256": "<str>",
+          "prefix_path": "<str>",
+          "unchanged_at_end": true
+        },
+        "declared_tasks": "<list>",
+        "environment": "default",
+        "lock_path": "pixi.lock",
+        "lock_sha256": "<str>",
+        "manifest_path": "pyproject.toml",
+        "manifest_sha256": "<str>",
+        "package_count": 2,
+        "packages_path": "<str>",
+        "packages_sha256": "<str>",
+        "platform": "<str>",
+        "provider": "pixi",
+        "provider_version": "<str>"
+      },
+      "events": {
+        "count": 19,
+        "file_sha256": "<str>",
+        "head_sha256": "<str>",
+        "path": "<str>"
+      },
+      "finished_at": "<str>",
+      "full_gate_state": {
+        "path": "<str>",
+        "sha256": "<str>"
+      },
+      "full_gates": [
+        {
+          "command": "<str>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "name": "full",
+          "passed": true,
+          "result_format": "exit-code",
+          "result_sha256": "<str>",
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>",
+          "timed_out": false
+        }
+      ],
+      "gate_isolation": {
+        "candidate": {
+          "denied_paths": [],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            ".",
+            "../../../worktrees/repo/<run-id>/.git",
+            "../../../worktrees/repo/<run-id>/.pixi"
+          ],
+          "user_config_ignored": true
+        },
+        "source": {
+          "denied_paths": [],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            ".",
+            "../../../../repo/.git",
+            "../../../../repo/.pixi"
+          ],
+          "user_config_ignored": true
+        }
+      },
+      "inference": {
+        "implementer": {
+          "native": {},
+          "observed": {
+            "effort": null,
+            "model": "harness-agent-model",
+            "speed": "standard"
+          },
+          "provenance": {
+            "effort": "not_reported",
+            "model": "reported",
+            "speed": "reported"
+          },
+          "requested": {
+            "backend": "claude",
+            "effort": null,
+            "model": null,
+            "speed": "standard"
+          },
+          "validation": {
+            "inventory_source": "unavailable",
+            "reason": "the claude inventory is unavailable: no cache schema has been verified for this backend",
+            "status": "unverified"
+          }
+        },
+        "reviewer": {
+          "native": {},
+          "observed": {
+            "effort": null,
+            "model": "harness-review-model",
+            "speed": "standard"
+          },
+          "provenance": {
+            "effort": "not_reported",
+            "model": "reported",
+            "speed": "reported"
+          },
+          "requested": {
+            "backend": "claude",
+            "effort": null,
+            "model": null,
+            "speed": "standard"
+          },
+          "validation": {
+            "inventory_source": "unavailable",
+            "reason": "the claude inventory is unavailable: no cache schema has been verified for this backend",
+            "status": "unverified"
+          }
+        }
+      },
+      "iterations": [
+        {
+          "actuator_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "agent": {
+            "command": "<list>",
+            "duration_ms": "<int>",
+            "events_path": "iterations/01/agent/events.jsonl",
+            "events_sha256": "a17331664034dbb562d243b5a4f74997d70f8fb981e8d040eaaa721592076d52",
+            "exit_code": 0,
+            "last_message_path": "iterations/01/agent/last-message.md",
+            "last_message_sha256": "6842ca7df10554ecae09529503fafc52abfb2b8dca1747a0811da4adc6290f52",
+            "models": {
+              "session_model": "harness-agent-model",
+              "usage": "<dict>"
+            },
+            "native": {},
+            "observed": {
+              "effort": null,
+              "model": "harness-agent-model",
+              "speed": "standard"
+            },
+            "result_sha256": "<str>",
+            "session": {
+              "is_error": false,
+              "num_turns": "<int>",
+              "session_id": "<str>",
+              "subtype": "success",
+              "terminal_reason": null,
+              "total_cost_usd": "<NoneType>"
+            },
+            "stderr_path": "<str>",
+            "stderr_sha256": "<str>"
+          },
+          "controller_feedback": null,
+          "feedback_received": "",
+          "input_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "iteration": 1,
+          "observed_state": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "prompt": {
+            "path": "<str>",
+            "sha256": "<str>"
+          },
+          "quick_gates": [
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "name": "syntax",
+              "passed": true,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            },
+            {
+              "command": "<str>",
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "name": "task-outcome",
+              "passed": true,
+              "result_format": "exit-code",
+              "result_sha256": "<str>",
+              "stderr_path": "<str>",
+              "stderr_sha256": "<str>",
+              "stdout_path": "<str>",
+              "stdout_sha256": "<str>",
+              "timed_out": false
+            }
+          ],
+          "scope": {
+            "details": "<dict>",
+            "passed": true,
+            "summary": "<str>"
+          }
+        }
+      ],
+      "patch_sha256": "<str>",
+      "repo": "<str>",
+      "review": {
+        "isolation": {
+          "denied_paths": [
+            "../..",
+            "../../../sensors",
+            "../../../.git",
+            "../../../../repo/.git"
+          ],
+          "mechanism": "macos-sandbox-exec",
+          "read_only_paths": [
+            "../../../../repo",
+            "../../../worktrees/repo/<run-id>"
+          ],
+          "user_config_ignored": true
+        },
+        "meta": {
+          "command": "<list>",
+          "duration_ms": "<int>",
+          "exit_code": 0,
+          "meta_sha256": "<str>",
+          "models": {
+            "session_model": null,
+            "usage": "<dict>"
+          },
+          "native": {},
+          "observed": {
+            "effort": null,
+            "model": "harness-review-model",
+            "speed": "standard"
+          },
+          "result_path": "review/review.json",
+          "result_sha256": "<str>",
+          "schema_sha256": "83f4c991574067c52722d1d7be46614a92c920fae273f118b508858473c51e0d",
+          "session": {
+            "is_error": false,
+            "num_turns": "<int>",
+            "session_id": "<str>",
+            "subtype": "success",
+            "terminal_reason": null,
+            "total_cost_usd": "<NoneType>"
+          },
+          "stderr_path": "<str>",
+          "stderr_sha256": "<str>",
+          "stdout_path": "<str>",
+          "stdout_sha256": "<str>"
+        },
+        "observations": {
+          "gates": [
+            {
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "kind": "repository_gate",
+              "name": "syntax",
+              "passed": true,
+              "phase": "quick",
+              "result_sha256": "<str>",
+              "sensor": null,
+              "stderr_sha256": "<str>",
+              "stderr_tail": "<str>",
+              "stdout_sha256": "<str>",
+              "stdout_tail": "<str>",
+              "timed_out": false
+            },
+            {
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "kind": "external_sensor",
+              "name": "task-outcome",
+              "passed": true,
+              "phase": "quick",
+              "result_sha256": "<str>",
+              "sensor": "test/task-outcome",
+              "stderr_sha256": "<str>",
+              "stderr_tail": "<str>",
+              "stdout_sha256": "<str>",
+              "stdout_tail": "<str>",
+              "timed_out": false
+            },
+            {
+              "duration_ms": "<int>",
+              "exit_code": 0,
+              "kind": "repository_gate",
+              "name": "full",
+              "passed": true,
+              "phase": "full",
+              "result_sha256": "<str>",
+              "sensor": null,
+              "stderr_sha256": "<str>",
+              "stderr_tail": "<str>",
+              "stdout_sha256": "<str>",
+              "stdout_tail": "<str>",
+              "timed_out": false
+            }
+          ],
+          "schema_version": 1
+        },
+        "observations_sha256": "<str>",
+        "prompt": {
+          "path": "<str>",
+          "sha256": "<str>"
+        },
+        "result": {
+          "criteria": [
+            {
+              "evidence": "<str>",
+              "id": "AC1",
+              "status": "satisfied"
+            }
+          ],
+          "findings": []
+        },
+        "result_sha256": "<str>"
+      },
+      "run_dir": "<str>",
+      "run_id": "<str>",
+      "runtime": {
+        "actuator": "claude",
+        "actuator_version": "<str>",
+        "codeservo_commit": "<str>",
+        "codeservo_version": "<str>",
+        "git_version": "<str>",
+        "implementer_model": "claude-default",
+        "python_version": "<str>",
+        "review_actuator": "claude",
+        "review_actuator_version": "<str>",
+        "reviewer_model": "claude-default"
+      },
+      "schema_version": 16,
+      "sensors": {
+        "task-outcome": {
+          "path": "<str>",
+          "reference": "<str>",
+          "sha256": "<str>"
+        }
+      },
+      "started_at": "<str>",
+      "state_dir": "<str>",
+      "status": "ACCEPTED",
+      "task_sha256": "56817011cc5f488735d50b6877fcb589532fe6d63d7d878d31ece070f671ea51",
+      "worktree": "<str>"
+    },
+    "status": "ACCEPTED",
+    "verify_checks": {
+      "checks": [
+        {
+          "detail": "TASK.md",
+          "name": "input.TASK.md",
+          "status": "ok"
+        },
+        {
+          "detail": "constitution.toml",
+          "name": "input.constitution.toml",
+          "status": "ok"
+        },
+        {
+          "detail": "sensors/task-outcome",
+          "name": "sensor.task-outcome",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/syntax.stderr.log",
+          "name": "artifact.baseline/syntax.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/syntax.stdout.log",
+          "name": "artifact.baseline/syntax.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/full.stderr.log",
+          "name": "artifact.baseline/full.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline/full.stdout.log",
+          "name": "artifact.baseline/full.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "environment/packages.json",
+          "name": "artifact.environment/packages.json",
+          "status": "ok"
+        },
+        {
+          "detail": "full.patch",
+          "name": "artifact.full.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "full/full.stderr.log",
+          "name": "artifact.full/full.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "full/full.stdout.log",
+          "name": "artifact.full/full.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/actuator.patch",
+          "name": "artifact.iterations/01/actuator.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/events.jsonl",
+          "name": "artifact.iterations/01/agent/events.jsonl",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/last-message.md",
+          "name": "artifact.iterations/01/agent/last-message.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/agent/stderr.log",
+          "name": "artifact.iterations/01/agent/stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/input.patch",
+          "name": "artifact.iterations/01/input.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/observed.patch",
+          "name": "artifact.iterations/01/observed.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/prompt.md",
+          "name": "artifact.iterations/01/prompt.md",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/syntax.stderr.log",
+          "name": "artifact.iterations/01/quick/syntax.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/syntax.stdout.log",
+          "name": "artifact.iterations/01/quick/syntax.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/task-outcome.stderr.log",
+          "name": "artifact.iterations/01/quick/task-outcome.stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations/01/quick/task-outcome.stdout.log",
+          "name": "artifact.iterations/01/quick/task-outcome.stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "review/review.json",
+          "name": "artifact.review/review.json",
+          "status": "ok"
+        },
+        {
+          "detail": "review/stderr.log",
+          "name": "artifact.review/stderr.log",
+          "status": "ok"
+        },
+        {
+          "detail": "review/stdout.log",
+          "name": "artifact.review/stdout.log",
+          "status": "ok"
+        },
+        {
+          "detail": "review/prompt.md",
+          "name": "artifact.review/prompt.md",
+          "status": "ok"
+        },
+        {
+          "detail": "pyproject.toml: a file of the source repository, not of this run",
+          "name": "environment.manifest_path",
+          "status": "not_verifiable"
+        },
+        {
+          "detail": "pixi.lock: a file of the source repository, not of this run",
+          "name": "environment.lock_path",
+          "status": "not_verifiable"
+        },
+        {
+          "detail": "change.patch",
+          "name": "artifact.change.patch",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline.0.result_sha256",
+          "name": "digest.baseline.0",
+          "status": "ok"
+        },
+        {
+          "detail": "baseline.1.result_sha256",
+          "name": "digest.baseline.1",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.quick_gates.0.result_sha256",
+          "name": "digest.iterations.1.quick_gates.0",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.quick_gates.1.result_sha256",
+          "name": "digest.iterations.1.quick_gates.1",
+          "status": "ok"
+        },
+        {
+          "detail": "iterations.1.agent.result_sha256",
+          "name": "digest.iterations.1.agent",
+          "status": "ok"
+        },
+        {
+          "detail": "full_gates.0.result_sha256",
+          "name": "digest.full_gates.0",
+          "status": "ok"
+        },
+        {
+          "detail": "review.result_sha256",
+          "name": "digest.review.result",
+          "status": "ok"
+        },
+        {
+          "detail": "review.observations_sha256",
+          "name": "digest.review.observations",
+          "status": "ok"
+        },
+        {
+          "detail": "review.meta.meta_sha256",
+          "name": "digest.review.meta",
+          "status": "ok"
+        },
+        {
+          "detail": "19 events",
+          "name": "journal.shape",
+          "status": "ok"
+        },
+        {
+          "detail": "19 events",
+          "name": "journal.sequence",
+          "status": "ok"
+        },
+        {
+          "detail": "19 events",
+          "name": "journal.chain",
+          "status": "ok"
+        },
+        {
+          "detail": "19 events",
+          "name": "journal.digests",
+          "status": "ok"
+        },
+        {
+          "detail": "19 events",
+          "name": "journal.events",
+          "status": "ok"
+        },
+        {
+          "detail": "ACCEPTED",
+          "name": "journal.decision",
+          "status": "ok"
+        }
+      ],
+      "failures": [],
+      "missing": [],
+      "run_id": "<str>",
+      "schema_version": 1,
+      "status": "VALID"
+    },
+    "verify_status": "VALID"
+  }
+]
