@@ -102,6 +102,30 @@ red without this repository moving.
 Only `osx-arm64` is exercised. The lockfile check resolves `osx-64` and
 nothing runs it.
 
+## Mutation Testing
+
+A maintainer command, and one that can never be a gate:
+
+```bash
+pixi run -e mutation --locked --no-config mutation
+```
+
+Coverage says a line ran; this says whether anything would have noticed had
+the line been wrong. It changes one operator, constant or comparison at a time
+in the four places where a silent change would cost the most — the acceptance
+rules, run verification, the event chain and the scope control — runs the
+tests covering that module, and counts what survived.
+
+It edits the source file to make each mutant, so it modifies the tree it
+measures, which is what keeps it out of the constitution. It asks Git whether
+the tree is clean before it starts and after it finishes, because an
+interrupted run leaves a mutant behind. It takes about twelve minutes, and the
+workflow runs it weekly rather than on every commit.
+
+The ceilings in `tools/mutation.py` are read off this tree. Three of them are
+where the suite happens to stand rather than where it should: they stop those
+modules getting quieter, and closing them is work of its own.
+
 ## Dependency Audit
 
 A maintainer command, deliberately not a gate:

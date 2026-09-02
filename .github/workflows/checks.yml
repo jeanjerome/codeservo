@@ -76,6 +76,27 @@ jobs:
           pixi run --locked --no-config python tools/record_parity.py capture "$RUNNER_TEMP/head.json"
           pixi run --locked --no-config python tools/record_parity.py compare tools/record_parity.reference.json "$RUNNER_TEMP/head.json"
 
+  mutation:
+    # Only on the schedule and on demand. It takes about twelve minutes, and it
+    # can never be a gate anyway: it edits the source to make each mutant, so
+    # it modifies the tree it measures. What it holds is a ratchet — the tests
+    # covering the decision core may not get quieter than they are.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Pixi
+        run: |
+          curl -fsSL https://pixi.sh/install.sh | bash
+          echo "$HOME/.pixi/bin" >> "$GITHUB_PATH"
+
+      - name: Install both environments
+        run: pixi install --all --locked --no-config
+
+      - name: The decision core is held by the tests that cover it
+        run: pixi run -e mutation --locked --no-config mutation
+
   audit:
     # Its own job because it is the one check that can go red without this
     # repository moving: an advisory published overnight is a real signal and
