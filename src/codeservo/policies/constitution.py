@@ -4,6 +4,7 @@ import re
 import tomllib
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 from ..domain.constitution import (
     Constitution,
@@ -41,6 +42,57 @@ def _declared[Member: StrEnum](
         ) from None
 
 
+def _table(value: Any, what: str) -> dict:
+    """One declared table, an absent one being an empty one.
+
+    A constitution is a control input, so every shape it does not have is
+    refused by name here. Letting a wrong type reach the reader below would
+    end the run on an interpreter traceback, in a place where no decision was
+    recorded and nothing says which file was wrong.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ConstitutionError(f"{what} must be a table")
+    return value
+
+
+def _text(value: Any, what: str) -> str:
+    if not isinstance(value, str):
+        raise ConstitutionError(f"{what} must be a string")
+    return value
+
+
+def _string(item: dict, key: str, what: str) -> str:
+    if key not in item:
+        raise ConstitutionError(f"{what}: {key} is required")
+    return _text(item[key], f"{what}: {key}")
+
+
+def _integer(item: dict, key: str, default: int, what: str) -> int:
+    """One declared integer. TOML booleans are not integers here."""
+    value = item.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConstitutionError(f"{what}: {key} must be an integer")
+    return value
+
+
+def _boolean(item: dict, key: str, default: bool, what: str) -> bool:
+    value = item.get(key, default)
+    if not isinstance(value, bool):
+        raise ConstitutionError(f"{what}: {key} must be true or false")
+    return value
+
+
+def _strings(
+    item: dict, key: str, default: tuple[str, ...], what: str
+) -> tuple[str, ...]:
+    value = item.get(key, list(default))
+    if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
+        raise ConstitutionError(f"{what}: {key} must be an array of strings")
+    return tuple(value)
+
+
 def _name(value: str, what: str) -> str:
     if re.fullmatch(NAME_PATTERN, value) is None:
         raise ConstitutionError(f"invalid {what}: {value}")
@@ -54,13 +106,13 @@ def _execution(repo: Path, data: dict) -> ExecutionEnvironment:
     provider declared without both of them freezes nothing and is refused
     here rather than discovered when a gate runs.
     """
-    provider = str(data.get("provider", ""))
+    provider = data.get("provider")
     if provider != pixi.PROVIDER:
         raise ConstitutionError(
             f"execution: provider must be {pixi.PROVIDER}, not {provider!r}"
         )
 
-    declared = str(data.get("manifest", "")).strip()
+    declared = _string(data, "manifest", "execution").strip()
     if not declared:
         raise ConstitutionError("execution: manifest is required")
     root = repo.resolve()
@@ -87,7 +139,8 @@ def _execution(repo: Path, data: dict) -> ExecutionEnvironment:
         manifest=manifest.relative_to(root).as_posix(),
         lock=lock.relative_to(root).as_posix(),
         environment=_name(
-            str(data.get("environment", "default")), "execution environment name"
+            _text(data.get("environment", "default"), "execution: environment"),
+            "execution environment name",
         ),
     )
 
@@ -109,7 +162,7 @@ def _measurement(item: dict, name: str, execution: ExecutionEnvironment | None) 
             raise ConstitutionError(
                 f"gate {name}: task requires an [execution] provider"
             )
-        _name(str(item["task"]), f"task name for gate {name}")
+        _name(_string(item, "task", f"gate {name}"), f"task name for gate {name}")
 
 
 def _sensor(item: dict, name: str) -> str | None:
@@ -119,8 +172,8 @@ def _sensor(item: dict, name: str) -> str | None:
     actuation, and a baseline gate measures what the repository already
     carries, so each of the two states excludes the other.
     """
-    baseline = bool(item.get("baseline", True))
-    sensor = str(item["sensor"]) if "sensor" in item else None
+    baseline = _boolean(item, "baseline", True, f"gate {name}")
+    sensor = _string(item, "sensor", f"gate {name}") if "sensor" in item else None
     if sensor is not None and not sensor.strip():
         raise ConstitutionError(f"gate {name}: sensor reference cannot be empty")
     if not baseline and sensor is None:
@@ -134,21 +187,27 @@ def _sensor(item: dict, name: str) -> str | None:
     return sensor
 
 
-def _gate(item: dict, execution: ExecutionEnvironment | None) -> Gate:
+def _gate(item: Any, execution: ExecutionEnvironment | None) -> Gate:
     """One declared gate, held to the shape a gate must have."""
-    name = _name(str(item["name"]), "gate name")
+    item = _table(item, "each [[gate]]")
+    name = _name(_string(item, "name", "gate"), "gate name")
     _measurement(item, name, execution)
     return Gate(
         name=name,
-        phase=_declared(Phase, str(item["phase"]), f"gate {name}: phase"),
-        command=str(item["command"]) if "command" in item else None,
-        task=str(item["task"]) if "task" in item else None,
-        timeout_seconds=int(item.get("timeout_seconds", 300)),
-        baseline=bool(item.get("baseline", True)),
+        phase=_declared(
+            Phase, _string(item, "phase", f"gate {name}"), f"gate {name}: phase"
+        ),
+        command=_string(item, "command", f"gate {name}") if "command" in item else None,
+        task=_string(item, "task", f"gate {name}") if "task" in item else None,
+        timeout_seconds=_integer(item, "timeout_seconds", 300, f"gate {name}"),
+        baseline=_boolean(item, "baseline", True, f"gate {name}"),
         sensor=_sensor(item, name),
         result_format=_declared(
             ResultFormat,
-            str(item.get("result_format", ResultFormat.EXIT_CODE)),
+            _text(
+                item.get("result_format", ResultFormat.EXIT_CODE),
+                f"gate {name}: result_format",
+            ),
             f"gate {name}: result_format",
         ),
     )
@@ -160,21 +219,29 @@ def load_constitution(repo: Path) -> Constitution:
         raise ConstitutionError(f"missing constitution: {path}")
 
     raw = path.read_text(encoding="utf-8")
-    data = tomllib.loads(raw)
+    try:
+        document = tomllib.loads(raw)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConstitutionError(f"constitution is not readable as TOML: {exc}") from None
+    data = _table(document, "the constitution")
 
-    scope_data = data.get("scope", {})
+    scope_data = _table(data.get("scope"), "[scope]")
     scope = ScopePolicy(
-        protected=tuple(scope_data.get("protected", [".codeservo/**"])),
-        max_changed_files=int(scope_data.get("max_changed_files", 30)),
-        max_diff_lines=int(scope_data.get("max_diff_lines", 1000)),
+        protected=_strings(scope_data, "protected", (".codeservo/**",), "[scope]"),
+        max_changed_files=_integer(scope_data, "max_changed_files", 30, "[scope]"),
+        max_diff_lines=_integer(scope_data, "max_diff_lines", 1000, "[scope]"),
     )
 
     execution_data = data.get("execution")
     execution = (
-        _execution(repo, execution_data) if execution_data is not None else None
+        _execution(repo, _table(execution_data, "[execution]"))
+        if execution_data is not None
+        else None
     )
 
     gate_items = data.get("gate", [])
+    if not isinstance(gate_items, list):
+        raise ConstitutionError("[[gate]] must be an array of tables")
     if not gate_items:
         raise ConstitutionError("constitution must declare at least one [[gate]]")
 
@@ -194,10 +261,10 @@ def load_constitution(repo: Path) -> Constitution:
                 f"constitution must declare at least one {required} gate"
             )
 
-    review_data = data.get("review", {})
+    review_data = _table(data.get("review"), "[review]")
     review = ReviewPolicy(
-        blocking_severities=tuple(
-            str(x) for x in review_data.get("blocking_severities", ["blocker", "major"])
+        blocking_severities=_strings(
+            review_data, "blocking_severities", ("blocker", "major"), "[review]"
         )
     )
 
