@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, fields
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -247,7 +248,7 @@ def _inline_schema(schema_path: Path) -> str:
     """
     try:
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ClaudeCodeError(f"invalid review schema: {schema_path}") from exc
     schema.pop("$schema", None)
     return json.dumps(schema, separators=(",", ":"), sort_keys=True)
@@ -284,6 +285,41 @@ def _result_event(events: list[dict]) -> dict | None:
     return None
 
 
+# A stream is another program's output, so what a field carries is whatever
+# that program wrote there. The three readers below take a field only where it
+# carries what the record declares for it. Anything else is not a measurement
+# this record can hold, and reporting nothing is the honest answer: a consumer
+# reading the record by its declared shape would otherwise find a mapping
+# where a count belongs.
+
+
+def _text(event: dict, field: str) -> str | None:
+    value = event.get(field)
+    return value if isinstance(value, str) else None
+
+
+def _count(event: dict, field: str) -> int | None:
+    value = event.get(field)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _amount(event: dict, field: str) -> float | None:
+    """One number of the stream, where JSON can carry it back.
+
+    `json.loads` reads `NaN`, `Infinity` and `-Infinity`; `json.dumps` writes
+    them back as literals no other JSON reader accepts. A record carrying one
+    would state a number that JSON has no way to state.
+    """
+    value = event.get(field)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        amount = float(value)
+    except OverflowError:
+        return None
+    return amount if isfinite(amount) else None
+
+
 def _models(events: list[dict]) -> Models:
     """Report the models a session ran on.
 
@@ -291,9 +327,9 @@ def _models(events: list[dict]) -> Models:
     session reports the identifier it resolved to, and its usage record names
     every model that spent tokens, so a run stays comparable to another one.
     """
-    session_model = next(
+    init = next(
         (
-            event.get("model")
+            event
             for event in events
             if event.get("type") == "system" and event.get("subtype") == "init"
         ),
@@ -305,22 +341,24 @@ def _models(events: list[dict]) -> Models:
         for name, record in usage.items():
             if isinstance(record, dict):
                 spent[name] = {
-                    "output_tokens": record.get("outputTokens"),
-                    "cost_usd": record.get("costUSD"),
+                    "output_tokens": _count(record, "outputTokens"),
+                    "cost_usd": _amount(record, "costUSD"),
                 }
-    return Models(session_model=session_model, usage=spent)
+    return Models(
+        session_model=_text(init, "model") if init else None, usage=spent
+    )
 
 
 def _session(result: dict | None) -> Session:
     if result is None:
         return Session()
     return Session(
-        session_id=result.get("session_id"),
-        subtype=result.get("subtype"),
+        session_id=_text(result, "session_id"),
+        subtype=_text(result, "subtype"),
         is_error=bool(result.get("is_error")),
-        num_turns=result.get("num_turns"),
-        total_cost_usd=result.get("total_cost_usd"),
-        terminal_reason=result.get("terminal_reason"),
+        num_turns=_count(result, "num_turns"),
+        total_cost_usd=_amount(result, "total_cost_usd"),
+        terminal_reason=_text(result, "terminal_reason"),
     )
 
 
@@ -334,9 +372,8 @@ def _reported_model(events: list[dict]) -> str | None:
     choosing between them would be an inference rather than a report.
     """
     models = _models(events)
-    session_model = models.session_model
-    if isinstance(session_model, str) and session_model:
-        return session_model
+    if models.session_model:
+        return models.session_model
     billed = list(models.usage)
     return billed[0] if len(billed) == 1 else None
 
@@ -528,9 +565,11 @@ def run_reviewer(
 
 
 def _review_result(stdout_path: Path, stderr_path: Path) -> dict:
+    # Bytes that are not UTF-8 are not a review either, and a decoder raising
+    # through this call would end the run without a decision.
     try:
         payload = json.loads(stdout_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ClaudeCodeError(f"invalid reviewer output: {stdout_path}") from exc
     if not isinstance(payload, dict) or payload.get("is_error"):
         raise ClaudeCodeError(f"reviewer reported an error; see {stderr_path}")

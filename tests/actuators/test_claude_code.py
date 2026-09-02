@@ -14,6 +14,7 @@ from codeservo.actuators.claude_code import (
     _observed,
     _review_result,
     _reviewer_command,
+    _session,
     describe_isolation,
 )
 from codeservo.runtime.sandbox import Isolation
@@ -353,6 +354,14 @@ class ReviewResultTests(unittest.TestCase):
         with self.assertRaisesRegex(ClaudeCodeError, "schema-shaped output"):
             _review_result(stdout_path, stderr_path)
 
+    def test_rejects_an_answer_that_is_not_text(self) -> None:
+        """Bytes no decoder accepts are not a review, and say so by name."""
+        stdout_path, stderr_path = self._stdout(None)
+        stdout_path.write_bytes(b"\x80\x81")
+
+        with self.assertRaisesRegex(ClaudeCodeError, "invalid reviewer output"):
+            _review_result(stdout_path, stderr_path)
+
 
 class ModelRecordTests(unittest.TestCase):
     def test_reports_the_resolved_model_and_everything_that_spent_tokens(self) -> None:
@@ -384,6 +393,79 @@ class ModelRecordTests(unittest.TestCase):
 
         self.assertIsNone(models.session_model)
         self.assertEqual({}, models.usage)
+
+    def test_reports_no_model_where_the_stream_names_one_of_another_shape(
+        self,
+    ) -> None:
+        """A mapping in the model field is not a name the record can carry."""
+        models = _models(
+            [{"type": "system", "subtype": "init", "model": {"alias": "opus"}}]
+        )
+
+        self.assertIsNone(models.session_model)
+
+    def test_bills_only_the_numbers_json_can_carry_back(self) -> None:
+        """`json.loads` reads `NaN`; nothing else reading the record would."""
+        models = _models(
+            [
+                {
+                    "type": "result",
+                    "modelUsage": {
+                        "claude-opus-5": {
+                            "outputTokens": "many",
+                            "costUSD": float("nan"),
+                        }
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(
+            {"output_tokens": None, "cost_usd": None},
+            models.usage["claude-opus-5"],
+        )
+
+
+class SessionRecordTests(unittest.TestCase):
+    """The result event is read as the record declares it, or not at all."""
+
+    def test_reads_every_field_the_result_event_names(self) -> None:
+        session = _session(
+            {
+                "session_id": "abc",
+                "subtype": "success",
+                "is_error": False,
+                "num_turns": 12,
+                "total_cost_usd": 1.5,
+                "terminal_reason": "end_turn",
+            }
+        )
+
+        self.assertEqual("abc", session.session_id)
+        self.assertEqual("success", session.subtype)
+        self.assertFalse(session.is_error)
+        self.assertEqual(12, session.num_turns)
+        self.assertEqual(1.5, session.total_cost_usd)
+        self.assertEqual("end_turn", session.terminal_reason)
+
+    def test_reports_nothing_for_a_field_carrying_another_shape(self) -> None:
+        """A mapping where a count belongs is not a measurement to record."""
+        session = _session(
+            {
+                "session_id": ["abc"],
+                "num_turns": "twelve",
+                "total_cost_usd": float("inf"),
+                "terminal_reason": {"why": "end_turn"},
+            }
+        )
+
+        self.assertIsNone(session.session_id)
+        self.assertIsNone(session.num_turns)
+        self.assertIsNone(session.total_cost_usd)
+        self.assertIsNone(session.terminal_reason)
+
+    def test_reads_a_whole_number_of_dollars_as_a_number(self) -> None:
+        self.assertEqual(0.0, _session({"total_cost_usd": 0}).total_cost_usd)
 
 
 class IsolationTests(unittest.TestCase):

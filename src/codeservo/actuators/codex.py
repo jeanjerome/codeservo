@@ -353,5 +353,5 @@ def run_reviewer(
         raise CodexError(f"reviewer exited with {completed.returncode}; see {stderr_path}")
     try:
         return json.loads(result_path.read_text(encoding="utf-8")), meta
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CodexError(f"invalid reviewer output: {result_path}") from exc
