@@ -3,7 +3,7 @@ version = 1
 [scope]
 protected = [".codeservo/**", ".github/workflows/**", ".importlinter"]
 max_changed_files = 14
-max_diff_lines = 3000
+max_diff_lines = 2200
 
 [execution]
 provider = "pixi"
