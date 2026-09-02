@@ -70,3 +70,27 @@ python3.12 tools/record_parity.py capture /tmp/before.json
 python3.12 tools/record_parity.py capture /tmp/after.json
 python3.12 tools/record_parity.py compare /tmp/before.json /tmp/after.json
 ```
+
+## Dependency Audit
+
+A maintainer command, deliberately not a gate:
+
+```bash
+pixi run -e audit --locked --no-config audit
+```
+
+Three reasons keep it out of the constitution. It reaches a remote advisory
+service, so its verdict follows that service and the network as well as the
+tree, where a gate reads a tree and returns an exit code. Nothing a candidate
+may do would fix what it reports, dependencies being a maintainer's to change,
+so a baseline gate would block a run for a defect no actuation could correct.
+And it pulls an HTTP client and twenty-eight packages with it, which is the
+last thing the environment a confined measurement runs in should hold — hence
+its own environment, solved apart, leaving `default` pinning the same
+forty-six packages it did before.
+
+It audits the Python distributions installed in the default environment, and
+that is narrower than the environment: the native libraries, `openssl` and
+`libcurl` and `git` among them, are outside its reach. The task names the path
+it audits and checks it first, because `pip-audit` reports no known
+vulnerabilities for a path that does not exist.
