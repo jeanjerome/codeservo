@@ -13,7 +13,7 @@ a property of the code and becomes a property of the controls around it.
 CodeServo is the attempt to build those controls and see what they actually
 establish.
 
-## The loop in v0.6.0
+## The loop in v0.7.0
 
 ```mermaid
 flowchart TD
@@ -27,7 +27,7 @@ flowchart TD
     review --> decision{"mechanical decision"}
     decision -- every gate, sensor and criterion satisfied --> accepted(["ACCEPTED"])
     decision -- any failure, blocking finding or control error --> rejected(["REJECTED"])
-    accepted --> record["events.jsonl<br/>evidence.json<br/>change.patch"]
+    accepted --> record["events.jsonl<br/>evidence.json<br/>change.patch<br/>gate observations"]
     rejected --> record
     quick -- fail --> feedback["controller feedback"]
     feedback --> budget{"iteration budget"}
@@ -161,6 +161,69 @@ Every gate process runs under `PIXI_OFFLINE`, `PIXI_NO_INSTALL` and
 `PIXI_FROZEN`, so a measurement can neither resolve nor install.
 
 A constitution that declares no provider keeps shell gates unchanged.
+
+### Gates that report what they measured
+
+A gate answers with an exit code, and that stays the verdict. A gate that also
+declares `result_format = "codeservo-json"` answers a second time, with a
+document saying what it measured.
+
+```toml
+[[gate]]
+name = "coverage"
+phase = "full"
+task = "coverage"
+timeout_seconds = 600
+baseline = true
+result_format = "codeservo-json"
+```
+
+The controller creates a location it owns — outside the run directory and
+outside the tree that gate measures — tells the gate where to write, validates
+what was written against the six-field contract published at
+`observation.schema.json`, and keeps that document byte for byte in the record
+beside the gate's logs.
+
+```json
+{
+  "schema_version": 1,
+  "sensor": "coverage",
+  "status": "passed",
+  "summary": "94.91 percent of 432 statements in the decision core, floor 94",
+  "findings": [
+    {
+      "id": "below-floor:src/codeservo/evidence/verify.py",
+      "severity": "info",
+      "path": "src/codeservo/evidence/verify.py",
+      "line": null,
+      "message": "93.80 percent covered, under the floor of 94"
+    }
+  ],
+  "metrics": { "line_coverage": 94.91, "statements": 432, "floor": 94.0 }
+}
+```
+
+The location reaches the two kinds of gate by two channels, because only one
+reaches each. A gate naming a shell command reads it from
+`CODESERVO_OBSERVATION_PATH`. A gate naming a provider task cannot: the task
+runs with a clean environment, so the location is appended to the command as
+the task's one argument, which the provider passes through. The target
+repository writes an adapter that takes a location, not one that knows where
+the location came from.
+
+A document that is absent, malformed, or that contradicts the exit code is a
+fault of the sensor and not a failure of the candidate: the run ends there, on
+that classification alone, and nothing is fed back to the actuator. The schema
+is published for adapters to read and is never executed.
+
+Writing the adapter is the target repository's business, and it is where the
+controller stays agnostic: the tool keeps its own output format, and a script
+in the repository projects that output onto the six fields. Two properties are
+worth holding it to. The tool's own output must stay on the streams the
+controller handed the gate — it is what gets fed back when a gate fails, and a
+suite can recognise that it runs confined through the directory of its own
+descriptors. And the exit code must stay the tool's: an adapter that decided a
+verdict would be the thing being measured.
 
 ## Write one task
 
@@ -324,7 +387,9 @@ rewrite the controller's record.
 ## Evidence
 
 `evidence.json` is the summary, checkpointed during the run and declaring its
-own shape through `schema_version`. Each iteration records the exact feedback
+own shape through `schema_version`. A gate that answered with a document has it
+beside its logs, digested like every other artefact, so what a gate measured is
+part of the record and not only part of a log. Each iteration records the exact feedback
 received, the prompt digest, the repository state before and after actuation,
 the state observed after the quick gates, and any feedback generated for the
 next iteration. Paths are relative to the run directory, so a copied run remains
@@ -428,13 +493,28 @@ expressed in.
 
 ## Self-hosting
 
-Since 0.1.0, CodeServo develops CodeServo. Every behavioural change in the
-releases that followed it was proposed by a run of the previous frozen version,
-against a pre-registered task and an external acceptance sensor written before
-the actuation it constrains, and was accepted only by that version's gates and
-its independent reviewer. A frozen version is installed outside this repository and never
-imports code from the candidate it is measuring, so a generation never controls
-its own construction.
+From 0.1.0 to 0.6.0, CodeServo developed CodeServo. Every behavioural change in
+those releases was proposed by a run of the previous frozen version, against a
+pre-registered task and an external acceptance sensor written before the
+actuation it constrains, and was accepted only by that version's gates and its
+independent reviewer. A frozen version is installed outside this repository and
+never imports code from the candidate it is measuring, so a generation never
+controls its own construction.
+
+It is no longer the implementation mode. Driving the controller's own changes
+through the loop cost run time and tokens out of proportion with what the loop
+had to decide, and the sharpest result of the track came from what a
+specification said rather than from the loop deciding it. A change to the
+controller is now made directly and held by this repository's own gates, which
+is why 0.7.0 is the first version not built by a run of the one before it.
+
+What remains is a periodic verification: a run at intervals, from a frozen
+version, establishing that the tool still works end to end — freeze, isolation,
+gates, feedback, review, decision, evidence. It obeys every rule above without
+exception, because a verification that skipped one would establish nothing. The
+two that froze 0.7.0 ran at a zero iteration budget, so no actuator process
+started, and they still rejected a gate of this repository over a defect no
+direct run of that gate could show.
 
 Two things stay maintainer work by construction. Control inputs — the
 constitution, the external sensors, the task — cannot come from the actuator
@@ -452,6 +532,25 @@ sequence and the same artefacts, and a run recorded before the change still
 verifies.
 
 ## Release notes
+
+### 0.7.0
+
+Gates report what they measured. A gate declaring `result_format =
+"codeservo-json"` answers with a document beside its exit code, and the record
+carries it: violations with their rule, file and line, type errors, test counts
+and the cases that failed, the layer graph and every forbidden import, coverage
+against its floor, fuzzing budgets and the coverage each boundary reached,
+durations against their ceilings. Before this, the number a tool computed lived
+in a log nothing compared.
+
+The location that document goes to reaches a provider task as its argument.
+`pixi run --clean-env` empties the environment a task starts with, so no
+variable could carry it, and until now no gate could both run in a locked
+environment and report what it measured.
+
+Parsing boundaries are stated as properties and searched as bytes: the six
+surfaces a document, a record or a stream arrives through, and a coverage-guided
+fuzzer on the three another party supplies. Records declare `schema_version` 16.
 
 ### 0.6.0
 
