@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -40,6 +41,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests")]
 
 import observation  # noqa: E402
+
+# Where the controller names the sensor it froze for one gate of this run. A
+# gate naming a task could not read it: `pixi run --clean-env` empties the
+# environment its task starts with, so the sensor gate names a command.
+SENSOR_PATH_VARIABLE = "CODESERVO_SENSOR_PATH"
 
 # The trees the linters read, named once. `mypy` reads the shipped tree alone,
 # which is its own declaration in the manifest and not repeated here.
@@ -195,15 +201,16 @@ def types() -> Projection:
     )
 
 
-def test() -> Projection:
-    """The suite, counted rather than read back out of its own output.
+def _discovered(start_dir: Path, subject: str) -> Projection:
+    """One `unittest` discovery, counted from its result rather than its text.
 
     Run in this process so the counts come from the result object instead of
     from a line of text, and the runner's output is written through afterwards
-    on the stream `unittest` uses.
+    on the stream `unittest` uses. `subject` names the selection in the
+    summary; the suite of this repository names none, being the default one.
     """
     log = io.StringIO()
-    suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"))
+    suite = unittest.defaultTestLoader.discover(str(start_dir))
     result = unittest.TextTestRunner(stream=log, verbosity=2).run(suite)
     sys.stderr.write(log.getvalue())
 
@@ -218,7 +225,7 @@ def test() -> Projection:
     ]
     return Projection(
         0 if result.wasSuccessful() else 1,
-        f"{result.testsRun} tests, {len(result.failures)} failed,"
+        f"{result.testsRun} tests{subject}, {len(result.failures)} failed,"
         f" {len(result.errors)} errored",
         {
             "tests": result.testsRun,
@@ -228,6 +235,26 @@ def test() -> Projection:
         },
         findings,
     )
+
+
+def test() -> Projection:
+    """The suite of this repository."""
+    return _discovered(ROOT / "tests", "")
+
+
+def sensor() -> Projection:
+    """The frozen acceptance sensor, run against the candidate.
+
+    The controller names its location in the environment and never in the
+    constitution, so the gate measures whatever sensor the run froze and this
+    repository never holds its source. What the projection adds is the count
+    and one finding per contract the candidate failed, where a run recorded
+    only that the sensor had refused.
+    """
+    frozen = os.environ.get(SENSOR_PATH_VARIABLE)
+    if not frozen:
+        return Projection(1, "the controller named no frozen sensor to run", {})
+    return _discovered(Path(frozen), " under the frozen sensor")
 
 
 def compile_() -> Projection:
@@ -360,6 +387,7 @@ GATES = {
     "compile": compile_,
     "architecture": architecture,
     "coverage": coverage,
+    "sensor": sensor,
 }
 
 
