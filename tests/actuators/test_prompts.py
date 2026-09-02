@@ -1,9 +1,16 @@
 import json
+import tomllib
 import unittest
 from pathlib import Path
 
 from codeservo.actuators.prompts import implementer_prompt, reviewer_prompt
-from codeservo.domain.constitution import Constitution, Gate, ReviewPolicy, ScopePolicy
+from codeservo.domain.constitution import (
+    Constitution,
+    ExecutionEnvironment,
+    Gate,
+    ReviewPolicy,
+    ScopePolicy,
+)
 from codeservo.domain.task import Task
 
 OBSERVATIONS = {
@@ -50,6 +57,63 @@ def _constitution() -> Constitution:
     )
 
 
+VIEW_HEADER = (
+    "ACTUATOR VIEW OF FROZEN REPOSITORY CONSTITUTION\n"
+    "================================================\n"
+)
+FEEDBACK_HEADER = (
+    "\nCONTROLLER FEEDBACK FROM THE PREVIOUS ITERATION\n"
+    "==============================================="
+)
+
+
+def _mixed_constitution() -> Constitution:
+    """One of each kind of gate, plus a sensor gate naming a task."""
+    return Constitution(
+        path=Path("constitution.toml"),
+        raw_text="",
+        scope=ScopePolicy(
+            protected=(".codeservo/**", "tools/**"),
+            max_changed_files=14,
+            max_diff_lines=2200,
+        ),
+        gates=(
+            Gate(name="unit", phase="quick", command="make test", timeout_seconds=120),
+            Gate(name="coverage", phase="full", task="coverage", timeout_seconds=600),
+            Gate(
+                name="acceptance",
+                phase="quick",
+                command="make secret-sensor",
+                baseline=False,
+                sensor="secret/path",
+            ),
+            Gate(
+                name="contract",
+                phase="full",
+                task="secret-task",
+                baseline=False,
+                sensor="secret/other",
+            ),
+        ),
+        review=ReviewPolicy(),
+        execution=ExecutionEnvironment(
+            provider="pixi", manifest="pyproject.toml", lock="pixi.lock"
+        ),
+    )
+
+
+def _view(constitution: Constitution) -> dict:
+    """The projection the implementer prompt carries, read back as TOML."""
+    prompt = implementer_prompt(_task(), constitution, "")
+    _, header, after = prompt.partition(VIEW_HEADER)
+    if not header:
+        raise AssertionError("the prompt lacks the view header")
+    view, footer, _ = after.partition(FEEDBACK_HEADER)
+    if not footer:
+        raise AssertionError("the prompt lacks the feedback header")
+    return tomllib.loads(view)
+
+
 def _task() -> Task:
     return Task(
         path=Path("TASK.md"),
@@ -73,6 +137,93 @@ class ImplementerPromptTests(unittest.TestCase):
         self.assertNotIn("CONTROLLER OBSERVATIONS", prompt)
         self.assertNotIn("2 passed", prompt)
         self.assertNotIn("stdout_tail", prompt)
+
+    def test_the_view_is_a_toml_document_naming_every_gate_in_order(self) -> None:
+        view = _view(_mixed_constitution())
+
+        self.assertEqual(
+            ["unit", "coverage", "acceptance", "contract"],
+            [gate["name"] for gate in view["gate"]],
+        )
+        self.assertEqual(
+            {
+                "protected": [".codeservo/**", "tools/**"],
+                "max_changed_files": 14,
+                "max_diff_lines": 2200,
+            },
+            view["scope"],
+        )
+        self.assertEqual({"blocking_severities": ["blocker", "major"]}, view["review"])
+
+    def test_renders_a_command_gate_as_the_command_it_names(self) -> None:
+        gate = _view(_mixed_constitution())["gate"][0]
+
+        self.assertEqual(
+            {
+                "name": "unit",
+                "phase": "quick",
+                "command": "make test",
+                "timeout_seconds": 120,
+                "baseline": True,
+            },
+            gate,
+        )
+
+    def test_renders_a_task_gate_as_the_task_it_names(self) -> None:
+        gate = _view(_mixed_constitution())["gate"][1]
+
+        self.assertEqual(
+            {
+                "name": "coverage",
+                "phase": "full",
+                "task": "coverage",
+                "timeout_seconds": 600,
+                "baseline": True,
+            },
+            gate,
+        )
+        self.assertNotIn("command", gate)
+
+    def test_renders_a_sensor_gate_as_the_placeholder_alone(self) -> None:
+        gates = _view(_mixed_constitution())["gate"]
+
+        self.assertEqual(
+            {
+                "name": "acceptance",
+                "phase": "quick",
+                "command": "<controller-owned sensor>",
+                "timeout_seconds": 300,
+                "baseline": False,
+            },
+            gates[2],
+        )
+        self.assertEqual(
+            {
+                "name": "contract",
+                "phase": "full",
+                "command": "<controller-owned sensor>",
+                "timeout_seconds": 300,
+                "baseline": False,
+            },
+            gates[3],
+        )
+        prompt = implementer_prompt(_task(), _mixed_constitution(), "")
+        for secret in (
+            "make secret-sensor",
+            "secret/path",
+            "secret-task",
+            "secret/other",
+        ):
+            self.assertNotIn(secret, prompt)
+
+    def test_every_gate_names_exactly_one_measurement(self) -> None:
+        for gate in _view(_mixed_constitution())["gate"]:
+            with self.subTest(gate=gate["name"]):
+                self.assertEqual(
+                    1,
+                    len({"command", "task"} & set(gate)),
+                    f"{gate} names no single measurement",
+                )
 
 
 class ReviewerPromptTests(unittest.TestCase):

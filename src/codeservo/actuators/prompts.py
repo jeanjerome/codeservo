@@ -2,38 +2,72 @@ from __future__ import annotations
 
 import json
 
-from ..domain.constitution import Constitution
+from ..domain.constitution import Constitution, Gate
 from ..domain.task import Task
 
 
+def _toml_string(value: str) -> str:
+    """One string, spelled the way a TOML basic string spells it.
+
+    JSON escapes almost identically, and differs exactly where the view has to
+    parse: it spells a character outside the basic plane as a surrogate pair,
+    which TOML reads as no scalar value at all, and it leaves U+007F literal,
+    which a basic string cannot carry.
+    """
+    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007F")
+
+
+def _measurement(gate: Gate) -> tuple[str, ...]:
+    """The one line naming what a gate measures.
+
+    A gate declares a shell command or a provider task and never both, so one
+    of the two names the measurement. A gate carrying a controller-owned
+    acceptance sensor names neither here: the placeholder is all of that gate
+    the actuator sees, whatever the gate itself declares. A gate naming
+    nothing is one no constitution can carry, and the view asserts no
+    declaration it was not given.
+    """
+    if gate.sensor is not None:
+        return ('command = "<controller-owned sensor>"',)
+    if gate.command is not None:
+        return (f"command = {_toml_string(gate.command)}",)
+    if gate.task is not None:
+        return (f"task = {_toml_string(gate.task)}",)
+    return ()
+
+
 def _actuator_constitution(constitution: Constitution) -> str:
+    protected = ", ".join(
+        _toml_string(pattern) for pattern in constitution.scope.protected
+    )
     lines = [
         "version = 1",
         "",
         "[scope]",
-        f"protected = {json.dumps(list(constitution.scope.protected))}",
+        f"protected = [{protected}]",
         f"max_changed_files = {constitution.scope.max_changed_files}",
         f"max_diff_lines = {constitution.scope.max_diff_lines}",
     ]
     for gate in constitution.gates:
-        command = gate.command if gate.sensor is None else "<controller-owned sensor>"
         lines.extend(
             [
                 "",
                 "[[gate]]",
-                f"name = {json.dumps(gate.name)}",
-                f"phase = {json.dumps(gate.phase)}",
-                f"command = {json.dumps(command)}",
+                f"name = {_toml_string(gate.name)}",
+                f"phase = {_toml_string(gate.phase)}",
+                *_measurement(gate),
                 f"timeout_seconds = {gate.timeout_seconds}",
                 f"baseline = {str(gate.baseline).lower()}",
             ]
         )
+    severities = ", ".join(
+        _toml_string(severity) for severity in constitution.review.blocking_severities
+    )
     lines.extend(
         [
             "",
             "[review]",
-            "blocking_severities = "
-            + json.dumps(list(constitution.review.blocking_severities)),
+            f"blocking_severities = [{severities}]",
         ]
     )
     return "\n".join(lines)
