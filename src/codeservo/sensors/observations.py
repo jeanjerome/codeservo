@@ -23,8 +23,10 @@ from typing import Any
 from ..domain.document import Document
 from ..resources import observation_schema
 
-# The variable naming the file to write. It reaches the process of the gate
-# that declared the format, and no other.
+# The variable naming the file to write, for a gate that names a shell command.
+# It reaches the process of the gate that declared the format, and no other. A
+# gate naming a provider task is told the same location as an argument, its
+# task starting with a clean environment that no variable survives into.
 OBSERVATION_PATH_VARIABLE = "CODESERVO_OBSERVATION_PATH"
 
 # The shape of the document. The observation versions its own shape.

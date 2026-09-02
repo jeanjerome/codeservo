@@ -196,12 +196,24 @@ def measurement_environment() -> dict[str, str]:
     return dict(MEASUREMENT_ENVIRONMENT)
 
 
-def task_command(*, manifest: Path, environment: str, task: str) -> str:
+def task_command(
+    *,
+    manifest: Path,
+    environment: str,
+    task: str,
+    arguments: Iterable[str] = (),
+) -> str:
     """The command one task gate runs against the tree it measures.
 
     `--as-is` is the documented shorthand for `--no-install --frozen`, so a
     gate never installs and never resolves; `--clean-env` and `--no-config`
     keep the operator's shell and configuration out of the measurement.
+
+    Arguments are appended after the task name, where the provider passes them
+    on to the task's own command. This is the one channel a controller has
+    into a task: `--clean-env` empties the environment the task starts with,
+    so a variable set around this command does not reach it, and neither does
+    one a manifest re-exports from it.
     """
     return " ".join(
         [
@@ -215,6 +227,7 @@ def task_command(*, manifest: Path, environment: str, task: str) -> str:
             "--environment",
             _quote(environment),
             _quote(task),
+            *(_quote(argument) for argument in arguments),
         ]
     )
 

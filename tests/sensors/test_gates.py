@@ -71,6 +71,35 @@ class GateCommandTests(unittest.TestCase):
             command,
         )
 
+    def test_a_task_gate_answering_with_a_document_is_told_where_to_write(
+        self,
+    ) -> None:
+        """`--clean-env` empties the environment, so the location is an argument."""
+        gate = Gate(
+            name="coverage",
+            phase="full",
+            task="coverage",
+            result_format=ResultFormat.CODESERVO_JSON,
+        )
+
+        command = gate_command(
+            gate,
+            tree=Path("/tree"),
+            execution=EXECUTION,
+            observation=Path("/owned/observation.json"),
+        )
+
+        self.assertTrue(command.endswith("'coverage' '/owned/observation.json'"))
+
+    def test_a_task_gate_answering_with_an_exit_code_is_told_nothing_more(
+        self,
+    ) -> None:
+        gate = Gate(name="unit", phase="quick", task="test-unit")
+
+        command = gate_command(gate, tree=Path("/tree"), execution=EXECUTION)
+
+        self.assertTrue(command.endswith("'test-unit'"))
+
     def test_refuses_a_task_gate_with_no_declared_provider(self) -> None:
         gate = Gate(name="unit", phase="quick", task="test-unit")
 

@@ -91,13 +91,23 @@ class GateResult(UnsignedGateResult):
 
 
 def gate_command(
-    gate: Gate, *, tree: Path, execution: ExecutionEnvironment | None
+    gate: Gate,
+    *,
+    tree: Path,
+    execution: ExecutionEnvironment | None,
+    observation: Path | None = None,
 ) -> str:
     """The command one gate runs against the tree it measures.
 
     A task gate names the manifest of that tree and nothing else: the source
     repository during the baseline, the isolated checkout afterwards. The
     constitution supplies the task name, never the command line around it.
+
+    A gate answering with a document is told where to write it, and the two
+    kinds of gate are told differently because only one channel reaches each.
+    A command gate reads the location from its environment. A task gate cannot:
+    the provider runs it with a clean environment, so the location is appended
+    to the command as the task's one argument.
     """
     if gate.task is None:
         if gate.command is None:
@@ -109,6 +119,7 @@ def gate_command(
         manifest=tree / execution.manifest,
         environment=execution.environment,
         task=gate.task,
+        arguments=() if observation is None else (str(observation),),
     )
 
 
@@ -186,14 +197,16 @@ def run_gates(
         # Only a gate that declared the format is told where to write, and the
         # location exists before that gate runs.
         location: Path | None = None
+        document: Path | None = None
         if gate.result_format == ResultFormat.CODESERVO_JSON:
             location = _observation_location(gate, forbidden)
-            gate_env[observations.OBSERVATION_PATH_VARIABLE] = str(
-                location / OBSERVATION_FILENAME
-            )
+            document = location / OBSERVATION_FILENAME
+            gate_env[observations.OBSERVATION_PATH_VARIABLE] = str(document)
         result = run_command(
             name=gate.name,
-            command=gate_command(gate, tree=repo, execution=execution),
+            command=gate_command(
+                gate, tree=repo, execution=execution, observation=document
+            ),
             cwd=repo,
             out_dir=out_dir,
             timeout_seconds=gate.timeout_seconds,

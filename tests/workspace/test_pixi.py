@@ -126,6 +126,30 @@ class ProviderCommandTests(unittest.TestCase):
             ),
         )
 
+    def test_passes_arguments_to_the_task_after_its_name(self) -> None:
+        """The one channel into a task: `--clean-env` leaves it no other."""
+        self.assertEqual(
+            "pixi run --as-is --clean-env --no-config"
+            " --manifest-path '/tree/pyproject.toml'"
+            " --environment 'default' 'coverage' '/owned/observation.json'",
+            pixi.task_command(
+                manifest=Path("/tree/pyproject.toml"),
+                environment="default",
+                task="coverage",
+                arguments=("/owned/observation.json",),
+            ),
+        )
+
+    def test_quotes_an_argument_the_controller_supplies(self) -> None:
+        command = pixi.task_command(
+            manifest=Path("/tree/pyproject.toml"),
+            environment="default",
+            task="coverage",
+            arguments=("/owned dir/observation.json",),
+        )
+
+        self.assertTrue(command.endswith("'/owned dir/observation.json'"))
+
     def test_quotes_every_value_the_constitution_supplies(self) -> None:
         command = pixi.task_command(
             manifest=Path("/tree/a b/pyproject.toml"),

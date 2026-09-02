@@ -51,8 +51,8 @@ A constitution may declare an execution provider in `[execution]`; a gate then n
 
 A gate may declare `result_format = "codeservo-json"` beside its exit code. The
 controller then creates a location it owns, outside the run directory and outside
-the tree that gate measures, hands the gate the path in
-`CODESERVO_OBSERVATION_PATH` and to no other process, validates what was written
+the tree that gate measures, hands the gate that path and hands it to no other
+process, validates what was written
 against the six-field contract the package publishes at
 `observation.schema.json`, and keeps that document byte for byte in the record. A
 document that is absent, malformed or that contradicts the exit code is a fault
@@ -62,6 +62,16 @@ the actuator. The exit code stays the verdict; the document says what was seen.
 The schema is published for adapters to read and is never executed — the six
 fields are checked directly, and a test holds the published document and the
 enforced contract to each other.
+
+The location reaches the two kinds of gate by two channels, because only one
+reaches each. A gate naming a shell command reads it from
+`CODESERVO_OBSERVATION_PATH`. A gate naming a provider task cannot: the task
+runs with a clean environment, so a variable set around the command does not
+survive into it, and neither does one the manifest re-exports from it. Its
+location is therefore appended to the command as the task's one argument,
+which the provider passes through. Both are the controller's business: the
+target repository writes an adapter that takes a location, not one that knows
+where the location came from.
 
 ## Measurement Confinement
 
