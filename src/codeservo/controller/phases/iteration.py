@@ -9,6 +9,7 @@ afterwards even where no confinement refused the write.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from ...actuators import ActuatorError
 from ...actuators.prompts import implementer_prompt
@@ -77,7 +78,7 @@ def _iterate(
     try:
         _actuate(context, record, iteration_dir, iteration, feedback, entry)
         quick = _measure(context, record, iteration_dir, entry)
-        return _verdict(context, record, iteration_dir, entry, quick)
+        return _verdict(record, iteration_dir, entry, quick)
     finally:
         record["iterations"].append(entry)
         record.persist()
@@ -86,7 +87,7 @@ def _iterate(
 def _actuate(
     context: RunContext,
     record: RunRecord,
-    iteration_dir,
+    iteration_dir: Path,
     iteration: int,
     feedback: str,
     entry: dict,
@@ -143,7 +144,7 @@ def _actuate(
 
 
 def _measure(
-    context: RunContext, record: RunRecord, iteration_dir, entry: dict
+    context: RunContext, record: RunRecord, iteration_dir: Path, entry: dict
 ) -> list[dict]:
     scope = scope_sensor(
         context.worktree, context.base_commit, context.constitution.scope
@@ -191,9 +192,8 @@ def _measure(
 
 
 def _verdict(
-    context: RunContext,
     record: RunRecord,
-    iteration_dir,
+    iteration_dir: Path,
     entry: dict,
     quick: list[dict],
 ) -> IterationOutcome:
