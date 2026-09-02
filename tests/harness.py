@@ -267,6 +267,12 @@ def commit_repository(repo: Path, message: str = "baseline") -> None:
             ["git", "config", "user.email", "test@example.com"], cwd=repo, check=True
         )
         subprocess.run(["git", "config", "user.name", "test"], cwd=repo, check=True)
+        # A fixture repository carries no signature: signing would make the
+        # suite depend on the operator's configuration and on a signing tool
+        # nothing declares.
+        subprocess.run(
+            ["git", "config", "commit.gpgsign", "false"], cwd=repo, check=True
+        )
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-qm", message], cwd=repo, check=True)
 

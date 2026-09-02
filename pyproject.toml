@@ -33,6 +33,9 @@ requires-pixi = ">=0.77,<0.78"
 
 [tool.pixi.dependencies]
 python = "3.12.*"
+# A measurement runs with the environment's PATH and nothing else, so every
+# command a gate reaches for is declared here rather than found on the host.
+git = ">=2.43"
 mypy = ">=1.13,<2"
 ruff = ">=0.12,<0.13"
 
@@ -45,6 +48,7 @@ codeservo = { path = ".", editable = true }
 test = "python -m unittest discover -s tests -v"
 lint = "ruff check --no-cache src tests"
 types = "mypy --cache-dir=/dev/null src"
+compile = "python -m compileall -q src tests"
 
 [tool.ruff]
 target-version = "py312"

@@ -5,17 +5,36 @@ protected = [".codeservo/**", ".github/workflows/**"]
 max_changed_files = 14
 max_diff_lines = 3000
 
+[execution]
+provider = "pixi"
+manifest = "pyproject.toml"
+environment = "default"
+
+[[gate]]
+name = "lint"
+phase = "quick"
+task = "lint"
+timeout_seconds = 120
+baseline = true
+
+[[gate]]
+name = "types"
+phase = "quick"
+task = "types"
+timeout_seconds = 300
+baseline = true
+
 [[gate]]
 name = "unit"
 phase = "quick"
-command = "PYTHONPATH=\"$PWD/src\" python3.12 -m unittest discover -s tests -v"
-timeout_seconds = 300
+task = "test"
+timeout_seconds = 600
 baseline = true
 
 [[gate]]
 name = "compile"
 phase = "full"
-command = "python3.12 -m compileall -q src tests"
+task = "compile"
 timeout_seconds = 120
 baseline = true
 
