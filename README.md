@@ -417,6 +417,15 @@ independent semantic review are sensors. CodeServo is the controller. Git is the
 state substrate. `events.jsonl` and `evidence.json` are the audit record, and
 `verify-run` is what makes that record answerable rather than merely stored.
 
+The source is organised in those same terms, one package per role: `controller`
+holds the loop and its phases, `actuators` the backend port and its two
+adapters, `sensors` the gates, the scope check and the observation contract,
+`workspace` the trees a run works on, `evidence` the record and its
+verification, `policies` the constitution, `runtime` the process and its
+confinement, and `domain` the values the other layers are written in terms of.
+Dependencies point inward, so no adapter reaches the values a decision is
+expressed in.
+
 ## Self-hosting
 
 Since 0.1.0, CodeServo develops CodeServo. Every behavioural change in the
@@ -433,6 +442,14 @@ that is measured against them; `.codeservo/**` is a protected path for exactly
 that reason. And two early changes that made the test suite compose with gate
 and review isolation were made by hand, because the loop could not build the
 bridge it needed in order to measure itself.
+
+One further change was maintainer work by choice rather than by construction.
+The package was reorganised into the layers above and the loop split into its
+phases outside the loop, because driving a structural refactor through it cost
+run time and tokens out of proportion with what it had to decide. It alters no
+behaviour a gate measures: the record keeps the same fields, the same event
+sequence and the same artefacts, and a run recorded before the change still
+verifies.
 
 ## Release notes
 
