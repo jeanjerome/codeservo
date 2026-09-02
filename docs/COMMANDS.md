@@ -61,15 +61,46 @@ rather than asserted. `tools/record_parity.py` drives five trajectories — an
 accepted run, one converging on the second attempt, an exhausted budget, a
 rejecting review, and one measuring through a provider — and captures the
 shape of each record, its event sequence, the artefacts the run directory
-holds and the `verify-run` verdict, with everything the clock or a temporary
-location decides masked out. Capture before the change, capture after, and
-compare:
+holds and the `verify-run` verdict, with everything the clock, the host or a
+temporary location decides masked out. Two captures taken from two
+interpreters agree byte for byte, which is what lets a reference be committed.
+
+`tools/record_parity.reference.json` is that reference and is a control input:
+the workflow compares every commit against it, so a change that moves the
+record moves the reference in the same commit, where the diff says what moved.
 
 ```bash
-python3.12 tools/record_parity.py capture /tmp/before.json
-python3.12 tools/record_parity.py capture /tmp/after.json
-python3.12 tools/record_parity.py compare /tmp/before.json /tmp/after.json
+pixi run --locked --no-config python tools/record_parity.py capture /tmp/head.json
+pixi run --locked --no-config python tools/record_parity.py compare \
+  tools/record_parity.reference.json /tmp/head.json
 ```
+
+Regenerate the reference only when the record was meant to change, and say in
+the commit what moved:
+
+```bash
+pixi run --locked --no-config python tools/record_parity.py capture \
+  tools/record_parity.reference.json
+```
+
+Capturing before and after a change remains available for a local loop, and
+answers the same question without a commit in between.
+
+## Continuous Integration
+
+`.github/workflows/checks.yml` measures a maintainer's commit, which nothing
+did before it: a documentation change, a generation checkpoint or a
+constitution change was verified only at the baseline of the next run, so
+detection was deferred and it was the run that failed rather than the commit.
+
+It runs the reference validation above and the record comparison, on
+`macos-15`. The gates are named twice, in the constitution and in the
+workflow, so a step holds the two sets to being equal. The dependency audit is
+a job of its own and also runs weekly, because it is the one check that can go
+red without this repository moving.
+
+Only `osx-arm64` is exercised. The lockfile check resolves `osx-64` and
+nothing runs it.
 
 ## Dependency Audit
 
