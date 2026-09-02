@@ -89,8 +89,13 @@ jobs:
           curl -fsSL https://pixi.sh/install.sh | bash
           echo "$HOME/.pixi/bin" >> "$GITHUB_PATH"
 
-      - name: Install the audit environment
-        run: pixi install -e audit --locked --no-config
+      - name: Install both environments
+        # The audited environment is the one the gates run through, so this job
+        # installs it as well as the one that audits it. Installing only the
+        # auditor would leave nothing to audit, and the task's path check is
+        # what turns that into a failure instead of a green step measuring an
+        # empty directory.
+        run: pixi install --all --locked --no-config
 
       - name: The environment's Python distributions carry no known advisory
         run: pixi run -e audit --locked --no-config audit
