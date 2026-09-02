@@ -46,7 +46,9 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests")]
+sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests"), str(Path(__file__).parent)]
+
+import observation  # noqa: E402
 
 from codeservo.evidence.verify import verify_run  # noqa: E402
 from run_fixtures import build_run  # noqa: E402
@@ -139,7 +141,7 @@ def report(key: str, reading: float) -> bool:
     return held
 
 
-def main() -> int:
+def main(argv: list[str]) -> int:
     total, slowest, name, result, log = measure_suite()
     if not result.wasSuccessful():
         print(
@@ -149,16 +151,41 @@ def main() -> int:
         )
         return 1
 
-    over = [
-        key
-        for key, reading in (
-            ("suite", total),
-            ("test", slowest),
-            ("verification", measure_verification()),
-        )
-        if not report(key, reading)
-    ]
+    readings = {
+        "suite": total,
+        "test": slowest,
+        "verification": measure_verification(),
+    }
+    over = [key for key, reading in readings.items() if not report(key, reading)]
     print(f"{'':18} {result.testsRun:8} tests  slowest: {name}")
+
+    metrics: dict[str, float] = {"tests": float(result.testsRun)}
+    for key, reading in readings.items():
+        subject = SUBJECTS[key]
+        metrics[f"{key}.{subject.unit}"] = round(reading, 3)
+        metrics[f"{key}.ceiling"] = subject.ceiling
+    observation.write(
+        observation.location(argv),
+        sensor="duration",
+        passed=not over,
+        summary=(
+            f"{total:.1f} s for {result.testsRun} tests, slowest {slowest:.2f} s,"
+            f" one verification {readings['verification']:.2f} ms"
+        ),
+        findings=[
+            observation.finding(
+                id=f"over-ceiling:{key}",
+                severity=observation.MAJOR,
+                message=(
+                    f"{SUBJECTS[key].name} took {readings[key]:.2f}"
+                    f" {SUBJECTS[key].unit}, ceiling"
+                    f" {SUBJECTS[key].ceiling:g} {SUBJECTS[key].unit}"
+                ),
+            )
+            for key in over
+        ],
+        metrics=metrics,
+    )
 
     if over:
         print(
@@ -171,4 +198,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))

@@ -51,15 +51,18 @@ import-linter = ">=2.14,<3"
 [tool.pixi.tasks]
 # Every check names the tree it measures and writes nothing into it: a gate
 # that left a cache behind would change the candidate it was only measuring.
-test = "python -m unittest discover -s tests -v"
-lint = "ruff check --no-cache src tests tools"
-types = "mypy --cache-dir=/dev/null src"
-compile = "python -m compileall -q src tests"
-architecture = "lint-imports --no-cache --no-logo"
+# Each names the adapter that runs its tool and projects what the tool
+# reported onto the observation contract. The tool's own output goes through
+# untouched, because that is what a failing gate feeds back to the actuator.
+test = "python tools/gate.py test"
+lint = "python tools/gate.py lint"
+types = "python tools/gate.py types"
+compile = "python tools/gate.py compile"
+architecture = "python tools/gate.py architecture"
 # The gate answers twice: an exit code, and a document saying what it
 # measured. The adapter is what projects one onto the other, so the tool keeps
 # its own output and the controller reads the six fields it knows.
-coverage = "python tools/coverage_observation.py"
+coverage = "python tools/gate.py coverage"
 # Coverage-guided fuzzing of the three boundaries another party supplies. It
 # is a gate because its budget is fixed and its seed is not the clock, so the
 # same tree answers the same way twice; the driver keeps every byte it writes

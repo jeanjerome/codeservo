@@ -35,14 +35,41 @@ constitution reader and run verification — and fails under 94 percent. The
 package as a whole measures higher, but a total over the package would let a
 well covered periphery answer for the code that decides.
 
-It is also the one gate here that answers twice. `tools/coverage_observation.py`
-runs the suite under coverage, keeps the exit code as the verdict, and writes
-the six-field observation document the controller validates and keeps in the
-record: the percentage, the statement counts, the floor, and one finding per
-file under it. The number the gate computed then survives the run instead of
-existing only in a log, and two runs can be set beside each other. Run by hand
-there is no location to write to and no document is written — the adapter is
-given one, it does not choose one.
+## What the Gates Report
+
+Every one of the eight answers twice: an exit code, which stays the verdict,
+and a document saying what it measured. Without the second one a run records
+that a gate passed and nothing about what it found — the number the tool
+computed lives in a log nobody compares, and two runs cannot be set beside
+each other.
+
+| Gate | What its document carries |
+| --- | --- |
+| `lint` | violations, and one finding per violation with its rule, file and line |
+| `types` | errors, warnings, files checked, and one finding per diagnostic |
+| `test` | tests, failures, errors, skipped, and one finding per failing case |
+| `compile` | files submitted to the byte compiler |
+| `architecture` | contracts kept and broken, files and dependencies in the graph, and one finding per forbidden import |
+| `coverage` | the percentage, the statement counts, the floor, and one finding per file under it |
+| `fuzz` | runs and coverage per boundary, and one finding per boundary that crashed or measured nothing |
+| `duration` | each reading and its ceiling, and one finding per subject over one |
+
+`tools/gate.py` holds the six projections over external tools, `tools/fuzz.py`
+and `tools/duration.py` write their own, and `tools/observation.py` owns the
+writing for all of them. Each is the deterministic adapter the architecture
+describes: the tool keeps its own output format and the adapter projects it
+onto the six fields the controller reads, so the controller learns nothing
+about `ruff`, `mypy` or `coverage`.
+
+Two properties hold across all eight and matter more than any projection. The
+tool's own output goes through untouched, on the stream it was written to,
+because that is what the controller feeds back to the actuator when a gate
+fails: a wrapper that summarised it would quietly replace the feedback loop's
+input with its own prose. And the exit code is the tool's — nothing in an
+adapter decides a verdict.
+
+Run by hand there is no location to write to and no document is written: an
+adapter is given one, it does not choose one.
 
 `pixi.lock` is a control input. It is committed, and it is never updated
 implicitly while measuring; `--locked` fails rather than resolving, and

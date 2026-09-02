@@ -44,6 +44,9 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import observation  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 TARGET_DIR = Path(__file__).resolve().parent / "fuzz_targets"
 
@@ -188,9 +191,17 @@ def main() -> int:
         help="search each boundary for this long instead of running the gate's"
         " fixed budget, with a seed the fuzzer draws itself",
     )
-    seconds = parser.parse_args().search
+    parser.add_argument(
+        "document",
+        nargs="?",
+        help="where to write the observation, when the controller asked for one",
+    )
+    parsed = parser.parse_args()
+    seconds = parsed.search
 
     failed: list[str] = []
+    metrics: dict[str, float] = {}
+    findings = []
     with tempfile.TemporaryDirectory(prefix="codeservo-fuzz-") as tmp:
         workspace = Path(tmp)
         for target in TARGETS:
@@ -200,12 +211,31 @@ def main() -> int:
                 f"  cov {outcome.coverage:5}  {outcome.verdict:12}"
                 f"  {target.boundary}"
             )
+            metrics[f"{target.name}.runs"] = outcome.runs
+            metrics[f"{target.name}.coverage"] = outcome.coverage
             if not outcome.held:
                 failed.append(target.name)
+                findings.append(
+                    observation.finding(
+                        id=f"{outcome.verdict.lower().replace(' ', '-')}:{target.name}",
+                        severity=observation.BLOCKER,
+                        message=f"{target.boundary}: {outcome.verdict.lower()}",
+                    )
+                )
                 # The report and the log it belongs to go to two streams, so
                 # the first is flushed before the second is written.
                 sys.stdout.flush()
                 print(outcome.log.strip()[-4000:], file=sys.stderr)
+
+    executed = sum(metrics[f"{t.name}.runs"] for t in TARGETS)
+    observation.write(
+        observation.location([parsed.document] if parsed.document else []),
+        sensor="fuzz",
+        passed=not failed,
+        summary=f"{len(TARGETS)} boundaries searched over {executed} inputs",
+        findings=findings,
+        metrics=metrics,
+    )
 
     if failed:
         print(
