@@ -12,8 +12,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, TypedDict
+from typing import Any, Protocol
 
+from ..domain.document import Document
 from ..runtime.sandbox import Isolation, IsolationEvidence
 from .inventory import Backend, Speed
 
@@ -26,30 +27,36 @@ class ActuatorError(RuntimeError):
     pass
 
 
-class ObservedProfile(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class ObservedProfile(Document):
     """What a backend reported about the profile it applied to itself.
 
-    A field the backend did not name stays empty. Nothing is filled in from
-    the request, so an absence here is an absence in the record.
+    A field the backend did not name stays empty, which is why every one of
+    them starts that way. Nothing is filled in from the request, so an
+    absence here is an absence in the record.
     """
 
-    model: str | None
-    effort: str | None
-    speed: str | None
+    model: str | None = None
+    effort: str | None = None
+    speed: str | None = None
 
 
-class ReportedProfile(TypedDict):
+class ReportedProfile(Protocol):
     """What a backend reported about the call it just made.
 
     Both roles report the same two things: the configuration the command
-    actually carried, and what the session then said about itself.
+    actually carried, and what the session then said about itself. An adapter
+    records more than the controller reads, so what crosses the boundary is
+    stated as what is read and never as the whole of what was written.
     """
 
-    native: dict[str, Any]
-    observed: ObservedProfile
+    @property
+    def native(self) -> dict[str, Any]: ...
+    @property
+    def observed(self) -> ObservedProfile: ...
 
 
-class Actuation(ReportedProfile):
+class Actuation(ReportedProfile, Protocol):
     """What every backend's actuation carries for the control loop.
 
     An adapter records more than this — the command it built, the streams it
@@ -57,14 +64,17 @@ class Actuation(ReportedProfile):
     they are what a backend is held to whichever tool answered.
     """
 
-    exit_code: int
-    result_sha256: str
+    @property
+    def exit_code(self) -> int: ...
+    @property
+    def result_sha256(self) -> str: ...
 
 
-class ReviewMeta(ReportedProfile):
+class ReviewMeta(ReportedProfile, Protocol):
     """What every backend's review carries for the control loop."""
 
-    meta_sha256: str
+    @property
+    def meta_sha256(self) -> str: ...
 
 
 class Implement(Protocol):

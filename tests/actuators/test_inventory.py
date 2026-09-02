@@ -357,55 +357,55 @@ class ProfileValidationTests(unittest.TestCase):
     def test_supports_a_profile_the_inventory_lists_whole(self) -> None:
         profile = self.validate(effort="high", speed="fast")
 
-        self.assertEqual(ProfileStatus.SUPPORTED, profile["status"])
-        self.assertEqual("backend-cache", profile["inventory_source"])
-        self.assertIn("fast-tier", profile["reason"])
+        self.assertEqual(ProfileStatus.SUPPORTED, profile.status)
+        self.assertEqual("backend-cache", profile.inventory_source)
+        self.assertIn("fast-tier", profile.reason)
 
     def test_supports_an_absent_effort_the_backend_will_default(self) -> None:
         profile = self.validate(effort=None)
 
-        self.assertEqual(ProfileStatus.SUPPORTED, profile["status"])
-        self.assertNotIn("effort", profile["reason"])
+        self.assertEqual(ProfileStatus.SUPPORTED, profile.status)
+        self.assertNotIn("effort", profile.reason)
 
     def test_refuses_an_effort_the_listed_model_does_not_declare(self) -> None:
         profile = self.validate(effort="ultra")
 
-        self.assertEqual(ProfileStatus.UNSUPPORTED, profile["status"])
-        self.assertIn("effort ultra", profile["reason"])
+        self.assertEqual(ProfileStatus.UNSUPPORTED, profile.status)
+        self.assertIn("effort ultra", profile.reason)
 
     def test_refuses_a_speed_the_listed_model_does_not_declare(self) -> None:
         profile = self.validate(model="standard-only", speed="fast")
 
-        self.assertEqual(ProfileStatus.UNSUPPORTED, profile["status"])
-        self.assertIn("speed fast", profile["reason"])
+        self.assertEqual(ProfileStatus.UNSUPPORTED, profile.status)
+        self.assertIn("speed fast", profile.reason)
 
     def test_leaves_a_model_the_inventory_does_not_list_unverified(self) -> None:
         profile = self.validate(model="absent", effort="ultra", speed="fast")
 
-        self.assertEqual(ProfileStatus.UNVERIFIED, profile["status"])
-        self.assertEqual("backend-cache", profile["inventory_source"])
-        self.assertIn("absent", profile["reason"])
+        self.assertEqual(ProfileStatus.UNVERIFIED, profile.status)
+        self.assertEqual("backend-cache", profile.inventory_source)
+        self.assertIn("absent", profile.reason)
 
     def test_leaves_an_unavailable_inventory_unverified(self) -> None:
         (self.home / "models_cache.json").unlink()
 
         profile = self.validate(effort="ultra", speed="fast")
 
-        self.assertEqual(ProfileStatus.UNVERIFIED, profile["status"])
-        self.assertEqual("unavailable", profile["inventory_source"])
+        self.assertEqual(ProfileStatus.UNVERIFIED, profile.status)
+        self.assertEqual("unavailable", profile.inventory_source)
 
     def test_leaves_a_backend_without_a_verified_cache_unverified(self) -> None:
         profile = self.validate(backend="claude", model="opus", effort="xhigh")
 
-        self.assertEqual(ProfileStatus.UNVERIFIED, profile["status"])
-        self.assertEqual("unavailable", profile["inventory_source"])
-        self.assertIn(CLAUDE_UNVERIFIED_REASON, profile["reason"])
+        self.assertEqual(ProfileStatus.UNVERIFIED, profile.status)
+        self.assertEqual("unavailable", profile.inventory_source)
+        self.assertIn(CLAUDE_UNVERIFIED_REASON, profile.reason)
 
     def test_leaves_an_unrequested_model_unverified(self) -> None:
         profile = self.validate(model=None, effort="ultra")
 
-        self.assertEqual(ProfileStatus.UNVERIFIED, profile["status"])
-        self.assertIn("default", profile["reason"])
+        self.assertEqual(ProfileStatus.UNVERIFIED, profile.status)
+        self.assertIn("default", profile.reason)
 
     def test_rejects_an_unknown_backend(self) -> None:
         with self.assertRaises(ModelSelectionError):
@@ -413,7 +413,8 @@ class ProfileValidationTests(unittest.TestCase):
 
     def test_reports_exactly_the_documented_fields(self) -> None:
         self.assertEqual(
-            {"status", "reason", "inventory_source"}, set(self.validate())
+            {"status", "reason", "inventory_source"},
+            set(self.validate().to_document()),
         )
 
 

@@ -13,13 +13,14 @@ from codeservo.sensors.observations import (
     OBSERVATION_FIELDS,
     SCHEMA_VERSION,
     Classification,
+    Observation,
+    ObservationFault,
     Severity,
     Status,
     classify,
     is_json_integer,
     is_json_number,
     schema_path,
-    validate,
 )
 
 # The one copy an installed wheel always carries, and the one the criteria name.
@@ -60,40 +61,42 @@ def finding(**overrides) -> dict:
 
 class ValidObservationTests(unittest.TestCase):
     def test_accepts_the_recorded_shape(self) -> None:
-        parsed, error = validate(encoded(document()))
+        parsed = Observation.parse(encoded(document()))
 
-        self.assertIsNone(error)
-        self.assertEqual(document(), parsed)
+        # What comes back carries the document the gate wrote, field for field.
+        self.assertEqual(document(), parsed.to_document())
 
     def test_accepts_an_observation_that_found_and_measured_nothing(self) -> None:
-        parsed, error = validate(
+        parsed = Observation.parse(
             encoded(document(status="passed", summary="", findings=[], metrics={}))
         )
 
-        self.assertIsNone(error)
-        self.assertEqual([], parsed["findings"])
+        self.assertEqual((), parsed.findings)
 
     def test_accepts_a_finding_naming_neither_file_nor_line(self) -> None:
-        parsed, error = validate(
+        parsed = Observation.parse(
             encoded(document(findings=[finding(path=None, line=None)]))
         )
 
-        self.assertIsNone(error)
-        self.assertIsNone(parsed["findings"][0]["path"])
+        self.assertIsNone(parsed.findings[0].path)
+        self.assertIsNone(parsed.findings[0].line)
 
     def test_accepts_fractional_metrics(self) -> None:
-        _, error = validate(encoded(document(metrics={"ratio": 0.925})))
+        parsed = Observation.parse(encoded(document(metrics={"ratio": 0.925})))
 
-        self.assertIsNone(error)
+        self.assertEqual({"ratio": 0.925}, parsed.metrics)
 
 
-class RefusedObservationTests(unittest.TestCase):
+class ContractTestCase(unittest.TestCase):
+    """Reading back what a document violated, for the cases that expect one."""
+
     def _refused(self, payload) -> str:
-        parsed, error = validate(encoded(payload))
-        self.assertIsNone(parsed)
-        self.assertIsInstance(error, str)
-        return error
+        with self.assertRaises(ObservationFault) as refused:
+            Observation.parse(encoded(payload))
+        return str(refused.exception)
 
+
+class RefusedObservationTests(ContractTestCase):
     def test_refuses_a_field_too_many(self) -> None:
         error = self._refused(document(extra="not part of the contract"))
 
@@ -200,32 +203,34 @@ class RefusedObservationTests(unittest.TestCase):
         )
 
     def test_refuses_what_is_not_json_at_all(self) -> None:
-        parsed, error = validate(b"3 surviving mutants\n")
+        with self.assertRaises(ObservationFault) as refused:
+            Observation.parse(b"3 surviving mutants\n")
 
-        self.assertIsNone(parsed)
-        self.assertIn("the observation is not JSON", error)
+        self.assertIn("the observation is not JSON", str(refused.exception))
 
     def test_refuses_bytes_that_are_not_utf_8(self) -> None:
-        parsed, error = validate(b'{"sensor": "\xff\xfe"}')
+        with self.assertRaises(ObservationFault) as refused:
+            Observation.parse(b'{"sensor": "\xff\xfe"}')
 
-        self.assertIsNone(parsed)
-        self.assertEqual("the observation is not valid UTF-8", error)
+        self.assertEqual(
+            "the observation is not valid UTF-8", str(refused.exception)
+        )
 
 
-class JsonTypeTests(unittest.TestCase):
+class JsonTypeTests(ContractTestCase):
     """Types are JSON's throughout, in every field and not only in `metrics`."""
 
     def test_refuses_the_constants_json_does_not_define(self) -> None:
         for constant in ("NaN", "Infinity", "-Infinity"):
             with self.subTest(constant=constant):
-                parsed, error = validate(
-                    b'{"metrics": {"ratio": ' + constant.encode() + b"}}"
-                )
+                with self.assertRaises(ObservationFault) as refused:
+                    Observation.parse(
+                        b'{"metrics": {"ratio": ' + constant.encode() + b"}}"
+                    )
 
-                self.assertIsNone(parsed)
                 self.assertEqual(
                     f"the observation is not JSON: {constant} is not a JSON value",
-                    error,
+                    str(refused.exception),
                 )
 
     def test_a_boolean_is_never_a_number_and_never_an_integer(self) -> None:
@@ -240,14 +245,14 @@ class JsonTypeTests(unittest.TestCase):
         self.assertFalse(is_json_integer(1.5))
 
     def test_refuses_a_boolean_metric_and_a_boolean_schema_version(self) -> None:
-        _, metric = validate(encoded(document(metrics={"ok": True})))
-        _, version = validate(encoded(document(schema_version=True)))
+        metric = self._refused(document(metrics={"ok": True}))
+        version = self._refused(document(schema_version=True))
 
         self.assertEqual("field metrics.ok must be a number", metric)
         self.assertEqual("field schema_version must be the integer 1", version)
 
     def test_refuses_a_boolean_line(self) -> None:
-        _, error = validate(encoded(document(findings=[finding(line=True)])))
+        error = self._refused(document(findings=[finding(line=True)]))
 
         self.assertIn("field findings[0].line must be an integer", error)
 

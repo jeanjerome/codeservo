@@ -5,9 +5,11 @@ import shutil
 import subprocess
 import tempfile
 import time
+from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
+from ..domain.document import Document
 from ..evidence.digests import sha256_file, sha256_record
 from ..runtime.sandbox import (
     Isolation,
@@ -31,7 +33,8 @@ OBSERVED_FIELDS = {
 }
 
 
-class UnsignedActuation(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class UnsignedActuation(Document):
     """One actuation, before it closes over itself."""
 
     exit_code: int
@@ -45,14 +48,26 @@ class UnsignedActuation(TypedDict):
     last_message_path: str
     last_message_sha256: str | None
 
+    def signed(self) -> CodexActuation:
+        """This actuation, closed over the digest of what it holds."""
+        carried = {
+            declared.name: getattr(self, declared.name)
+            for declared in fields(UnsignedActuation)
+        }
+        return CodexActuation(
+            **carried, result_sha256=sha256_record(self.to_document())
+        )
 
+
+@dataclass(frozen=True, kw_only=True)
 class CodexActuation(UnsignedActuation):
     """One actuation, and the digest recomputable from what it holds."""
 
     result_sha256: str
 
 
-class UnsignedReviewMeta(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class UnsignedReviewMeta(Document):
     """One review call, before it closes over itself."""
 
     exit_code: int
@@ -66,7 +81,18 @@ class UnsignedReviewMeta(TypedDict):
     result_path: str
     result_sha256: str | None
 
+    def signed(self) -> CodexReviewMeta:
+        """This review call, closed over the digest of what it holds."""
+        carried = {
+            declared.name: getattr(self, declared.name)
+            for declared in fields(UnsignedReviewMeta)
+        }
+        return CodexReviewMeta(
+            **carried, meta_sha256=sha256_record(self.to_document())
+        )
 
+
+@dataclass(frozen=True, kw_only=True)
 class CodexReviewMeta(UnsignedReviewMeta):
     """One review call, and the digest recomputable from what it holds."""
 
@@ -148,11 +174,11 @@ def _observed(events: list[dict]) -> ObservedProfile:
                 reported = scope.get(field)
                 if isinstance(reported, str) and reported:
                     read[name] = reported
-    return {
-        "model": read["model"],
-        "effort": read["effort"],
-        "speed": read["speed"],
-    }
+    return ObservedProfile(
+        model=read["model"],
+        effort=read["effort"],
+        speed=read["speed"],
+    )
 
 
 def _sandbox(isolation: Isolation, native: str) -> str:
@@ -225,21 +251,20 @@ def run_implementer(
                 f"implementer timed out after {timeout_seconds}s"
             ) from timeout_error
 
-    unsigned: UnsignedActuation = {
-        "exit_code": completed.returncode,
-        "duration_ms": int((time.monotonic() - started) * 1000),
-        "native": _native_profile(effort, speed),
-        "observed": _observed(_events(events)),
-        "events_path": str(events),
-        "events_sha256": sha256_file(events),
-        "stderr_path": str(stderr_path),
-        "stderr_sha256": sha256_file(stderr_path),
-        "last_message_path": str(last_message),
-        "last_message_sha256": (
+    return UnsignedActuation(
+        exit_code=completed.returncode,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        native=_native_profile(effort, speed),
+        observed=_observed(_events(events)),
+        events_path=str(events),
+        events_sha256=sha256_file(events),
+        stderr_path=str(stderr_path),
+        stderr_sha256=sha256_file(stderr_path),
+        last_message_path=str(last_message),
+        last_message_sha256=(
             sha256_file(last_message) if last_message.is_file() else None
         ),
-    }
-    return {**unsigned, "result_sha256": sha256_record(unsigned)}
+    ).signed()
 
 
 def run_reviewer(
@@ -308,26 +333,22 @@ def run_reviewer(
         if temporary_result.is_file():
             shutil.copyfile(temporary_result, result_path)
 
-    unsigned_meta: UnsignedReviewMeta = {
-        "exit_code": completed.returncode,
-        "duration_ms": int((time.monotonic() - started) * 1000),
-        "native": _native_profile(effort, speed),
+    meta = UnsignedReviewMeta(
+        exit_code=completed.returncode,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        native=_native_profile(effort, speed),
         # Read from the event stream `--json` produces, under the names the
         # stream uses, and never from the keys the command line carried.
-        "observed": _observed(_events(stdout_path)),
-        "stdout_path": str(stdout_path),
-        "stdout_sha256": sha256_file(stdout_path),
-        "stderr_path": str(stderr_path),
-        "stderr_sha256": sha256_file(stderr_path),
-        "result_path": str(result_path),
-        "result_sha256": (
+        observed=_observed(_events(stdout_path)),
+        stdout_path=str(stdout_path),
+        stdout_sha256=sha256_file(stdout_path),
+        stderr_path=str(stderr_path),
+        stderr_sha256=sha256_file(stderr_path),
+        result_path=str(result_path),
+        result_sha256=(
             sha256_file(result_path) if result_path.is_file() else None
         ),
-    }
-    meta: CodexReviewMeta = {
-        **unsigned_meta,
-        "meta_sha256": sha256_record(unsigned_meta),
-    }
+    ).signed()
     if completed.returncode != 0:
         raise CodexError(f"reviewer exited with {completed.returncode}; see {stderr_path}")
     try:

@@ -13,10 +13,12 @@ names them.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, NotRequired, TypedDict
 
 from ..actuators.base import Actuation, ObservedProfile, ReviewMeta
 from ..actuators.inventory import Backend, ProfileVerdict, Speed
+from ..domain.document import Document
 from ..evidence.journal import EventsSummary
 from ..runtime.sandbox import IsolationEvidence
 from ..sensors.gates import GateResult
@@ -41,7 +43,8 @@ class FrozenSensor(FileRecord):
     reference: str
 
 
-class RuntimeMetadata(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class RuntimeMetadata(Document):
     """What ran this run: the controller, both backends, and the host tooling."""
 
     codeservo_version: str

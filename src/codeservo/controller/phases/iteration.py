@@ -129,8 +129,8 @@ def _actuate(
         "actuator.finished",
         {
             "iteration": iteration,
-            "exit_code": agent["exit_code"],
-            "result_sha256": agent["result_sha256"],
+            "exit_code": agent.exit_code,
+            "result_sha256": agent.result_sha256,
         },
     )
     implementer = context.inference["implementer"]
@@ -139,15 +139,15 @@ def _actuate(
         "actuator.profile_observed",
         {
             "iteration": iteration,
-            "model": implementer["observed"]["model"],
+            "model": implementer["observed"].model,
             "provenance": implementer["provenance"],
         },
     )
     entry["actuator_state"] = write_patch_snapshot(
         iteration_dir / "actuator.patch", context.worktree, context.base_commit
     )
-    if agent["exit_code"] != 0:
-        raise Rejection(f"implementer exited with {agent['exit_code']}")
+    if agent.exit_code != 0:
+        raise Rejection(f"implementer exited with {agent.exit_code}")
 
 
 def _measure(

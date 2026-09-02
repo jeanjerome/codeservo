@@ -9,16 +9,16 @@ measured.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import StrEnum
 
 from ..actuators.base import ObservedProfile, ReportedProfile
 from ..actuators.inventory import Backend, ProfileStatus, Speed, validate_profile
 from .document import Inference, InferenceProfile, ReportedBlock
 
-# What a run records about the profile a backend applied to itself.
-OBSERVED_FIELDS = ("model", "effort", "speed")
+# What a run records about the profile a backend applied to itself, read from
+# the shape the backends answer with.
+OBSERVED_FIELDS = tuple(field.name for field in fields(ObservedProfile))
 
 
 class Provenance(StrEnum):
@@ -43,7 +43,7 @@ class InferenceRequest:
     speed: Speed
 
 
-def observed_profile(observed: Mapping[str, object]) -> ReportedBlock:
+def observed_profile(observed: ObservedProfile) -> ReportedBlock:
     """What a backend reported about its own profile, and why the rest is empty.
 
     Only the backend's own output speaks here. A value it did not carry stays
@@ -56,17 +56,17 @@ def observed_profile(observed: Mapping[str, object]) -> ReportedBlock:
     reported: dict[str, str | None] = {}
     provenance: dict[str, str] = {}
     for name in OBSERVED_FIELDS:
-        value = observed.get(name)
+        value = getattr(observed, name)
         carried = value if isinstance(value, str) and value else None
         reported[name] = carried
         provenance[name] = (
             Provenance.REPORTED if carried is not None else Provenance.NOT_REPORTED
         )
-    answered: ObservedProfile = {
-        "model": reported["model"],
-        "effort": reported["effort"],
-        "speed": reported["speed"],
-    }
+    answered = ObservedProfile(
+        model=reported["model"],
+        effort=reported["effort"],
+        speed=reported["speed"],
+    )
     return {"observed": answered, "provenance": provenance}
 
 
@@ -92,7 +92,7 @@ def frozen_profile(request: InferenceRequest) -> InferenceProfile:
             speed=request.speed,
         ),
         "native": None,
-        **observed_profile({}),
+        **observed_profile(ObservedProfile()),
     }
 
 
@@ -118,8 +118,8 @@ def record_actuation(profile: InferenceProfile, agent: ReportedProfile) -> None:
     the block is owned here, so the record holds the same three fields whichever
     backend answered, and nothing an adapter did not report.
     """
-    profile["native"] = agent["native"]
-    profile.update(observed_profile(agent["observed"]))
+    profile["native"] = agent.native
+    profile.update(observed_profile(agent.observed))
 
 
 def roles(inference: Inference) -> list[tuple[str, InferenceProfile]]:
@@ -133,7 +133,7 @@ def roles(inference: Inference) -> list[tuple[str, InferenceProfile]]:
 def contradicted_profiles(inference: Inference) -> list[str]:
     """Roles whose request the inventory of their own backend contradicts."""
     return [
-        f"configuration error: {role} profile: {profile['validation']['reason']}"
+        f"configuration error: {role} profile: {profile['validation'].reason}"
         for role, profile in roles(inference)
-        if profile["validation"]["status"] == ProfileStatus.UNSUPPORTED
+        if profile["validation"].status == ProfileStatus.UNSUPPORTED
     ]

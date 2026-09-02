@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
+from dataclasses import dataclass, fields
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
+from ..domain.document import Document
 from ..resources import observation_schema
 
 # The variable naming the file to write. It reaches the process of the gate
@@ -49,17 +51,23 @@ class Severity(StrEnum):
     INFO = "info"
 
 
-class Finding(TypedDict):
-    """One thing a sensor saw, and where it saw it."""
+@dataclass(frozen=True, kw_only=True)
+class Finding(Document):
+    """One thing a sensor saw, and where it saw it.
+
+    A finding names a place when it has one. A sensor that measured the whole
+    tree, or a line nobody can point at, says so rather than inventing one.
+    """
 
     id: str
     severity: Severity
-    path: str
-    line: int
+    path: str | None
+    line: int | None
     message: str
 
 
-class Observation(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class Observation(Document):
     """The document a `codeservo-json` gate writes beside its exit code.
 
     The six fields are the whole contract. They are declared once here; the
@@ -71,12 +79,39 @@ class Observation(TypedDict):
     sensor: str
     status: Status
     summary: str
-    findings: list[Finding]
+    findings: tuple[Finding, ...]
     metrics: dict[str, float]
 
+    @classmethod
+    def parse(cls, raw: bytes) -> Observation:
+        """One document as the gate wrote it, or the contract it violated.
 
-OBSERVATION_FIELDS = frozenset(Observation.__annotations__)
-FINDING_FIELDS = frozenset(Finding.__annotations__)
+        A fault names the field and what was expected of it. Returning the
+        document and the fault side by side would let a caller read one
+        without the other, so exactly one of them ever comes back.
+        """
+        document = _read(raw)
+        return cls(
+            schema_version=document["schema_version"],
+            sensor=document["sensor"],
+            status=Status(document["status"]),
+            summary=document["summary"],
+            findings=tuple(
+                Finding(
+                    id=finding["id"],
+                    severity=Severity(finding["severity"]),
+                    path=finding["path"],
+                    line=finding["line"],
+                    message=finding["message"],
+                )
+                for finding in document["findings"]
+            ),
+            metrics=dict(document["metrics"]),
+        )
+
+
+OBSERVATION_FIELDS = frozenset(field.name for field in fields(Observation))
+FINDING_FIELDS = frozenset(field.name for field in fields(Finding))
 
 
 class Classification(StrEnum):
@@ -90,6 +125,10 @@ class Classification(StrEnum):
 
 class ObservationPathError(RuntimeError):
     """The controller cannot own the location it would hand to a gate."""
+
+
+class ObservationFault(ValueError):
+    """What a document a gate wrote violates, and what was expected of it."""
 
 
 def schema_path(source_root: Path | None = None) -> Path:
@@ -186,24 +225,20 @@ def _contract(document: Any) -> str | None:
     return None
 
 
-def validate(raw: bytes) -> tuple[Observation | None, str | None]:
-    """Read one document as JSON and hold it to the six fields it must carry.
-
-    Returns the parsed document, or the fault that names the field it violated
-    and what was expected of it.
-    """
+def _read(raw: bytes) -> dict:
+    """Read one document as JSON and hold it to the six fields it must carry."""
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
-        return None, "the observation is not valid UTF-8"
+        raise ObservationFault("the observation is not valid UTF-8") from None
     try:
         document = json.loads(text, parse_constant=_refuse_constant)
     except ValueError as exc:
-        return None, f"the observation is not JSON: {exc}"
+        raise ObservationFault(f"the observation is not JSON: {exc}") from None
     wrong = _contract(document)
     if wrong is not None:
-        return None, wrong
-    return document, None
+        raise ObservationFault(wrong)
+    return document
 
 
 def classify(
@@ -217,14 +252,15 @@ def classify(
     """
     if raw is None:
         return Classification.ABSENT, "the gate wrote no observation"
-    document, wrong = validate(raw)
-    if document is None:
-        return Classification.INVALID, wrong
+    try:
+        document = Observation.parse(raw)
+    except ObservationFault as fault:
+        return Classification.INVALID, str(fault)
     verdict = Status.PASSED if passed else Status.FAILED
-    if document["status"] != verdict:
+    if document.status != verdict:
         return (
             Classification.CONTRADICTED,
-            f"the observation reports {document['status']} for a gate that"
+            f"the observation reports {document.status} for a gate that"
             f" {'passed' if passed else 'did not pass'}",
         )
     return Classification.VALID, None

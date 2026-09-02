@@ -3,19 +3,21 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypedDict
+
+from ..domain.document import Document
 
 
 class SandboxError(RuntimeError):
     pass
 
 
-class IsolationEvidence(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class IsolationEvidence(Document):
     """The confinement one process ran under, as the record states it."""
 
     mechanism: str
-    denied_paths: list[str]
-    read_only_paths: list[str]
+    denied_paths: tuple[str, ...]
+    read_only_paths: tuple[str, ...]
     user_config_ignored: bool
 
 
@@ -59,9 +61,9 @@ def seatbelt_command(command: list[str], isolation: Isolation) -> list[str]:
 def isolation_evidence(
     isolation: Isolation, mechanism: str
 ) -> IsolationEvidence:
-    return {
-        "mechanism": mechanism,
-        "denied_paths": [str(path.resolve()) for path in isolation.denied],
-        "read_only_paths": [str(path.resolve()) for path in isolation.read_only],
-        "user_config_ignored": True,
-    }
+    return IsolationEvidence(
+        mechanism=mechanism,
+        denied_paths=tuple(str(path.resolve()) for path in isolation.denied),
+        read_only_paths=tuple(str(path.resolve()) for path in isolation.read_only),
+        user_config_ignored=True,
+    )

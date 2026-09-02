@@ -206,7 +206,7 @@ class ObservedProfileTests(unittest.TestCase):
 
         self.assertEqual(
             {"model": "claude-opus-5", "effort": None, "speed": "standard"},
-            _observed(events),
+            _observed(events).to_document(),
         )
 
     def test_reads_the_reviewer_model_from_the_one_model_it_billed(self) -> None:
@@ -220,7 +220,7 @@ class ObservedProfileTests(unittest.TestCase):
 
         self.assertEqual(
             {"model": "claude-opus-5", "effort": None, "speed": "fast"},
-            _observed(events),
+            _observed(events).to_document(),
         )
 
     def test_leaves_the_reviewer_model_unread_when_several_were_billed(self) -> None:
@@ -236,7 +236,8 @@ class ObservedProfileTests(unittest.TestCase):
         ]
 
         self.assertEqual(
-            {"model": None, "effort": None, "speed": "standard"}, _observed(events)
+            {"model": None, "effort": None, "speed": "standard"},
+            _observed(events).to_document(),
         )
 
     def test_prefers_the_model_the_stream_resolved_over_what_it_billed(self) -> None:
@@ -250,12 +251,12 @@ class ObservedProfileTests(unittest.TestCase):
             ),
         ]
 
-        self.assertEqual("claude-opus-5", _observed(events)["model"])
+        self.assertEqual("claude-opus-5", _observed(events).model)
 
     def test_reports_the_model_the_session_named_not_the_one_requested(self) -> None:
         events = [{"type": "system", "subtype": "init", "model": "claude-sonnet-5"}]
 
-        self.assertEqual("claude-sonnet-5", _observed(events)["model"])
+        self.assertEqual("claude-sonnet-5", _observed(events).model)
 
     def test_reports_no_effort_beside_a_speed_the_session_does_name(self) -> None:
         """`fast_mode_state` is a speed; nothing in the stream is an effort."""
@@ -269,18 +270,18 @@ class ObservedProfileTests(unittest.TestCase):
 
         observed = _observed(events)
 
-        self.assertIsNone(observed["effort"])
-        self.assertEqual("fast", observed["speed"])
+        self.assertIsNone(observed.effort)
+        self.assertEqual("fast", observed.speed)
 
     def test_leaves_unreported_values_unknown(self) -> None:
         self.assertEqual(
             {"model": None, "effort": None, "speed": None},
-            _observed([{"type": "result", "result": "done"}]),
+            _observed([{"type": "result", "result": "done"}]).to_document(),
         )
 
     def test_leaves_every_value_unknown_when_nothing_was_read(self) -> None:
         self.assertEqual(
-            {"model": None, "effort": None, "speed": None}, _observed([])
+            {"model": None, "effort": None, "speed": None}, _observed([]).to_document()
         )
 
 
@@ -371,24 +372,24 @@ class ModelRecordTests(unittest.TestCase):
 
         models = _models(events)
 
-        self.assertEqual("claude-opus-5", models["session_model"])
+        self.assertEqual("claude-opus-5", models.session_model)
         self.assertEqual(
             {"output_tokens": 24898, "cost_usd": 1.56},
-            models["usage"]["claude-opus-5"],
+            models.usage["claude-opus-5"],
         )
-        self.assertEqual(15, models["usage"]["claude-haiku-4-5-20251001"]["output_tokens"])
+        self.assertEqual(15, models.usage["claude-haiku-4-5-20251001"]["output_tokens"])
 
     def test_reports_no_model_when_the_session_names_none(self) -> None:
         models = _models([{"type": "result", "result": "done"}])
 
-        self.assertIsNone(models["session_model"])
-        self.assertEqual({}, models["usage"])
+        self.assertIsNone(models.session_model)
+        self.assertEqual({}, models.usage)
 
 
 class IsolationTests(unittest.TestCase):
     def test_always_reports_the_controller_owned_mechanism(self) -> None:
         self.assertEqual(
-            "macos-sandbox-exec", describe_isolation(Isolation())["mechanism"]
+            "macos-sandbox-exec", describe_isolation(Isolation()).mechanism
         )
 
 

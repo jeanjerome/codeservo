@@ -5,9 +5,11 @@ import shutil
 import subprocess
 import tempfile
 import time
+from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
+from ..domain.document import UNSET, Document, Unset
 from ..evidence.digests import sha256_file, sha256_record, sha256_text
 from ..runtime.sandbox import (
     Isolation,
@@ -41,32 +43,44 @@ USAGE_FIELD = "usage"
 SPEED_FIELD = "speed"
 
 
-class Session(TypedDict, total=False):
+@dataclass(frozen=True, kw_only=True)
+class Session(Document):
     """What the result event says about the session that just ended.
 
     A stream that produced no result event carries no session, and the block
-    is empty rather than filled with nulls.
+    is empty rather than filled with nulls, so every field starts unset.
     """
 
-    session_id: str | None
-    subtype: str | None
-    is_error: bool
-    num_turns: int | None
-    total_cost_usd: float | None
-    terminal_reason: str | None
+    session_id: str | None | Unset = UNSET
+    subtype: str | None | Unset = UNSET
+    is_error: bool | Unset = UNSET
+    num_turns: int | None | Unset = UNSET
+    total_cost_usd: float | None | Unset = UNSET
+    terminal_reason: str | None | Unset = UNSET
+
+    @property
+    def reported_an_error(self) -> bool:
+        """Whether the session that ended said it failed.
+
+        A stream that carried no result event said nothing about failing,
+        which is not the same as saying it did not fail.
+        """
+        return self.is_error is True
 
 
-class Models(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class Models(Document):
     """The model the session resolved to, and everything it billed."""
 
     session_model: str | None
     usage: dict[str, dict[str, Any]]
 
 
-class UnsignedActuation(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class UnsignedActuation(Document):
     """One actuation, before it closes over itself."""
 
-    command: list[str]
+    command: tuple[str, ...]
     exit_code: int
     duration_ms: int
     session: Session
@@ -80,17 +94,29 @@ class UnsignedActuation(TypedDict):
     last_message_path: str
     last_message_sha256: str
 
+    def signed(self) -> ClaudeActuation:
+        """This actuation, closed over the digest of what it holds."""
+        carried = {
+            declared.name: getattr(self, declared.name)
+            for declared in fields(UnsignedActuation)
+        }
+        return ClaudeActuation(
+            **carried, result_sha256=sha256_record(self.to_document())
+        )
 
+
+@dataclass(frozen=True, kw_only=True)
 class ClaudeActuation(UnsignedActuation):
     """One actuation, and the digest recomputable from what it holds."""
 
     result_sha256: str
 
 
-class UnsignedReviewMeta(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class UnsignedReviewMeta(Document):
     """One review call, before it closes over itself."""
 
-    command: list[str]
+    command: tuple[str, ...]
     exit_code: int
     duration_ms: int
     schema_sha256: str
@@ -105,7 +131,18 @@ class UnsignedReviewMeta(TypedDict):
     result_path: str
     result_sha256: str
 
+    def signed(self) -> ClaudeReviewMeta:
+        """This review call, closed over the digest of what it holds."""
+        carried = {
+            declared.name: getattr(self, declared.name)
+            for declared in fields(UnsignedReviewMeta)
+        }
+        return ClaudeReviewMeta(
+            **carried, meta_sha256=sha256_record(self.to_document())
+        )
 
+
+@dataclass(frozen=True, kw_only=True)
 class ClaudeReviewMeta(UnsignedReviewMeta):
     """One review call, and the digest recomputable from what it holds."""
 
@@ -271,20 +308,20 @@ def _models(events: list[dict]) -> Models:
                     "output_tokens": record.get("outputTokens"),
                     "cost_usd": record.get("costUSD"),
                 }
-    return {"session_model": session_model, "usage": spent}
+    return Models(session_model=session_model, usage=spent)
 
 
 def _session(result: dict | None) -> Session:
     if result is None:
-        return {}
-    return {
-        "session_id": result.get("session_id"),
-        "subtype": result.get("subtype"),
-        "is_error": bool(result.get("is_error")),
-        "num_turns": result.get("num_turns"),
-        "total_cost_usd": result.get("total_cost_usd"),
-        "terminal_reason": result.get("terminal_reason"),
-    }
+        return Session()
+    return Session(
+        session_id=result.get("session_id"),
+        subtype=result.get("subtype"),
+        is_error=bool(result.get("is_error")),
+        num_turns=result.get("num_turns"),
+        total_cost_usd=result.get("total_cost_usd"),
+        terminal_reason=result.get("terminal_reason"),
+    )
 
 
 def _reported_model(events: list[dict]) -> str | None:
@@ -297,10 +334,10 @@ def _reported_model(events: list[dict]) -> str | None:
     choosing between them would be an inference rather than a report.
     """
     models = _models(events)
-    session_model = models["session_model"]
+    session_model = models.session_model
     if isinstance(session_model, str) and session_model:
         return session_model
-    billed = list(models["usage"])
+    billed = list(models.usage)
     return billed[0] if len(billed) == 1 else None
 
 
@@ -319,11 +356,11 @@ def _observed(events: list[dict]) -> ObservedProfile:
     is put in its place: the requested value would repeat the request, and
     `fast_mode_state` reports a speed and not an effort.
     """
-    return {
-        "model": _reported_model(events),
-        "effort": None,
-        "speed": _reported_speed(events),
-    }
+    return ObservedProfile(
+        model=_reported_model(events),
+        effort=None,
+        speed=_reported_speed(events),
+    )
 
 
 def describe_isolation(isolation: Isolation) -> IsolationEvidence:
@@ -383,28 +420,24 @@ def run_implementer(
     message = str(result.get("result", "")) if result else ""
     last_message.write_text(message, encoding="utf-8")
 
-    unsigned: UnsignedActuation = {
-        "command": command,
-        "exit_code": completed.returncode,
-        "duration_ms": int((time.monotonic() - started) * 1000),
-        "session": _session(result),
-        "models": _models(events),
-        "native": native,
-        "observed": _observed(events),
-        "events_path": str(events_path),
-        "events_sha256": sha256_file(events_path),
-        "stderr_path": str(stderr_path),
-        "stderr_sha256": sha256_file(stderr_path),
-        "last_message_path": str(last_message),
-        "last_message_sha256": sha256_text(message),
-    }
-    record: ClaudeActuation = {
-        **unsigned,
-        "result_sha256": sha256_record(unsigned),
-    }
-    if completed.returncode == 0 and record["session"].get("is_error"):
+    record = UnsignedActuation(
+        command=tuple(command),
+        exit_code=completed.returncode,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        session=_session(result),
+        models=_models(events),
+        native=native,
+        observed=_observed(events),
+        events_path=str(events_path),
+        events_sha256=sha256_file(events_path),
+        stderr_path=str(stderr_path),
+        stderr_sha256=sha256_file(stderr_path),
+        last_message_path=str(last_message),
+        last_message_sha256=sha256_text(message),
+    ).signed()
+    if completed.returncode == 0 and record.session.reported_an_error:
         raise ClaudeCodeError(
-            f"implementer reported {record['session'].get('subtype')};"
+            f"implementer reported {record.session.subtype};"
             f" see {stderr_path}"
         )
     return record
@@ -475,23 +508,22 @@ def run_reviewer(
     result_path.write_text(
         json.dumps(review, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    unsigned: UnsignedReviewMeta = {
-        "command": command,
-        "exit_code": completed.returncode,
-        "duration_ms": int((time.monotonic() - started) * 1000),
-        "schema_sha256": sha256_file(schema_path),
-        "session": _session(_result_event(_events(stdout_path))),
-        "models": _models(_events(stdout_path)),
-        "native": native,
-        "observed": _observed(_events(stdout_path)),
-        "stdout_path": str(stdout_path),
-        "stdout_sha256": sha256_file(stdout_path),
-        "stderr_path": str(stderr_path),
-        "stderr_sha256": sha256_file(stderr_path),
-        "result_path": str(result_path),
-        "result_sha256": sha256_file(result_path),
-    }
-    meta: ClaudeReviewMeta = {**unsigned, "meta_sha256": sha256_record(unsigned)}
+    meta = UnsignedReviewMeta(
+        command=tuple(command),
+        exit_code=completed.returncode,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        schema_sha256=sha256_file(schema_path),
+        session=_session(_result_event(_events(stdout_path))),
+        models=_models(_events(stdout_path)),
+        native=native,
+        observed=_observed(_events(stdout_path)),
+        stdout_path=str(stdout_path),
+        stdout_sha256=sha256_file(stdout_path),
+        stderr_path=str(stderr_path),
+        stderr_sha256=sha256_file(stderr_path),
+        result_path=str(result_path),
+        result_sha256=sha256_file(result_path),
+    ).signed()
     return review, meta
 
 

@@ -48,21 +48,21 @@ def runtime_metadata(
     never leaves the reviewing backend to be inferred from the implementing one.
     """
     actuator_version = command_version(list(actuator.version_command))
-    return {
-        "codeservo_version": __version__,
-        "codeservo_commit": command_version(
+    return RuntimeMetadata(
+        codeservo_version=__version__,
+        codeservo_commit=command_version(
             ["git", "-C", str(SOURCE_ROOT), "rev-parse", "HEAD"]
         ),
-        "actuator": actuator.name,
-        "actuator_version": actuator_version,
-        "review_actuator": reviewer.name,
-        "review_actuator_version": (
+        actuator=actuator.name,
+        actuator_version=actuator_version,
+        review_actuator=reviewer.name,
+        review_actuator_version=(
             actuator_version
             if reviewer.version_command == actuator.version_command
             else command_version(list(reviewer.version_command))
         ),
-        "implementer_model": model or f"{actuator.name}-default",
-        "reviewer_model": review_model or f"{reviewer.name}-default",
-        "python_version": platform.python_version(),
-        "git_version": command_version(["git", "--version"]),
-    }
+        implementer_model=model or f"{actuator.name}-default",
+        reviewer_model=review_model or f"{reviewer.name}-default",
+        python_version=platform.python_version(),
+        git_version=command_version(["git", "--version"]),
+    )

@@ -125,10 +125,14 @@ class IsolationEvidenceTests(unittest.TestCase):
                 "macos-sandbox-exec",
             )
 
-            self.assertEqual("macos-sandbox-exec", evidence["mechanism"])
-            self.assertEqual([str(root / "sensors")], evidence["denied_paths"])
-            self.assertEqual([str(root / "repo")], evidence["read_only_paths"])
-            self.assertTrue(evidence["user_config_ignored"])
+            self.assertEqual("macos-sandbox-exec", evidence.mechanism)
+            self.assertEqual((str(root / "sensors"),), evidence.denied_paths)
+            self.assertEqual((str(root / "repo"),), evidence.read_only_paths)
+            self.assertTrue(evidence.user_config_ignored)
+            # The record carries JSON arrays, whatever the document holds.
+            self.assertEqual(
+                [str(root / "sensors")], evidence.to_document()["denied_paths"]
+            )
 
 
 if __name__ == "__main__":

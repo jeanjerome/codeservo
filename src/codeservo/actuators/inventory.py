@@ -11,10 +11,13 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
+
+from ..domain.document import Document
 
 SCHEMA_VERSION = 1
 
@@ -66,7 +69,8 @@ NOT_LISTED_REASON = "the backend cache does not offer this model for selection"
 CLAUDE_UNVERIFIED_REASON = "no cache schema has been verified for this backend"
 
 
-class ProfileVerdict(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class ProfileVerdict(Document):
     """What the local inventory of one backend can say about a request."""
 
     status: ProfileStatus
@@ -254,7 +258,7 @@ def _select_model(backend: dict, model: str) -> dict:
 
 
 def _profile(status: ProfileStatus, reason: str, source: str) -> ProfileVerdict:
-    return {"status": status, "reason": reason, "inventory_source": source}
+    return ProfileVerdict(status=status, reason=reason, inventory_source=source)
 
 
 def validate_profile(

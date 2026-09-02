@@ -157,7 +157,7 @@ def prepare(request: RunRequest) -> tuple[RunContext, RunRecord]:
         {
             role: {
                 **profile["requested"],
-                "validation": profile["validation"]["status"],
+                "validation": profile["validation"].status,
             }
             for role, profile in roles(inference)
         },

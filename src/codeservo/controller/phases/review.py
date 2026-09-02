@@ -142,7 +142,7 @@ def review_candidate(
         "review.finished",
         {
             "result_sha256": record.document["review"]["result_sha256"],
-            "meta_sha256": meta["meta_sha256"],
+            "meta_sha256": meta.meta_sha256,
         },
     )
     reviewer = context.inference["reviewer"]
@@ -150,7 +150,7 @@ def review_candidate(
     record.record(
         "review.profile_observed",
         {
-            "model": reviewer["observed"]["model"],
+            "model": reviewer["observed"].model,
             "provenance": reviewer["provenance"],
         },
     )

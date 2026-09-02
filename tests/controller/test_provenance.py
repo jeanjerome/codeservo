@@ -35,12 +35,12 @@ class RuntimeIdentityTests(unittest.TestCase):
 
         runtime = runtime_metadata(actuator, actuator, None, None)
 
-        self.assertEqual("fake", runtime["actuator"])
-        self.assertEqual("fake", runtime["review_actuator"])
-        self.assertEqual("fake 9.9", runtime["actuator_version"])
-        self.assertEqual("fake 9.9", runtime["review_actuator_version"])
-        self.assertEqual("fake-default", runtime["implementer_model"])
-        self.assertEqual("fake-default", runtime["reviewer_model"])
+        self.assertEqual("fake", runtime.actuator)
+        self.assertEqual("fake", runtime.review_actuator)
+        self.assertEqual("fake 9.9", runtime.actuator_version)
+        self.assertEqual("fake 9.9", runtime.review_actuator_version)
+        self.assertEqual("fake-default", runtime.implementer_model)
+        self.assertEqual("fake-default", runtime.reviewer_model)
 
     def test_names_each_backend_and_its_own_cli_version(self) -> None:
         runtime = runtime_metadata(
@@ -50,20 +50,20 @@ class RuntimeIdentityTests(unittest.TestCase):
             "another-model",
         )
 
-        self.assertEqual("fake", runtime["actuator"])
-        self.assertEqual("fake 9.9", runtime["actuator_version"])
-        self.assertEqual("other", runtime["review_actuator"])
-        self.assertEqual("other 1.2", runtime["review_actuator_version"])
-        self.assertEqual("a-model", runtime["implementer_model"])
-        self.assertEqual("another-model", runtime["reviewer_model"])
+        self.assertEqual("fake", runtime.actuator)
+        self.assertEqual("fake 9.9", runtime.actuator_version)
+        self.assertEqual("other", runtime.review_actuator)
+        self.assertEqual("other 1.2", runtime.review_actuator_version)
+        self.assertEqual("a-model", runtime.implementer_model)
+        self.assertEqual("another-model", runtime.reviewer_model)
 
     def test_reports_the_reviewing_backend_default_model(self) -> None:
         runtime = runtime_metadata(
             self._actuator(), self._actuator(name="other"), None, None
         )
 
-        self.assertEqual("fake-default", runtime["implementer_model"])
-        self.assertEqual("other-default", runtime["reviewer_model"])
+        self.assertEqual("fake-default", runtime.implementer_model)
+        self.assertEqual("other-default", runtime.reviewer_model)
 
     def test_declares_the_controller_version_in_one_place(self) -> None:
         pyproject = self._source_root() / "pyproject.toml"
@@ -83,7 +83,7 @@ class RuntimeIdentityTests(unittest.TestCase):
             self._actuator(), self._actuator(), None, None
         )
 
-        self.assertEqual(codeservo.__version__, runtime["codeservo_version"])
+        self.assertEqual(codeservo.__version__, runtime.codeservo_version)
 
     def test_reports_the_commit_of_the_controller_checkout(self) -> None:
         checkout = subprocess.run(
@@ -99,8 +99,8 @@ class RuntimeIdentityTests(unittest.TestCase):
             self._actuator(), self._actuator(), None, None
         )
 
-        self.assertEqual(checkout.stdout.strip(), runtime["codeservo_commit"])
-        self.assertEqual(40, len(runtime["codeservo_commit"]))
+        self.assertEqual(checkout.stdout.strip(), runtime.codeservo_commit)
+        self.assertEqual(40, len(runtime.codeservo_commit))
 
     def test_keeps_the_answer_of_a_successful_lookup(self) -> None:
         self.assertEqual(
