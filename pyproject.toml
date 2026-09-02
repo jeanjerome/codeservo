@@ -56,6 +56,30 @@ compile = "python -m compileall -q src tests"
 architecture = "lint-imports --no-cache --no-logo"
 coverage = "coverage run -m unittest discover -s tests && coverage report"
 
+# The dependency audit is not a gate and does not belong in the environment the
+# gates run through. It reaches a remote advisory service, so its verdict is a
+# function of that service and of the network as well as of the tree; a
+# candidate could not fix what it reports either, dependencies being a
+# maintainer's to change. It lives in its own environment so that no HTTP
+# client enters the one a confined measurement runs in.
+[tool.pixi.feature.audit.pypi-dependencies]
+pip-audit = ">=2.10,<3"
+
+[tool.pixi.feature.audit.tasks]
+# The audited environment is named rather than inferred, and checked before it
+# is measured: pip-audit answers "no known vulnerabilities found" for a path
+# that does not exist, which would be a pass no measurement produced.
+audit = """
+test -d .pixi/envs/default/lib/python3.12/site-packages &&
+pip-audit --progress-spinner=off --path .pixi/envs/default/lib/python3.12/site-packages
+"""
+
+[tool.pixi.environments]
+# Declared apart and solved apart, so that what the gates are measured through
+# stays exactly what it was.
+default = []
+audit = ["audit"]
+
 [tool.coverage.run]
 source = ["codeservo"]
 # Coverage is the one measurement here that has to write, so it writes outside
