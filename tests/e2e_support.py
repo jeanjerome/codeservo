@@ -6,10 +6,8 @@ network.
 """
 
 import json
-import subprocess
-import sys
 
-from harness import SENSOR_COMMAND, constitution
+from harness import SENSOR_COMMAND
 
 
 JOURNAL_PROBE = '''"""Report the transitions the journal already holds."""

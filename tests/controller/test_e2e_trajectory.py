@@ -8,7 +8,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codeservo.actuators import codex
 from codeservo.evidence.digests import sha256_text
 
 from e2e_support import FAKE_AGENTS, canonical
