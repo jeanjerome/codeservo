@@ -53,6 +53,14 @@ timeout_seconds = 120
 baseline = true
 result_format = "codeservo-json"
 
+# The one gate holding a ratchet, over the two numbers its document reports
+# about the decision core: the proportion of it the suite reaches may not fall,
+# and the number of its statements no test reaches may not grow. The second is
+# the stricter and is the point of the pair. A statement added to the code that
+# decides acceptance and covered by nothing is unmeasured deciding code,
+# whichever way the proportion moved, and the remedy is to reach it. The floor
+# in `pyproject.toml` is a different control: it is what a measurement taken
+# outside a run holds, where there is no baseline to compare against.
 [[gate]]
 name = "coverage"
 phase = "full"
@@ -60,6 +68,7 @@ task = "coverage"
 timeout_seconds = 600
 baseline = true
 result_format = "codeservo-json"
+ratchet = { line_coverage = ">=", missing = "<=" }
 
 [[gate]]
 name = "fuzz"

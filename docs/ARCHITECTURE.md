@@ -21,6 +21,59 @@ on any import that climbs a layer, including one that climbs through a chain of
 modules. The file is a protected path, so a candidate cannot loosen the rule to
 pass the gate that measures it against.
 
+A directory is a layer because it names a different kind of thing, never
+because it grew large, and a file inside one is its own module when it owns a
+vocabulary, a contract or an adapter that the rest of the layer uses without
+knowing what is behind it. Four packages are cut that way, and the cut is where
+the direction above does its work.
+
+`sensors` measures and never decides, and its four modules answer two
+questions. What is measured: `scope.py` is the one measurement the controller
+makes itself, reading Git against the frozen base commit for the files that
+moved, the lines they moved by and the protected paths among them; `gates.py`
+is every measurement delegated to the target repository's own tools, building
+the command line, running it confined and keeping both streams with their
+digests, its verdict derived from the exit code rather than chosen. What a
+measurement may say: `observations.py` owns the contract of the second answer —
+the six fields, the two vocabularies, the validation that names the field at
+fault, and the classification of a document against the exit code — and it
+interprets no tool; `junit.py` is one producer of that contract, reading the
+reports a tool already writes and projecting them onto it. A document therefore
+reaches the record by two channels in one shape, written by the gate's own
+adapter or projected here from what its tool wrote, and every reader
+downstream — the feedback, the ratchets, the bundle the reviewer is handed, the
+record itself — knows the shape alone. A further format is a module beside
+`junit.py` and moves none of them.
+
+`actuators` and `workspace` have the same shape twice, a port and its adapters:
+`base.py` is the backend port and `claude_code.py` and `codex.py` answer it,
+`provider.py` is the execution provider port and `pixi.py` and `mise.py` answer
+it. The layer above imports the port and never an adapter, and every fact
+measured about one tool lives in that tool's file, which is what lets a second
+ecosystem arrive without the controller learning its name. `actuators` and
+`sensors` are siblings that may not import each other, so what proposes a
+change never sees what measures it.
+
+`controller` is the loop and `controller/phases/` its steps, each handed the
+frozen context and the open record, measuring, writing what it measured, and
+either letting the run continue or raising the rejection that ends it. None of
+them closes a run: `run.py` does that in one place, whichever step ended it, so
+a decision can never be reached without being written. The modules beside the
+phases are what a phase is written in terms of — the frozen context, the record
+and the document it holds, the confinement profiles, and the policies applied
+to what was measured. The `coverage` gate names the decision core among them
+rather than the package: the constitution reader, the convergence decision, the
+ratchet and the record verification, which are where a wrong answer is a wrong
+verdict, and where a well covered periphery would otherwise carry a total that
+hides them.
+
+The word *sensor* names two things that are not the same. This package is the
+code that measures, and it ships in the wheel. An external acceptance sensor is
+a protocol instrument, written and frozen before the actuation it constrains,
+kept in the state repository where no actuator can read it, and executed by the
+one gate that declares it. Both report and neither decides, which is why they
+share the word.
+
 ## The Control Loop
 
 The controller:
