@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codeservo.domain.constitution import Direction, Ratchet
+from codeservo.domain.constitution import Direction, Ratchet, ResultFormat
 from codeservo.policies.constitution import ConstitutionError, load_constitution
 
 EXECUTION = """
@@ -224,7 +224,7 @@ result_format = "codeservo-json"
 name = "quick"
 phase = "quick"
 command = "true"
-result_format = "junit-xml"
+result_format = "tap"
 
 [[gate]]
 name = "full"
@@ -233,8 +233,98 @@ command = "true"
 """
         )
 
-        with self.assertRaisesRegex(ConstitutionError, "junit-xml"):
+        with self.assertRaisesRegex(ConstitutionError, "tap"):
             load_constitution(repo)
+
+
+class GateReportTests(unittest.TestCase):
+    """Where a `junit-xml` gate's tool writes its reports, and the misdeclarations."""
+
+    _write = ConstitutionTests._write
+
+    def _gates(self, quick: str) -> str:
+        return f"""
+[[gate]]
+name = "quick"
+phase = "quick"
+command = "true"
+{quick}
+
+[[gate]]
+name = "full"
+phase = "full"
+command = "true"
+"""
+
+    def test_reads_the_pattern_of_a_junit_gate(self) -> None:
+        repo = self._write(
+            self._gates(
+                'result_format = "junit-xml"\n'
+                'reports = "**/target/surefire-reports/TEST-*.xml"'
+            )
+        )
+
+        constitution = load_constitution(repo)
+
+        self.assertEqual(ResultFormat.JUNIT_XML, constitution.gates[0].result_format)
+        self.assertEqual(
+            "**/target/surefire-reports/TEST-*.xml", constitution.gates[0].reports
+        )
+        self.assertIsNone(constitution.gates[1].reports)
+
+    def test_a_junit_gate_names_its_reports(self) -> None:
+        repo = self._write(self._gates('result_format = "junit-xml"'))
+
+        with self.assertRaisesRegex(ConstitutionError, "requires reports"):
+            load_constitution(repo)
+
+    def test_only_a_junit_gate_names_reports(self) -> None:
+        for declared in ("", 'result_format = "codeservo-json"\n'):
+            with self.subTest(declared or "exit-code"):
+                repo = self._write(self._gates(declared + 'reports = "reports/*.xml"'))
+
+                with self.assertRaisesRegex(
+                    ConstitutionError, 'reports requires result_format = "junit-xml"'
+                ):
+                    load_constitution(repo)
+
+    def test_the_pattern_stays_under_the_measured_tree(self) -> None:
+        for pattern, wrong in (
+            ("/tmp/reports/*.xml", "must stay under"),
+            ("../reports/*.xml", "must stay under"),
+            ("target/../../*.xml", "must stay under"),
+            ("   ", "names no file"),
+        ):
+            with self.subTest(pattern):
+                repo = self._write(
+                    self._gates(f'result_format = "junit-xml"\nreports = "{pattern}"')
+                )
+
+                with self.assertRaisesRegex(ConstitutionError, wrong):
+                    load_constitution(repo)
+
+    def test_the_pattern_is_a_string(self) -> None:
+        repo = self._write(self._gates('result_format = "junit-xml"\nreports = 3'))
+
+        with self.assertRaisesRegex(ConstitutionError, "reports must be a string"):
+            load_constitution(repo)
+
+    def test_a_ratchet_holds_the_metrics_of_a_projected_document(self) -> None:
+        repo = self._write(
+            self._gates(
+                'result_format = "junit-xml"\n'
+                'reports = "reports/*.xml"\n'
+                'ratchet = { failures = "<=", tests = ">=" }'
+            )
+        )
+
+        self.assertEqual(
+            (("failures", "<="), ("tests", ">=")),
+            tuple(
+                (ratchet.metric, ratchet.direction)
+                for ratchet in load_constitution(repo).gates[0].ratchets
+            ),
+        )
 
 
 class GateRatchetTests(unittest.TestCase):

@@ -121,6 +121,24 @@ which the provider passes through. Both are the controller's business: the
 target repository writes an adapter that takes a location, not one that knows
 where the location came from.
 
+A gate may instead declare `result_format = "junit-xml"` and name, in `reports`,
+the pattern under which its tool writes JUnit XML reports, relative to the tree
+it measures. The gate is handed no location. `sensors/junit.py` lists the
+matching files before the gate runs and after it, reads those this measurement
+wrote — new, or whose size or write time moved — and projects them onto the same
+six-field document, which is then held to the same contract and kept the same
+way, so every reader of an observation, feedback, ratchets and review, is
+unchanged. A report the gate left as it found it is not this measurement's and
+is not read; nothing is deleted from the tree to make that so. The status of the
+projection is the verdict the exit code reached, because the controller wrote it
+and contradicts nothing it decided; a report the reader cannot make sense of is
+`invalid`, and a gate that passed and wrote no report is `absent`, both faults of
+the sensor. The shape read is the one every reporter writes, a `testsuite` of
+`testcase` elements alone or under `testsuites`, and a `file` and `line` a case
+names are kept when they point inside the tree. No tool's name enters the
+controller: the pattern names the location, and the location is the target
+repository's.
+
 ## Ratchets
 
 A gate reporting through a document may declare `ratchet = { missing = "<=",

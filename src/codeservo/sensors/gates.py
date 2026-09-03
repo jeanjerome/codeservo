@@ -17,7 +17,7 @@ from ..evidence.digests import sha256_file, sha256_record
 from ..runtime.process import run_command
 from ..runtime.sandbox import Isolation
 from ..workspace.provider import Provider
-from . import observations
+from . import junit, observations
 from .observations import ObservationPathError
 
 # What a gate writes inside the location the controller owns, and what the
@@ -62,9 +62,7 @@ class UnsignedGateResult(Document):
     passed: bool = field(init=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "passed", succeeded(self.exit_code, self.timed_out)
-        )
+        object.__setattr__(self, "passed", succeeded(self.exit_code, self.timed_out))
 
     def signed(self) -> GateResult:
         """This measurement, closed over the digest of what it holds.
@@ -78,9 +76,7 @@ class UnsignedGateResult(Document):
             for declared in fields(UnsignedGateResult)
             if declared.init
         }
-        return GateResult(
-            **carried, result_sha256=sha256_record(self.to_document())
-        )
+        return GateResult(**carried, result_sha256=sha256_record(self.to_document()))
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -208,6 +204,12 @@ def run_gates(
             location = _observation_location(gate, forbidden)
             document = location / OBSERVATION_FILENAME
             gate_env[observations.OBSERVATION_PATH_VARIABLE] = str(document)
+        # A gate whose tool writes its reports in the tree is told nothing:
+        # what the tree holds before it runs is listed, so that only what it
+        # wrote is read afterwards.
+        before: junit.Listing | None = None
+        if gate.result_format == ResultFormat.JUNIT_XML and gate.reports is not None:
+            before = junit.list_reports(repo, gate.reports)
         result = run_command(
             name=gate.name,
             command=gate_command(
@@ -227,7 +229,11 @@ def run_gates(
             ),
             isolation=isolation,
         )
-        results.append(_measured(result, gate, location, out_dir).signed())
+        results.append(
+            _measured(
+                result, gate, location, out_dir, tree=repo, before=before
+            ).signed()
+        )
     return results
 
 
@@ -236,6 +242,9 @@ def _measured(
     gate: Gate,
     location: Path | None,
     out_dir: Path,
+    *,
+    tree: Path | None = None,
+    before: junit.Listing | None = None,
 ) -> UnsignedGateResult:
     """One gate's measurement, with the document it wrote if it declared one."""
     measured = UnsignedGateResult(
@@ -250,6 +259,8 @@ def _measured(
         stderr_sha256=result.stderr_sha256,
         result_format=gate.result_format,
     )
+    if before is not None and tree is not None and gate.reports is not None:
+        return _projected(measured, result, gate.reports, tree, before, out_dir)
     if location is None:
         return measured
 
@@ -270,6 +281,68 @@ def _measured(
         observation_error=error,
         observation_path=kept.path,
         observation_sha256=kept.sha256,
+    )
+
+
+def _projected(
+    measured: UnsignedGateResult,
+    result: CommandResult,
+    pattern: str,
+    tree: Path,
+    before: junit.Listing,
+    out_dir: Path,
+) -> UnsignedGateResult:
+    """The reports the gate wrote, projected onto the document the record keeps.
+
+    The projection is held to the same contract as a document a gate writes
+    itself, and kept the same way, beside that gate's logs. A report the
+    reader cannot make sense of is a fault of the measurement. A gate that
+    passed and wrote no report measured nothing anyone can see, and says so;
+    one that failed and wrote none failed before any test ran, and the
+    document says that instead.
+    """
+    written, left = junit.written_reports(tree, pattern, before)
+    try:
+        reports = [junit.read_report(tree, relative) for relative in written]
+    except junit.ReportFault as fault:
+        return replace(
+            measured,
+            observation_status=observations.Classification.INVALID,
+            observation_error=str(fault),
+            observation_path=None,
+            observation_sha256=None,
+        )
+    if not reports and result.passed:
+        untouched = (
+            f"; {len(left)} matched and predate this measurement" if left else ""
+        )
+        return replace(
+            measured,
+            observation_status=observations.Classification.ABSENT,
+            observation_error=(
+                f"the gate passed and wrote no test report matching {pattern}{untouched}"
+            ),
+            observation_path=None,
+            observation_sha256=None,
+        )
+    raw = junit.render(
+        junit.project(
+            reports,
+            sensor=measured.name,
+            passed=result.passed,
+            pattern=pattern,
+            left=len(left),
+        )
+    )
+    kept = out_dir / f"{measured.name}{OBSERVATION_SUFFIX}"
+    kept.write_bytes(raw)
+    status, error = observations.classify(raw, passed=result.passed)
+    return replace(
+        measured,
+        observation_status=status,
+        observation_error=error,
+        observation_path=str(kept),
+        observation_sha256=sha256_file(kept),
     )
 
 

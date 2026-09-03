@@ -53,13 +53,13 @@ print(" ".join(recorded))
 '''
 
 
-CONVERGING_IMPLEMENTER = '''
+CONVERGING_IMPLEMENTER = """
 app = worktree / "app.py"
 implement(ACCEPTABLE if "return 1" in app.read_text() else UNACCEPTABLE)
-'''
+"""
 
 
-LOCATING_REVIEWER = '''
+LOCATING_REVIEWER = """
 emit_review(
     {
         "criteria": SATISFIED["criteria"],
@@ -74,7 +74,7 @@ emit_review(
         ],
     }
 )
-'''
+"""
 
 
 MUTATING_SENSOR = f"{SENSOR_COMMAND} && echo mutated > mutant.py"
@@ -209,7 +209,7 @@ def probe_reviewer_isolation(worktree):
 '''
 
 
-FAKE_CODEX = f'''#!/usr/bin/env python3
+FAKE_CODEX = f"""#!/usr/bin/env python3
 import json
 import os
 import pathlib
@@ -242,10 +242,10 @@ else:
     out.write_text("implemented")
     print(json.dumps({{"type": "message", "message": "done"}}))
     print(json.dumps({{"type": "turn.completed", "usage": {CODEX_USAGE}}}))
-'''
+"""
 
 
-FAKE_CLAUDE = f'''#!/usr/bin/env python3
+FAKE_CLAUDE = f"""#!/usr/bin/env python3
 import json
 import os
 import pathlib
@@ -303,7 +303,7 @@ else:
             }}
         )
     )
-'''
+"""
 
 
 FAKE_AGENTS = {
@@ -334,6 +334,49 @@ def writes_observation(document: dict, *, exit_code: int = 0) -> str:
     single quote; the shell escapes the double quotes of the JSON itself.
     """
     escaped = json.dumps(document, sort_keys=True).replace('"', '\\"')
+    return f'printf %s "{escaped}" > "$CODESERVO_OBSERVATION_PATH"; exit {exit_code}'
+
+
+def junit_report(
+    *, suite: str = "suite", passed: int = 2, failed: int = 0, errors: int = 0
+) -> str:
+    """One JUnit XML report, single-quoted throughout so a shell can carry it."""
+    cases = [
+        f"<testcase classname='{suite}' name='ok{n}' time='0.01'/>"
+        for n in range(passed)
+    ]
+    cases += [
+        f"<testcase classname='{suite}' name='bad{n}' time='0.02'>"
+        f"<failure message='expected 2 but was {n}' type='AssertionError'>trace</failure>"
+        "</testcase>"
+        for n in range(failed)
+    ]
+    cases += [
+        f"<testcase classname='{suite}' name='broken{n}'>"
+        "<error message='boom' type='RuntimeError'>trace</error></testcase>"
+        for n in range(errors)
+    ]
+    total = passed + failed + errors
     return (
-        f'printf %s "{escaped}" > "$CODESERVO_OBSERVATION_PATH"; exit {exit_code}'
+        f"<testsuite name='{suite}' tests='{total}' failures='{failed}'"
+        f" errors='{errors}' skipped='0' time='0.5'>{''.join(cases)}</testsuite>"
+    )
+
+
+def writes_junit_report(
+    report: str, *, into: str = "reports/TEST-suite.xml", exit_code: int = 0
+) -> str:
+    """A gate command writing one report where its tool would, in the tree.
+
+    The constitution carries this in a double-quoted TOML string, so every
+    double quote is escaped for TOML; the report itself holds only single
+    quotes, which the shell's double quotes carry unchanged.
+    """
+    directory = into.rsplit("/", 1)[0] if "/" in into else "."
+    return (
+        f"mkdir -p {directory} && printf %s "
+        + '\\"'
+        + report
+        + '\\"'
+        + f" > {into}; exit {exit_code}"
     )

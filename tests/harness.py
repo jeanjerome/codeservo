@@ -167,6 +167,8 @@ def constitution(
     full_ratchet: str | None = None,
     provider_name: str = "pixi",
     sensor_task: str | None = None,
+    quick_reports: str | None = None,
+    full_reports: str | None = None,
 ) -> str:
     """The constitution a case runs under.
 
@@ -197,11 +199,15 @@ environment = "{execution}"
     )
     if quick_result_format is not None:
         quick += f'\nresult_format = "{quick_result_format}"'
+    if quick_reports is not None:
+        quick += f'\nreports = "{quick_reports}"'
     if quick_ratchet is not None:
         quick += f"\nratchet = {quick_ratchet}"
     full = f'command = "{full_command}"'
     if full_result_format is not None:
         full += f'\nresult_format = "{full_result_format}"'
+    if full_reports is not None:
+        full += f'\nreports = "{full_reports}"'
     if full_ratchet is not None:
         full += f"\nratchet = {full_ratchet}"
     text += f"""
@@ -291,7 +297,9 @@ def build_case(
         "Controller-owned test sensor.\n", encoding="utf-8"
     )
 
-    (repo / ".gitignore").write_text("__pycache__/\n*.pyc\n", encoding="utf-8")
+    (repo / ".gitignore").write_text(
+        "__pycache__/\n*.pyc\nreports/\n", encoding="utf-8"
+    )
     (repo / "app.py").write_text("def value():\n    return 0\n", encoding="utf-8")
     if provider and provider_name == "mise":
         write_mise_provider(bin_dir, repo, stale_lock=stale_lock)

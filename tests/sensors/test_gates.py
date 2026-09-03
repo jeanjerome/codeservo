@@ -8,12 +8,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from codeservo.domain.constitution import ExecutionEnvironment, Gate, ResultFormat
-from codeservo.evidence.digests import sha256_record
+from codeservo.evidence.digests import sha256_file, sha256_record
 from codeservo.runtime.sandbox import Isolation, seatbelt_profile
-from codeservo.sensors.gates import gate_command, run_gates
+from codeservo.sensors.gates import GateResult, gate_command, run_gates
 from codeservo.sensors.observations import (
     OBSERVATION_PATH_VARIABLE,
+    Classification,
     ObservationPathError,
+    classify,
 )
 from codeservo.workspace.pixi import Pixi
 from harness import PIXI_TASK, commit_repository, write_provider
@@ -723,6 +725,190 @@ class GateConfinementTests(unittest.TestCase):
             self.assertTrue(task.passed, Path(task.stderr_path).read_text())
             self.assertFalse(writes.passed)
             self.assertFalse((provider_dir / "envs" / "default" / "tampered").exists())
+
+
+class JunitReportGateTests(unittest.TestCase):
+    """A gate whose tool writes JUnit XML where it always does, in the tree."""
+
+    PASSING = (
+        "<testsuite name='s' tests='2' failures='0' errors='0' skipped='0' time='0.4'>"
+        "<testcase classname='s' name='a' time='0.1'/>"
+        "<testcase classname='s' name='b' time='0.3'/></testsuite>"
+    )
+    FAILING = (
+        "<testsuite name='s' tests='2' failures='1' errors='0' skipped='0' time='0.4'>"
+        "<testcase classname='s' name='a' time='0.1'/>"
+        "<testcase classname='s' name='b' time='0.3'>"
+        "<failure message='expected 2 but was 1' type='AssertionError'>trace</failure>"
+        "</testcase></testsuite>"
+    )
+
+    def _gate(self, command: str, *, name: str = "unit") -> Gate:
+        return Gate(
+            name=name,
+            phase="quick",
+            command=command,
+            result_format=ResultFormat.JUNIT_XML,
+            reports="reports/TEST-*.xml",
+        )
+
+    @staticmethod
+    def _writing(report: str, *, exit_code: int = 0) -> str:
+        return f'mkdir -p reports && printf %s "{report}" > reports/TEST-s.xml; exit {exit_code}'
+
+    def _run(self, root: Path, gate: Gate) -> GateResult:
+        (root / "tree").mkdir(exist_ok=True)
+        [result] = run_gates(
+            repo=root / "tree",
+            gates=(gate,),
+            out_dir=root / "run" / "quick",
+            run_dir=root / "run",
+        )
+        return result
+
+    def test_projects_the_reports_the_gate_wrote_onto_the_document(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            result = self._run(
+                root, self._gate(self._writing(self.FAILING, exit_code=1))
+            )
+
+            self.assertFalse(result.passed)
+            self.assertEqual(ResultFormat.JUNIT_XML, result.result_format)
+            self.assertEqual("valid", result.observation_status)
+            self.assertIsNone(result.observation_error)
+            kept = Path(result.observation_path)
+            self.assertEqual(root / "run" / "quick" / "unit.observation.json", kept)
+            self.assertEqual(sha256_file(kept), result.observation_sha256)
+            document = json.loads(kept.read_text())
+            self.assertEqual("unit", document["sensor"])
+            self.assertEqual("failed", document["status"])
+            self.assertEqual(
+                "2 tests, 1 failures, 0 errors, 0 skipped in 1 report",
+                document["summary"],
+            )
+            self.assertEqual(
+                {"tests": 2, "failures": 1, "errors": 0, "skipped": 0, "seconds": 0.4},
+                document["metrics"],
+            )
+            self.assertEqual(
+                [
+                    {
+                        "id": "s.b",
+                        "severity": "major",
+                        "path": None,
+                        "line": None,
+                        "message": "failed: expected 2 but was 1",
+                    }
+                ],
+                document["findings"],
+            )
+            # The report stays where the tool wrote it: nothing is removed.
+            self.assertTrue((root / "tree" / "reports" / "TEST-s.xml").is_file())
+
+    def test_the_document_is_held_to_the_contract_a_gate_writes_against(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            result = self._run(root, self._gate(self._writing(self.PASSING)))
+
+            self.assertTrue(result.passed)
+            raw = Path(result.observation_path).read_bytes()
+            self.assertEqual((Classification.VALID, None), classify(raw, passed=True))
+            self.assertEqual("passed", json.loads(raw)["status"])
+
+    def test_a_passing_gate_that_wrote_no_report_measured_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            result = self._run(root, self._gate("true"))
+
+            self.assertTrue(result.passed)
+            self.assertEqual("absent", result.observation_status)
+            self.assertEqual(
+                "the gate passed and wrote no test report matching reports/TEST-*.xml",
+                result.observation_error,
+            )
+            self.assertIsNone(result.observation_path)
+            self.assertIsNone(result.observation_sha256)
+
+    def test_a_failing_gate_that_wrote_no_report_failed_before_any_test(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            result = self._run(root, self._gate("exit 3"))
+
+            self.assertFalse(result.passed)
+            self.assertEqual("valid", result.observation_status)
+            document = json.loads(Path(result.observation_path).read_text())
+            self.assertEqual("failed", document["status"])
+            self.assertEqual(
+                "no test report matching reports/TEST-*.xml was written",
+                document["summary"],
+            )
+            self.assertEqual(0, document["metrics"]["tests"])
+            self.assertEqual([], document["findings"])
+
+    def test_a_report_the_gate_left_as_it_found_it_is_not_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            stale = root / "tree" / "reports" / "TEST-old.xml"
+            stale.parent.mkdir(parents=True)
+            stale.write_text(self.FAILING)
+
+            result = self._run(root, self._gate(self._writing(self.PASSING)))
+
+            document = json.loads(Path(result.observation_path).read_text())
+            # Only the report this measurement wrote counts; the other is named.
+            self.assertEqual(
+                "2 tests, 0 failures, 0 errors, 0 skipped in 1 report;"
+                " 1 left from an earlier measurement, not read",
+                document["summary"],
+            )
+            self.assertEqual(0, document["metrics"]["failures"])
+            self.assertTrue(stale.is_file())
+
+    def test_a_passing_gate_leaving_only_old_reports_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            stale = root / "tree" / "reports" / "TEST-old.xml"
+            stale.parent.mkdir(parents=True)
+            stale.write_text(self.PASSING)
+
+            result = self._run(root, self._gate("true"))
+
+            self.assertEqual("absent", result.observation_status)
+            self.assertEqual(
+                "the gate passed and wrote no test report matching reports/TEST-*.xml;"
+                " 1 matched and predate this measurement",
+                result.observation_error,
+            )
+
+    def test_a_report_the_reader_cannot_make_sense_of_is_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            result = self._run(root, self._gate(self._writing("<testsuite><testcase")))
+
+            self.assertEqual("invalid", result.observation_status)
+            self.assertIn(
+                "reports/TEST-s.xml is not well-formed XML", result.observation_error
+            )
+            self.assertIsNone(result.observation_path)
+
+    def test_the_projection_is_signed_like_any_document(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            result = self._run(root, self._gate(self._writing(self.PASSING)))
+
+            carried = {
+                key: value
+                for key, value in result.to_document().items()
+                if key != "result_sha256"
+            }
+            self.assertEqual(sha256_record(carried), result.result_sha256)
 
 
 if __name__ == "__main__":

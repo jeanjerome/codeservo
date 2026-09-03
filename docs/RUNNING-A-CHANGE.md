@@ -182,9 +182,11 @@ the paths inside it are relative.
 
 ### 11. Read what the gates measured, not only that they passed
 
-A gate declaring `codeservo-json` leaves a document beside its logs saying what
-it counted and what it found. A green gate set is a floor, and two runs are only
-comparable through those numbers.
+A gate declaring `codeservo-json` or `junit-xml` leaves a document beside its
+logs saying what it counted and what it found, written by the gate's adapter for
+the first and projected by the controller from the tool's own reports for the
+second. A green gate set is a floor, and two runs are only comparable through
+those numbers.
 
 ### 12. Read the review's criteria one by one
 

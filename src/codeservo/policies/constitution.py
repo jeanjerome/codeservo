@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import tomllib
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ..domain.constitution import (
@@ -184,9 +184,7 @@ def _sensor(item: dict, name: str) -> str | None:
             f"gate {name}: baseline=false requires an external sensor"
         )
     if baseline and sensor is not None:
-        raise ConstitutionError(
-            f"gate {name}: external sensor requires baseline=false"
-        )
+        raise ConstitutionError(f"gate {name}: external sensor requires baseline=false")
     return sensor
 
 
@@ -204,9 +202,10 @@ def _ratchets(
         return ()
     what = f"gate {name}: ratchet"
     table = _table(item["ratchet"], what)
-    if result_format != ResultFormat.CODESERVO_JSON:
+    if not result_format.writes_document:
         raise ConstitutionError(
-            f'{what} requires result_format = "{ResultFormat.CODESERVO_JSON}"'
+            f"{what} requires a result_format that writes a document,"
+            f' "{ResultFormat.CODESERVO_JSON}" or "{ResultFormat.JUNIT_XML}"'
         )
     if not baseline:
         raise ConstitutionError(
@@ -227,6 +226,36 @@ def _ratchets(
             )
         )
     return tuple(ratchets)
+
+
+def _reports(item: dict, name: str, result_format: ResultFormat) -> str | None:
+    """Where a `junit-xml` gate's tool writes its reports, and nothing otherwise.
+
+    The pattern is read against the tree the gate measures, the source
+    repository during the baseline and the checkout afterwards, so it is
+    relative and stays under that tree. A gate of another format has no
+    reports to name, and a `junit-xml` gate naming none would measure nothing.
+    """
+    what = f"gate {name}: reports"
+    if "reports" not in item:
+        if result_format == ResultFormat.JUNIT_XML:
+            raise ConstitutionError(
+                f'gate {name}: result_format = "{ResultFormat.JUNIT_XML}" requires'
+                " reports, the pattern of the files its tool writes"
+            )
+        return None
+    if result_format != ResultFormat.JUNIT_XML:
+        raise ConstitutionError(
+            f'{what} requires result_format = "{ResultFormat.JUNIT_XML}"'
+        )
+    pattern = _text(item["reports"], what).strip()
+    if not pattern:
+        raise ConstitutionError(f"{what} names no file")
+    if pattern.startswith("/") or ".." in PurePosixPath(pattern).parts:
+        raise ConstitutionError(
+            f"{what} must stay under the tree the gate measures: {pattern}"
+        )
+    return pattern
 
 
 def _gate(item: Any, execution: ExecutionEnvironment | None) -> Gate:
@@ -254,6 +283,7 @@ def _gate(item: Any, execution: ExecutionEnvironment | None) -> Gate:
         baseline=baseline,
         sensor=_sensor(item, name),
         result_format=result_format,
+        reports=_reports(item, name, result_format),
         ratchets=_ratchets(item, name, result_format, baseline),
     )
 
@@ -269,11 +299,15 @@ def load_constitution(repo: Path) -> Constitution:
     try:
         raw = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        raise ConstitutionError(f"constitution is not readable as text: {exc}") from None
+        raise ConstitutionError(
+            f"constitution is not readable as text: {exc}"
+        ) from None
     try:
         document = tomllib.loads(raw)
     except tomllib.TOMLDecodeError as exc:
-        raise ConstitutionError(f"constitution is not readable as TOML: {exc}") from None
+        raise ConstitutionError(
+            f"constitution is not readable as TOML: {exc}"
+        ) from None
     data = _table(document, "the constitution")
 
     scope_data = _table(data.get("scope"), "[scope]")

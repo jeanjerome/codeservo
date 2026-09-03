@@ -242,6 +242,36 @@ mise task — which does inherit its environment — is handed the argument too,
 one adapter serves both. The target repository writes an adapter that takes a
 location, not one that knows where the location came from.
 
+### Gates whose tool already reports
+
+A suite that writes JUnit XML needs no adapter. The gate declares
+`result_format = "junit-xml"` and, in `reports`, where its tool writes the
+reports, as a pattern relative to the tree the gate measures:
+
+```toml
+[[gate]]
+name = "test"
+phase = "full"
+task = "test"
+timeout_seconds = 300
+baseline = true
+result_format = "junit-xml"
+reports = "**/target/surefire-reports/TEST-*.xml"
+```
+
+The gate is told nothing. The controller lists the files the pattern matches
+before the gate runs and again after it, reads the ones this measurement wrote
+— new, or rewritten since — and projects them onto the same six-field document:
+the counts of tests, failures, errors, skipped and seconds as metrics, one
+finding per failed or errored case naming the case and the one line its tool
+said, and the status the exit code reached. A report the gate left as it found
+it is not read, and the summary says how many were left. The projection is kept
+beside the gate's logs like a document the gate wrote itself, and a ratchet
+reads its metrics. A gate that passed and wrote no report measured nothing
+anyone can see, and that is a fault of the sensor; one that failed and wrote
+none failed before any test ran, and its document says so. Nothing is deleted
+from the tree to make any of this true.
+
 A document that is absent, malformed, or that contradicts the exit code is a
 fault of the sensor and not a failure of the candidate: the run ends there, on
 that classification alone, and nothing is fed back to the actuator. The schema

@@ -1,0 +1,33 @@
+version = 1
+
+[scope]
+protected = [".codeservo/**"]
+max_changed_files = 12
+max_diff_lines = 400
+
+[execution]
+provider = "mise"
+manifest = "mise.toml"
+environment = "default"
+
+[[gate]]
+name = "unit"
+phase = "quick"
+task = "unit"
+timeout_seconds = 180
+baseline = true
+result_format = "junit-xml"
+reports = "**/target/surefire-reports/TEST-*.xml"
+ratchet = { failures = "<=", tests = ">=" }
+
+[[gate]]
+name = "test"
+phase = "full"
+task = "test"
+timeout_seconds = 300
+baseline = true
+result_format = "junit-xml"
+reports = "**/target/surefire-reports/TEST-*.xml"
+
+[review]
+blocking_severities = ["blocker", "major"]

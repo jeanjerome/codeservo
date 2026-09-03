@@ -15,12 +15,20 @@ class Phase(StrEnum):
 class ResultFormat(StrEnum):
     """What a gate answers with beside its exit code.
 
-    `EXIT_CODE` is the verdict alone; `CODESERVO_JSON` adds a document
-    saying what the gate saw.
+    `EXIT_CODE` is the verdict alone. `CODESERVO_JSON` adds a document saying
+    what the gate saw, written by the gate where the controller told it to.
+    `JUNIT_XML` adds the same document, projected by the controller from the
+    test reports the gate's tool wrote where it always writes them.
     """
 
     EXIT_CODE = "exit-code"
     CODESERVO_JSON = "codeservo-json"
+    JUNIT_XML = "junit-xml"
+
+    @property
+    def writes_document(self) -> bool:
+        """Whether a gate of this format leaves a document beside its verdict."""
+        return self is not ResultFormat.EXIT_CODE
 
 
 @dataclass(frozen=True)
@@ -72,6 +80,9 @@ class Gate:
     # phase, of naming a command or a task, of the baseline, and of an
     # external sensor.
     result_format: ResultFormat = ResultFormat.EXIT_CODE
+    # Where the tool of a `junit-xml` gate writes its reports: a glob relative
+    # to the tree the gate measures, and nothing for any other format.
+    reports: str | None = None
     # The metrics of its document held between the baseline and the
     # candidate. Only a gate that writes a document and measures the
     # baseline can carry one, which the reader holds it to.
