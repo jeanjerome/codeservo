@@ -112,6 +112,21 @@ def observation_feedback(document: observations.Observation) -> list[str]:
     return lines
 
 
+def gate_clause(result: GateResult) -> str:
+    """One failing gate in one clause: its name, and what it said in a line.
+
+    A gate that wrote a valid document is named with its summary; one that
+    answered with its exit code alone, or a summary it left empty, with how
+    it ended.
+    """
+    document = _observed(result)
+    if document is not None and document.summary:
+        return f"{result.name} ({document.summary})"
+    if result.timed_out:
+        return f"{result.name} (timed out)"
+    return f"{result.name} (exit code {result.exit_code})"
+
+
 def gate_feedback(results: Sequence[GateResult]) -> str:
     """What a failing phase tells the actuator.
 

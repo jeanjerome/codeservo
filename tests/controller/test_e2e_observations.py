@@ -254,6 +254,21 @@ class GateObservationE2ETests(unittest.TestCase):
                 )
                 self.assertIn("Metrics: checked=1 surviving=0", text)
                 self.assertLess(text.index("Summary:"), text.index("stdout (tail):"))
+                # The prompt names every criterion by its id, and from the
+                # second iteration on recaps what each earlier one reached.
+                prompt = Path(
+                    result["run_dir"], iteration["prompt"]["path"]
+                ).read_text(encoding="utf-8")
+                self.assertIn("ACCEPTANCE CRITERIA\n===================\n- AC1:", prompt)
+                if iteration["iteration"] == 1:
+                    self.assertIn("None. This is the first iteration.", prompt)
+                else:
+                    self.assertIn(
+                        "Iterations so far:\n- Iteration 1: scope OK; quick gates: ",
+                        prompt,
+                    )
+                    self.assertIn("failed: task-outcome (still returns 1)", prompt)
+                    self.assertIn("Feedback from the previous iteration:\nGate task-outcome FAILED", prompt)
                 sensor = [
                     g
                     for g in iteration["quick_gates"]

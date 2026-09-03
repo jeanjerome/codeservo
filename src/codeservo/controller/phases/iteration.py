@@ -8,6 +8,7 @@ afterwards even where no confinement refused the write.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from ..errors import ControlFailure, Rejection
 from ..freeze import sensor_tampering
 from ..gate_results import (
     GatePhase,
+    gate_clause,
     gate_feedback,
     record_gate_events,
     sensor_faults,
@@ -93,6 +95,31 @@ def _iterate(
         record.persist()
 
 
+def iteration_recap(iterations: Sequence[Iteration]) -> tuple[str, ...]:
+    """One line per iteration so far: what the scope and the quick gates said.
+
+    The line names each failing gate with what its document summarised, so an
+    actuator reading several of them sees what moved between attempts and
+    what did not. An iteration the record holds without a measurement, which
+    the loop never continues past, is said to be unmeasured rather than
+    described.
+    """
+    lines: list[str] = []
+    for entry in iterations:
+        scope = entry.scope
+        quick = entry.quick_gates
+        if isinstance(scope, Unset) or isinstance(quick, Unset):
+            lines.append(f"Iteration {entry.iteration}: not measured")
+            continue
+        passed = sum(1 for gate in quick if gate.passed)
+        clauses = [scope.summary, f"quick gates: {passed} of {len(quick)} passed"]
+        failed = [gate_clause(gate) for gate in quick if not gate.passed]
+        if failed:
+            clauses.append("failed: " + ", ".join(failed))
+        lines.append(f"Iteration {entry.iteration}: " + "; ".join(clauses))
+    return tuple(lines)
+
+
 def _actuate(
     context: RunContext,
     record: RunRecord,
@@ -100,7 +127,12 @@ def _actuate(
     iteration: int,
     feedback: str,
 ) -> None:
-    prompt = implementer_prompt(context.task, context.constitution, feedback)
+    prompt = implementer_prompt(
+        context.task,
+        context.constitution,
+        feedback,
+        iteration_recap(record.document.iterations),
+    )
     prompt_path = iteration_dir / "prompt.md"
     prompt_path.parent.mkdir(parents=True, exist_ok=True)
     prompt_path.write_text(prompt, encoding="utf-8")

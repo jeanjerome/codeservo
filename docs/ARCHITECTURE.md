@@ -28,7 +28,7 @@ The controller:
 1. freezes the task, the constitution, the base Git SHA, and the implementation inference profile;
 2. verifies baseline gates;
 3. creates an isolated shallow Git checkout without a remote;
-4. invokes the configured actuator CLI as the implementation actuator;
+4. invokes the configured actuator CLI as the implementation actuator, with a prompt naming every acceptance criterion by its id, the actuator's view of the constitution, one line per iteration so far and the previous iteration's feedback in full;
 5. runs scope and quick gates;
 6. feeds failures back to the actuator: for each failing gate, the document the gate wrote when it wrote a valid one (summary, findings with the place each names, metrics), then the tail of what it printed;
 7. iterates until quick gates pass or the budget is exhausted;

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 
 from ..domain.constitution import Constitution, Gate
 from ..domain.task import Task
@@ -73,7 +74,36 @@ def _actuator_constitution(constitution: Constitution) -> str:
     return "\n".join(lines)
 
 
-def implementer_prompt(task: Task, constitution: Constitution, feedback: str) -> str:
+def _criteria(task: Task) -> str:
+    return "\n".join(f"- {key}: {value}" for key, value in task.criteria.items())
+
+
+def _feedback_section(feedback: str, history: Sequence[str]) -> str:
+    """What the controller has to say before this iteration acts.
+
+    The first iteration has nothing to be told. A later one is told every
+    iteration so far in one line each, so it can see what moved and what did
+    not, and then the last measurement in full.
+    """
+    if not history:
+        return "None. This is the first iteration."
+    lines = ["Iterations so far:"]
+    lines.extend(f"- {line}" for line in history)
+    lines.extend(["", "Feedback from the previous iteration:", feedback])
+    return "\n".join(lines)
+
+
+def implementer_prompt(
+    task: Task,
+    constitution: Constitution,
+    feedback: str,
+    history: Sequence[str] = (),
+) -> str:
+    """The prompt one iteration of the implementer receives.
+
+    `feedback` is what the previous iteration's measurement said, and
+    `history` one rendered line per iteration so far, both empty on the first.
+    """
     return f"""You are the ACTUATOR in a software control loop. You may modify the workspace, but you are not the controller and you do not decide when the task is complete.
 
 Rules:
@@ -84,6 +114,11 @@ Rules:
 - Do not commit, push, create PRs, or change Git configuration.
 - Prefer the smallest coherent change.
 - The controller will run the authoritative gates. You may run checks yourself, but your claims are not evidence.
+- Every acceptance criterion below is decided by its id, by the controller's gates and by an independent reviewer. Satisfy all of them.
+
+ACCEPTANCE CRITERIA
+===================
+{_criteria(task)}
 
 TASK
 ====
@@ -95,7 +130,7 @@ ACTUATOR VIEW OF FROZEN REPOSITORY CONSTITUTION
 
 CONTROLLER FEEDBACK FROM THE PREVIOUS ITERATION
 ===============================================
-{feedback or "None. This is the first iteration."}
+{_feedback_section(feedback, history)}
 
 Work directly in the current workspace. When you have made the best correction you can, stop.
 """

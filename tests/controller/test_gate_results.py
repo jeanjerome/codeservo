@@ -8,6 +8,7 @@ from pathlib import Path
 
 from codeservo.controller.gate_results import (
     FINDINGS_FED_BACK,
+    gate_clause,
     gate_feedback,
     sensor_faults,
 )
@@ -254,6 +255,20 @@ class GateFeedbackTests(unittest.TestCase):
 
         self.assertNotIn("Summary:", feedback)
         self.assertIn("stdout (tail):", feedback)
+
+    def test_a_clause_names_the_gate_and_what_its_document_summarised(self) -> None:
+        self.assertEqual(
+            "unit (2 of 44 tests failed)", gate_clause(self._gate(document=DOCUMENT))
+        )
+
+    def test_a_clause_falls_back_on_how_the_gate_ended(self) -> None:
+        self.assertEqual("unit (exit code 1)", gate_clause(self._gate()))
+        self.assertEqual(
+            "unit (exit code 1)",
+            gate_clause(self._gate(document={**DOCUMENT, "summary": ""})),
+        )
+        timed_out = replace(self._gate(), exit_code=None, timed_out=True)
+        self.assertEqual("unit (timed out)", gate_clause(timed_out))
 
     def test_a_passing_gate_is_not_mentioned(self) -> None:
         feedback = gate_feedback(

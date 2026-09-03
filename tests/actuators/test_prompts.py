@@ -123,6 +123,52 @@ def _task() -> Task:
 
 
 class ImplementerPromptTests(unittest.TestCase):
+    def test_lists_every_acceptance_criterion_by_its_id(self) -> None:
+        task = Task(
+            path=Path("TASK.md"),
+            raw_text="# Task\n\n- [AC1] one.\n- [AC2] two.\n",
+            criteria={"AC1": "one.", "AC2": "two."},
+        )
+
+        prompt = implementer_prompt(task, _constitution(), "")
+
+        self.assertIn(
+            "ACCEPTANCE CRITERIA\n===================\n- AC1: one.\n- AC2: two.\n",
+            prompt,
+        )
+        self.assertLess(prompt.index("ACCEPTANCE CRITERIA"), prompt.index("TASK\n===="))
+
+    def test_the_first_iteration_is_told_nothing(self) -> None:
+        prompt = implementer_prompt(_task(), _constitution(), "")
+
+        self.assertIn(
+            FEEDBACK_HEADER + "\nNone. This is the first iteration.\n", prompt
+        )
+        self.assertNotIn("Iterations so far", prompt)
+
+    def test_a_later_iteration_is_told_every_iteration_then_the_last_in_full(
+        self,
+    ) -> None:
+        history = (
+            "Iteration 1: scope OK; quick gates: 1 of 2 passed; failed: unit (3 failed)",
+            "Iteration 2: scope OK; quick gates: 1 of 2 passed; failed: unit (1 failed)",
+        )
+
+        prompt = implementer_prompt(
+            _task(), _constitution(), "Gate unit FAILED\n...", history
+        )
+
+        self.assertIn(
+            FEEDBACK_HEADER
+            + "\nIterations so far:\n"
+            + f"- {history[0]}\n"
+            + f"- {history[1]}\n"
+            + "\nFeedback from the previous iteration:\n"
+            + "Gate unit FAILED\n...\n",
+            prompt,
+        )
+        self.assertNotIn("None. This is the first iteration.", prompt)
+
     def test_redacts_external_sensor_command_and_reference(self) -> None:
         prompt = implementer_prompt(_task(), _constitution(), "")
 
