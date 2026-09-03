@@ -20,7 +20,9 @@ MECHANISM = "macos-sandbox-exec"
 
 
 def protected_paths(
-    tree: Path, execution: ExecutionEnvironment | None
+    tree: Path,
+    execution: ExecutionEnvironment | None,
+    git_dir: Path | None = None,
 ) -> tuple[Path, ...]:
     """What a process may read but never write in the tree it works on.
 
@@ -30,8 +32,16 @@ def protected_paths(
     files anyone declared. Both stay readable, because the controller, the
     gates and the actuator all read them. A constitution declaring no provider
     names no provider directory.
+
+    `<tree>/.git` is that metadata only in an ordinary checkout. In a linked
+    worktree it is a file holding a pointer, and Git writes into a directory
+    elsewhere; protecting the pointer protects a pointer. A caller that has
+    already resolved where Git writes hands that directory over as `git_dir`.
+    A caller that has not — a tree nothing has asked Git about, a checkout that
+    does not exist yet — names `<tree>/.git`, and nothing here reads the
+    file system to tell the two apart.
     """
-    paths = [tree / ".git"]
+    paths = [git_dir if git_dir is not None else tree / ".git"]
     if execution is not None:
         paths.append(pixi.provider_directory(tree / execution.manifest))
     return tuple(paths)
@@ -90,7 +100,13 @@ def confinement(
 
     Gates are controller-owned measurements: they read the frozen sensors and
     write nothing into the record they produce, and nothing into the metadata
-    or the environment of the tree they measure.
+    or the environment of the tree they measure. The source repository's
+    metadata is `git_dir`, the directory Git writes it into, which the actuator
+    is denied and the gates measuring that tree may only read: naming
+    `<repo>/.git` instead would name a pointer file whenever the operator runs
+    from a linked worktree. The candidate is created by cloning, so its
+    metadata is always its own `.git`, and nothing here has to look at a
+    checkout the run has not made yet.
     """
     candidate_protected = protected_paths(worktree, execution)
     return Confinement(
@@ -103,7 +119,9 @@ def confinement(
             ),
             read_only=(repo, *candidate_protected),
         ),
-        source_gates=Isolation(read_only=(run_dir, *protected_paths(repo, execution))),
+        source_gates=Isolation(
+            read_only=(run_dir, *protected_paths(repo, execution, git_dir))
+        ),
         candidate_gates=Isolation(read_only=(run_dir, *candidate_protected)),
         candidate_protected=candidate_protected,
     )
