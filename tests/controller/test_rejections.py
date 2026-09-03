@@ -66,7 +66,7 @@ class RejectionPathTests(unittest.TestCase):
 
             result = case.run(max_iterations=0)
 
-            self.assert_rejected(result, "quick gates did not converge within 0")
+            self.assert_rejected(result, "did not converge within 0 iterations")
             candidate = result["environment"]["candidate"]
             # The installation happened; nothing compared its digests to a
             # second reading, so the block says nothing about what held.
@@ -128,7 +128,7 @@ class RejectionPathTests(unittest.TestCase):
 
             result = case.run(max_iterations=2)
 
-            self.assert_rejected(result, "quick gates did not converge within 2")
+            self.assert_rejected(result, "did not converge within 2 iterations")
             self.assertEqual(2, len(result["iterations"]))
             first, second = result["iterations"]
             self.assertFalse(first["quick_gates"][1]["passed"])
@@ -151,7 +151,7 @@ class RejectionPathTests(unittest.TestCase):
 
             result = case.run(max_iterations=2)
 
-            self.assert_rejected(result, "quick gates did not converge within 2")
+            self.assert_rejected(result, "did not converge within 2 iterations")
             iteration = result["iterations"][0]
             self.assertFalse(iteration["scope"]["passed"])
             self.assertIn("protected path changed", iteration["scope"]["summary"])
@@ -173,10 +173,19 @@ class RejectionPathTests(unittest.TestCase):
 
             result = case.run()
 
-            self.assert_rejected(result, "full gate failed")
-            self.assertEqual(1, len(result["iterations"]))
-            self.assertFalse(result["full_gates"][0]["passed"])
-            self.assertNotIn("review", result)
+            # A failing full gate is fed back like a quick one, until the
+            # budget runs out on it.
+            self.assert_rejected(result, "did not converge within 2 iterations")
+            self.assert_rejected(result, "full gate full failed")
+            self.assertEqual(2, len(result["iterations"]))
+            for iteration in result["iterations"]:
+                self.assertFalse(iteration["full_gates"][0]["passed"])
+                self.assertNotIn("review", iteration)
+                self.assertIn("Gate full FAILED", iteration["controller_feedback"]["text"])
+            self.assertEqual(
+                result["iterations"][0]["controller_feedback"]["text"],
+                result["iterations"][1]["feedback_received"],
+            )
 
     def test_rejects_a_failing_reviewer(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -189,7 +198,11 @@ class RejectionPathTests(unittest.TestCase):
             result = case.run()
 
             self.assert_rejected(result, "reviewer exited with 4")
-            self.assertTrue(all(gate["passed"] for gate in result["full_gates"]))
+            iteration = result["iterations"][-1]
+            self.assertTrue(all(gate["passed"] for gate in iteration["full_gates"]))
+            # Handed the bundle, recorded before it failed.
+            self.assertIn("observations", iteration["review"])
+            self.assertNotIn("result", iteration["review"])
 
     def test_rejects_a_reviewer_that_answers_outside_the_schema(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -228,8 +241,21 @@ class RejectionPathTests(unittest.TestCase):
 
             result = case.run()
 
+            # A blocking finding is fed back for a correction, and a reviewer
+            # that keeps raising it exhausts the budget on it.
             self.assert_rejected(result, "major finding: value() ignores its caller")
-            self.assertTrue(all(gate["passed"] for gate in result["full_gates"]))
+            self.assert_rejected(result, "did not converge within 2 iterations")
+            self.assertEqual(2, len(result["iterations"]))
+            for iteration in result["iterations"]:
+                self.assertTrue(all(gate["passed"] for gate in iteration["full_gates"]))
+                self.assertIn("result", iteration["review"])
+                text = iteration["controller_feedback"]["text"]
+                self.assertIn("Review did not accept the candidate.", text)
+                self.assertIn(
+                    "- [major] app.py:2: value() ignores its caller\n  evidence: app.py:2",
+                    text,
+                )
+                self.assertNotIn("Criteria not satisfied", text)
 
     def test_rejects_a_review_that_skips_an_acceptance_criterion(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -241,7 +267,10 @@ class RejectionPathTests(unittest.TestCase):
 
             result = case.run()
 
+            # A reviewer that misreports the criteria is a broken sensor: the
+            # run ends on it rather than giving the candidate another attempt.
             self.assert_rejected(result, "review missing criterion AC1")
+            self.assertEqual(1, len(result["iterations"]))
 
     def test_records_the_candidate_change_of_a_rejected_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

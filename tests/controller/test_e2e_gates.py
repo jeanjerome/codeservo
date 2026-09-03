@@ -70,8 +70,8 @@ class GateFailureE2ETests(unittest.TestCase):
                 iteration["observed_state"]["sha256"],
             )
             self.assertTrue(Path(result["worktree"], "mutant.py").is_file())
-            self.assertNotIn("full_gates", result)
-            self.assertNotIn("review", result)
+            self.assertNotIn("full_gates", iteration)
+            self.assertNotIn("review", iteration)
 
     def test_a_full_gate_that_changed_the_candidate_ends_the_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -90,22 +90,22 @@ class GateFailureE2ETests(unittest.TestCase):
                 ["full gates changed the candidate workspace"],
                 result["decision"]["reasons"],
             )
-            self.assertTrue(all(g["passed"] for g in result["full_gates"]))
-            self.assertEqual(
-                [0] * len(result["full_gates"]),
-                [g["exit_code"] for g in result["full_gates"]],
-            )
             iteration = result["iterations"][-1]
+            self.assertTrue(all(g["passed"] for g in iteration["full_gates"]))
+            self.assertEqual(
+                [0] * len(iteration["full_gates"]),
+                [g["exit_code"] for g in iteration["full_gates"]],
+            )
             self.assertTrue(all(g["passed"] for g in iteration["quick_gates"]))
             self.assertTrue(iteration["scope"]["passed"])
             # The state the quick phase left, against the state the full gates
             # were measuring when they finished.
             self.assertNotEqual(
                 iteration["observed_state"]["sha256"],
-                result["full_gate_state"]["sha256"],
+                iteration["full_gate_state"]["sha256"],
             )
             self.assertTrue(Path(result["worktree"], "mutant.py").is_file())
-            self.assertNotIn("review", result)
+            self.assertNotIn("review", iteration)
 
 
 if __name__ == "__main__":

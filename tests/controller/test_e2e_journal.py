@@ -84,7 +84,7 @@ class RunJournalE2ETests(unittest.TestCase):
             ]
             for iteration in result["iterations"]:
                 measured += [("quick", gate) for gate in iteration["quick_gates"]]
-            measured += [("full", gate) for gate in result["full_gates"]]
+                measured += [("full", gate) for gate in iteration.get("full_gates", [])]
             recorded = [
                 event["payload"]
                 for event in self.journal(result)
@@ -114,7 +114,7 @@ class RunJournalE2ETests(unittest.TestCase):
             evidence = self.evidence(result)
             events = self.journal(result)
             block = evidence["events"]
-            self.assertEqual(16, evidence["schema_version"])
+            self.assertEqual(17, evidence["schema_version"])
             self.assertEqual(
                 {"path", "count", "head_sha256", "file_sha256"}, set(block)
             )
@@ -265,7 +265,7 @@ class RunJournalE2ETests(unittest.TestCase):
 
             self.assertEqual("ACCEPTED", result["status"])
             evidence = self.evidence(result)
-            review = evidence["review"]
+            review = evidence["iterations"][-1]["review"]
             located = review["result"]["findings"][0]["path"]
             self.assertTrue(Path(located).is_absolute())
             self.assertEqual(str(Path(result["worktree"], "app.py")), located)

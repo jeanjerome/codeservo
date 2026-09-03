@@ -32,12 +32,10 @@ class ReviewObservationE2ETests(unittest.TestCase):
             result = case.run()
 
             self.assertEqual("ACCEPTED", result["status"])
-            prompt = Path(result["run_dir"], "review", "prompt.md").read_text(
-                encoding="utf-8"
-            )
+            review = result["iterations"][-1]["review"]
+            prompt = Path(review["prompt"]["path"]).read_text(encoding="utf-8")
             observed = {
-                gate["name"]: gate
-                for gate in result["review"]["observations"]["gates"]
+                gate["name"]: gate for gate in review["observations"]["gates"]
             }
             emitted = observed["task-outcome"]["stdout_tail"].splitlines()
 
@@ -62,7 +60,7 @@ class ReviewObservationE2ETests(unittest.TestCase):
             evidence = json.loads(
                 Path(result["run_dir"], "evidence.json").read_text(encoding="utf-8")
             )
-            review = evidence["review"]
+            review = evidence["iterations"][-1]["review"]
             # The reviewer failed after it was handed the bundle, which cannot
             # erase what it received.
             self.assertNotIn("result", review)

@@ -102,14 +102,14 @@ def build_run(
     }
     agent["result_sha256"] = sha256_record(agent)
 
-    review_dir = run_dir / "review"
+    review_dir = iteration_dir / "review"
     review_dir.mkdir()
     (review_dir / "prompt.md").write_text("review\n", encoding="utf-8")
     write_json(review_dir / "result.json", REVIEW)
     observations = {"schema_version": 1, "gates": []}
     meta = {
         "exit_code": 0,
-        "result_path": "review/result.json",
+        "result_path": "iterations/01/review/result.json",
         "result_sha256": sha256_file(review_dir / "result.json"),
     }
     meta["meta_sha256"] = sha256_record(meta)
@@ -121,7 +121,7 @@ def build_run(
 
     baseline = [_gate(run_dir, "baseline", "unit")]
     quick = [_gate(run_dir, "iterations/01/quick", "unit")]
-    full = [_gate(run_dir, "full", "compile")]
+    full = [_gate(run_dir, "iterations/01/full", "compile")]
     record = {
         "schema_version": schema_version,
         "run_id": RUN_ID,
@@ -154,20 +154,20 @@ def build_run(
                 },
                 "agent": agent,
                 "quick_gates": quick,
+                "full_gates": full,
+                "review": {
+                    "prompt": {
+                        "path": "iterations/01/review/prompt.md",
+                        "sha256": sha256_text("review\n"),
+                    },
+                    "observations": observations,
+                    "observations_sha256": sha256_json(observations),
+                    "result": REVIEW,
+                    "result_sha256": sha256_json(REVIEW),
+                    "meta": meta,
+                },
             }
         ],
-        "full_gates": full,
-        "review": {
-            "prompt": {
-                "path": "review/prompt.md",
-                "sha256": sha256_text("review\n"),
-            },
-            "observations": observations,
-            "observations_sha256": sha256_json(observations),
-            "result": REVIEW,
-            "result_sha256": sha256_json(REVIEW),
-            "meta": meta,
-        },
         "status": status,
         "decision": {"reasons": list(reasons)},
         "patch_sha256": sha256_text(PATCH),

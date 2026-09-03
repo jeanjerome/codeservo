@@ -29,15 +29,24 @@ The controller:
 2. verifies baseline gates;
 3. creates an isolated shallow Git checkout without a remote;
 4. invokes the configured actuator CLI as the implementation actuator, with a prompt naming every acceptance criterion by its id, the actuator's view of the constitution, one line per iteration so far and the previous iteration's feedback in full;
-5. runs scope and quick gates;
-6. feeds failures back to the actuator: for each failing gate, the document the gate wrote when it wrote a valid one (summary, findings with the place each names, metrics), then the tail of what it printed;
-7. iterates until quick gates pass or the budget is exhausted;
-8. runs full gates;
-9. hands an independent, read-only semantic reviewer an immutable summary of the gates that passed, carrying no filesystem path and no sensor source, and invokes it;
-10. applies acceptance rules mechanically;
-11. persists complete run evidence.
+5. runs the scope sensor and the quick gates, then, once they pass, the full gates, then, once they pass, hands an independent, read-only semantic reviewer an immutable summary of the gates that passed, carrying no filesystem path and no sensor source, and invokes it;
+6. applies the acceptance rules mechanically to what the reviewer returned;
+7. feeds the first measurement that decided against the candidate back to the actuator: for a failing gate, the document the gate wrote when it wrote a valid one (summary, findings with the place each names, metrics), then the tail of what it printed; for the review, the criteria it did not find satisfied and the findings the constitution declares blocking;
+8. iterates until an iteration is accepted or the budget is exhausted;
+9. persists complete run evidence.
 
 Gates are authoritative. Semantic review is a sensor, not the final authority. Controller-owned evidence must remain outside the actuator's write scope and must reconstruct the complete control trajectory.
+
+The three measurements of an iteration are ordered by cost, and each opens
+another iteration when it decides against the candidate; nothing distinguishes
+a full gate from a quick one except when it runs. A reviewer is told nothing of
+the iterations before the one it reviews, its own earlier answers included, so a
+finding that does not recur is a measurement and not a concession. What ends a
+run before the budget is a control error: a gate that changed the tree it
+measured, a sensor that could not say what it saw, a reviewer that misreported
+the criteria it was asked to decide. The record keeps every measurement under
+the iteration whose candidate it measured, so the trajectory of a run that was
+reviewed three times holds three reviews.
 
 ## Inference Profiles and Actuator Confinement
 

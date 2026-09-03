@@ -1,6 +1,6 @@
 """Capture what a run record looks like, so a refactor can be held to it.
 
-A structural change must leave `evidence.json` alone. This drives five
+A structural change must leave `evidence.json` alone. This drives six
 trajectories through the control loop with a scripted backend and captures,
 for each one, the shape of the record, the sequence of events, the artefacts
 the run directory holds and the verdict `verify-run` reaches.
@@ -83,6 +83,24 @@ emit_review({
     ],
 })
 """
+COUNTING = """
+count = worktree / "attempts.txt"
+attempts = int(count.read_text()) + 1 if count.exists() else 1
+count.write_text(str(attempts))
+implement(ACCEPTABLE)
+"""
+OBJECTS_ONCE = """
+count = worktree / "attempts.txt"
+if int(count.read_text()) >= 2:
+    emit_review(SATISFIED)
+else:
+    emit_review({
+        "criteria": [{"id": "AC1", "status": "not_satisfied", "evidence": "no"}],
+        "findings": [
+            {"severity": "major", "message": "m", "path": "app.py", "line": 1}
+        ],
+    })
+"""
 
 # One trajectory per way a run can end, plus one measuring through a provider.
 TRAJECTORIES = (
@@ -90,6 +108,7 @@ TRAJECTORIES = (
     ("converges", {"implementer": CONVERGES}),
     ("never-converges", {"implementer": NEVER}),
     ("review-rejects", {"implementer": ACCEPTS, "reviewer": REJECTING_REVIEW}),
+    ("review-corrects", {"implementer": COUNTING, "reviewer": OBJECTS_ONCE}),
     (
         "provider",
         {

@@ -136,10 +136,10 @@ class GateObservationE2ETests(unittest.TestCase):
                         result["run_dir"], "iterations", "01", "controller-feedback.md"
                     ).exists()
                 )
-                self.assertNotIn("review", result)
+                self.assertNotIn("review", result["iterations"][-1])
                 # The document the controller refused is kept all the same.
                 gates = (
-                    result["full_gates"]
+                    result["iterations"][-1]["full_gates"]
                     if phase == "full"
                     else result["iterations"][-1]["quick_gates"]
                 )
@@ -239,7 +239,10 @@ class GateObservationE2ETests(unittest.TestCase):
             # writes, and the budget ended the run: never a sensor error.
             self.assertEqual("REJECTED", result["status"])
             self.assertEqual(
-                ["quick gates did not converge within 2 iterations"],
+                [
+                    "did not converge within 2 iterations",
+                    "quick gate task-outcome failed",
+                ],
                 result["decision"]["reasons"],
             )
             self.assertEqual(2, len(result["iterations"]))
@@ -297,7 +300,7 @@ class GateObservationE2ETests(unittest.TestCase):
             recorded = [
                 *result["baseline"],
                 *result["iterations"][-1]["quick_gates"],
-                *result["full_gates"],
+                *result["iterations"][-1]["full_gates"],
             ]
             for gate in recorded:
                 with self.subTest(gate=gate["name"]):

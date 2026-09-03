@@ -126,7 +126,8 @@ class ExecutionEnvironmentE2ETests(unittest.TestCase):
             self.assertNotIn(str(repo), quick)
             # A shell gate is built and run exactly as it is without a provider.
             self.assertEqual(
-                COMPILE_COMMAND, command("full", result["full_gates"])
+                COMPILE_COMMAND,
+                command("full", result["iterations"][-1]["full_gates"]),
             )
             self.assertNotIn(
                 "pixi",
@@ -303,7 +304,6 @@ class ExecutionEnvironmentE2ETests(unittest.TestCase):
             self.assertIn("default", reason)
             # Nothing actuated, and no measurement ran in the candidate.
             self.assertEqual([], result["iterations"])
-            self.assertNotIn("full_gates", result)
             candidate = result["environment"]["candidate"]
             self.assertEqual(1, candidate["exit_code"])
             self.assertFalse(Path(candidate["prefix_path"]).exists())
@@ -395,7 +395,7 @@ class ExecutionEnvironmentE2ETests(unittest.TestCase):
             iteration = result["iterations"][-1]
             self.assertTrue(all(g["passed"] for g in iteration["quick_gates"]))
             self.assertTrue(iteration["scope"]["passed"])
-            self.assertNotIn("full_gates", result)
+            self.assertNotIn("full_gates", iteration)
             self.assertFalse(result["environment"]["candidate"]["unchanged_at_end"])
 
     def test_the_environment_directory_is_never_a_candidate_change(self) -> None:
@@ -464,7 +464,7 @@ class ExecutionEnvironmentE2ETests(unittest.TestCase):
             # The reviewer's confinement is unchanged: the whole worktree.
             self.assertEqual(
                 [str(repo), str(worktree)],
-                result["review"]["isolation"]["read_only_paths"],
+                result["iterations"][-1]["review"]["isolation"]["read_only_paths"],
             )
 
     def test_a_run_without_a_provider_never_invokes_one(self) -> None:

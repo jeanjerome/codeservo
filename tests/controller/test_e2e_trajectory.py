@@ -140,7 +140,7 @@ class AcceptedRunTests(unittest.TestCase):
             self.assertEqual("", remotes.stdout.strip())
             self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(16, evidence["schema_version"])
+            self.assertEqual(17, evidence["schema_version"])
             # A constitution declaring no provider keeps shell gates.
             self.assertEqual({"provider": "none"}, evidence["environment"])
             self.assertEqual(".", evidence["run_dir"])
@@ -163,17 +163,24 @@ class AcceptedRunTests(unittest.TestCase):
                 )
             )
             self._assert_confinements(result, evidence)
+            # The full gates and the review belong to the iteration they
+            # measured: the first never reached them.
+            self.assertNotIn("full_gates", first)
+            self.assertNotIn("review", first)
+            last = evidence["iterations"][-1]
+            self.assertEqual({"path", "sha256"}, set(last["full_gate_state"]))
             self.assertEqual(
-                {"path", "sha256"}, set(evidence["full_gate_state"])
+                "iterations/02/full.patch", last["full_gate_state"]["path"]
             )
-            self.assertEqual("full.patch", evidence["full_gate_state"]["path"])
             # Nothing moved between the quick phase and the full one.
             self.assertEqual(
                 second["observed_state"]["sha256"],
-                evidence["full_gate_state"]["sha256"],
+                last["full_gate_state"]["sha256"],
             )
-            self.assertTrue(Path(result["run_dir"], "full.patch").is_file())
-            for gate in evidence["baseline"] + evidence["full_gates"]:
+            self.assertTrue(
+                Path(result["run_dir"], "iterations", "02", "full.patch").is_file()
+            )
+            for gate in evidence["baseline"] + last["full_gates"]:
                 self.assertEqual(64, len(gate["stdout_sha256"]))
                 self.assertEqual(64, len(gate["stderr_sha256"]))
                 self.assertEqual(64, len(gate["result_sha256"]))
@@ -222,7 +229,7 @@ class AcceptedRunTests(unittest.TestCase):
         # The reviewer's confinement is unchanged: the whole worktree.
         self.assertEqual(
             [str(repo), str(worktree)],
-            result["review"]["isolation"]["read_only_paths"],
+            result["iterations"][-1]["review"]["isolation"]["read_only_paths"],
         )
 
     def _assert_inference(self, actuator: str, evidence: dict) -> None:
@@ -319,19 +326,18 @@ class AcceptedRunTests(unittest.TestCase):
 
     def _assert_observations(self, result: dict, evidence: dict) -> None:
         """The reviewer received exactly the bundle the controller recorded."""
-        review_prompt = Path(result["run_dir"], "review", "prompt.md").read_text(
+        review = evidence["iterations"][-1]["review"]
+        review_prompt = Path(result["run_dir"], review["prompt"]["path"]).read_text(
             encoding="utf-8"
         )
         after = review_prompt.partition("BEGIN CONTROLLER OBSERVATIONS JSON\n")[2]
         embedded = after.partition("\nEND CONTROLLER OBSERVATIONS JSON")[0]
-        observations = evidence["review"]["observations"]
+        observations = review["observations"]
 
         self.assertEqual(observations, json.loads(embedded))
         self.assertEqual(canonical(observations), embedded)
         # The recorded digest covers exactly the bytes the reviewer was given.
-        self.assertEqual(
-            sha256_text(embedded), evidence["review"]["observations_sha256"]
-        )
+        self.assertEqual(sha256_text(embedded), review["observations_sha256"])
         self.assertEqual(1, observations["schema_version"])
         self.assertEqual(
             [

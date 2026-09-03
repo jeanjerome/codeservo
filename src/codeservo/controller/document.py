@@ -200,28 +200,6 @@ class ScopeResult(Document):
 
 
 @dataclass(frozen=True, kw_only=True)
-class Iteration(Document):
-    """One turn of the feedback loop, as far as it got.
-
-    Everything after the prompt is unset until the iteration reaches it,
-    because an iteration that ended on a refused actuation or a broken sensor
-    holds what happened up to that point and nothing about what never ran.
-    """
-
-    iteration: int
-    feedback_received: str
-    input_state: FileRecord
-    prompt: FileRecord | Unset = UNSET
-    agent_error: str | Unset = UNSET
-    agent: Actuation | Unset = UNSET
-    actuator_state: FileRecord | Unset = UNSET
-    scope: ScopeResult | Unset = UNSET
-    quick_gates: tuple[GateResult, ...] | Unset = UNSET
-    observed_state: FileRecord | Unset = UNSET
-    controller_feedback: Feedback | None | Unset = UNSET
-
-
-@dataclass(frozen=True, kw_only=True)
 class ReviewBlock(Document):
     """What the reviewer was given, and what it answered.
 
@@ -236,6 +214,34 @@ class ReviewBlock(Document):
     result: dict[str, Any] | Unset = UNSET
     result_sha256: str | Unset = UNSET
     meta: ReviewMeta | Unset = UNSET
+
+
+@dataclass(frozen=True, kw_only=True)
+class Iteration(Document):
+    """One turn of the feedback loop, as far as it got.
+
+    Everything after the prompt is unset until the iteration reaches it,
+    because an iteration that ended on a refused actuation or a broken sensor
+    holds what happened up to that point and nothing about what never ran.
+    The full gates and the review belong to the iteration whose candidate
+    they measured: an iteration that failed a quick gate never reaches them,
+    and one that reached them and was not accepted is followed by another.
+    """
+
+    iteration: int
+    feedback_received: str
+    input_state: FileRecord
+    prompt: FileRecord | Unset = UNSET
+    agent_error: str | Unset = UNSET
+    agent: Actuation | Unset = UNSET
+    actuator_state: FileRecord | Unset = UNSET
+    scope: ScopeResult | Unset = UNSET
+    quick_gates: tuple[GateResult, ...] | Unset = UNSET
+    observed_state: FileRecord | Unset = UNSET
+    full_gates: tuple[GateResult, ...] | Unset = UNSET
+    full_gate_state: FileRecord | Unset = UNSET
+    review: ReviewBlock | Unset = UNSET
+    controller_feedback: Feedback | None | Unset = UNSET
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -276,7 +282,4 @@ class Evidence(Document):
     events: EventsSummary
     finished_at: str | Unset = UNSET
     baseline: tuple[GateResult, ...] | Unset = UNSET
-    full_gates: tuple[GateResult, ...] | Unset = UNSET
-    full_gate_state: FileRecord | Unset = UNSET
-    review: ReviewBlock | Unset = UNSET
     patch_sha256: str | None | Unset = UNSET

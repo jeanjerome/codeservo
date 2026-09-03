@@ -65,7 +65,7 @@ def sha256_path(path: Path) -> str:
 # not to the run directory: relativisation never descends into them, and the
 # verification beside it looks under them for no artefact of the run. One
 # contract, declared here and read from here by both.
-VERBATIM_TRAILS = frozenset({("review", "result")})
+VERBATIM_TRAILS = frozenset({("iterations", "review", "result")})
 
 
 def relative_evidence_paths(payload: Any, run_dir: Path) -> Any:

@@ -37,7 +37,8 @@ class InferenceProfileE2ETests(unittest.TestCase):
 
     def _reviewer_argv(self, run_dir: str) -> list[str]:
         """The command line the fake Codex reviewer reported it was given."""
-        stdout = Path(run_dir, "review", "stdout.log").read_text(encoding="utf-8")
+        reviews = sorted(Path(run_dir, "iterations").glob("*/review/stdout.log"))
+        stdout = reviews[-1].read_text(encoding="utf-8")
         for line in stdout.splitlines():
             payload = json.loads(line)
             if "argv" in payload:
@@ -241,7 +242,7 @@ class InferenceProfileE2ETests(unittest.TestCase):
             )
             # No effort, no settings document, no configuration override.
             self.assertEqual({}, reviewer["native"])
-            command = result["review"]["meta"]["command"]
+            command = result["iterations"][-1]["review"]["meta"]["command"]
             self.assertNotIn("--effort", command)
             self.assertNotIn("--settings", command)
             self.assertNotIn("--model", command)
@@ -254,7 +255,7 @@ class InferenceProfileE2ETests(unittest.TestCase):
 
         def observe(**arguments):
             # The record already on disk when the reviewer is about to start.
-            run_dir = arguments["out_dir"].parent
+            run_dir = arguments["out_dir"].parents[2]
             frozen.append(
                 json.loads((run_dir / "evidence.json").read_text(encoding="utf-8"))
             )
@@ -337,17 +338,17 @@ class InferenceProfileE2ETests(unittest.TestCase):
             self.assertNotIn("service_tier=priority", argv)
 
             # The confinement the reviewer runs under, recorded before it ran.
-            isolation = frozen[0]["review"]["isolation"]
+            frozen_review = frozen[0]["iterations"][-1]["review"]
+            isolation = frozen_review["isolation"]
             self.assertEqual("macos-sandbox-exec", isolation["mechanism"])
             self.assertTrue(isolation["user_config_ignored"])
+            review = result["iterations"][-1]["review"]
             self.assertEqual(
-                set(result["review"]["isolation"]),
+                set(review["isolation"]),
                 {"mechanism", "denied_paths", "read_only_paths", "user_config_ignored"},
             )
-            self.assertIn(
-                result["worktree"], result["review"]["isolation"]["read_only_paths"]
-            )
-            self.assertNotIn("result", frozen[0]["review"])
+            self.assertIn(result["worktree"], review["isolation"]["read_only_paths"])
+            self.assertNotIn("result", frozen_review)
             # The candidate is unchanged by a reviewer that could not write.
             self.assertFalse(Path(result["worktree"], "reviewer-write.txt").exists())
 

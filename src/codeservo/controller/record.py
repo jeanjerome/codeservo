@@ -21,7 +21,7 @@ from .document import Decision, Evidence, Iteration
 from .errors import ControlFailure
 
 # The shape of evidence.json. The observation bundle versions its own shape.
-EVIDENCE_SCHEMA_VERSION = 16
+EVIDENCE_SCHEMA_VERSION = 17
 
 
 def utc_now() -> str:
@@ -84,9 +84,16 @@ class RunRecord:
         """The record as a reader of the run directory sees it.
 
         The locations are the ones this machine used; only writing makes them
-        relative to the run directory.
+        relative to the run directory. An iteration in progress is written as
+        far as it got, so what a stage stated reaches the file system before
+        the next stage acts on it, whether or not the iteration is kept later.
         """
-        return rendered(self.document)
+        document = self.document
+        if self.attempt is not None:
+            document = replace(
+                document, iterations=(*document.iterations, self.attempt)
+            )
+        return rendered(document)
 
     def close(
         self,

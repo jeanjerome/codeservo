@@ -42,26 +42,28 @@ class EvidenceTests(unittest.TestCase):
             root = Path(temp).resolve()
             run_dir = root / "runs" / "repo" / "run"
             located = str(root / "worktrees" / "repo" / "run" / "app.py")
+            prompt = run_dir / "iterations" / "01" / "review" / "prompt.md"
             payload = {
-                "review": {
-                    "prompt": {"path": str(run_dir / "review" / "prompt.md")},
-                    "result": {
-                        "findings": [{"path": located, "severity": "minor"}],
-                    },
-                }
+                "iterations": [
+                    {
+                        "review": {
+                            "prompt": {"path": str(prompt)},
+                            "result": {
+                                "findings": [{"path": located, "severity": "minor"}],
+                            },
+                        }
+                    }
+                ]
             }
 
             portable = relative_evidence_paths(payload, run_dir)
+            review = portable["iterations"][0]["review"]
 
+            self.assertEqual(located, review["result"]["findings"][0]["path"])
+            self.assertEqual("iterations/01/review/prompt.md", review["prompt"]["path"])
             self.assertEqual(
-                located, portable["review"]["result"]["findings"][0]["path"]
-            )
-            self.assertEqual(
-                "review/prompt.md", portable["review"]["prompt"]["path"]
-            )
-            self.assertEqual(
-                sha256_json(payload["review"]["result"]),
-                sha256_json(portable["review"]["result"]),
+                sha256_json(payload["iterations"][0]["review"]["result"]),
+                sha256_json(review["result"]),
             )
 
     def test_hashes_file_bytes_and_canonical_json(self) -> None:
@@ -94,7 +96,7 @@ class VerbatimContractTests(unittest.TestCase):
             self.assertIsInstance(trail, tuple)
             for step in trail:
                 self.assertIsInstance(step, str)
-        self.assertIn(("review", "result"), VERBATIM_TRAILS)
+        self.assertIn(("iterations", "review", "result"), VERBATIM_TRAILS)
 
     def test_the_writing_side_reaches_it_without_the_verification(self) -> None:
         """The declaration sits under the reader that writes a record.
@@ -108,7 +110,7 @@ class VerbatimContractTests(unittest.TestCase):
                 sys.executable,
                 "-c",
                 "import sys, codeservo.evidence.digests as digests;"
-                "print(('review', 'result') in digests.VERBATIM_TRAILS);"
+                "print(('iterations', 'review', 'result') in digests.VERBATIM_TRAILS);"
                 "print('codeservo.evidence.verify' in sys.modules)",
             ],
             capture_output=True,

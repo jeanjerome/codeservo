@@ -28,7 +28,7 @@ class RuntimeIdentityTests(unittest.TestCase):
     def test_declares_the_shape_the_record_has(self) -> None:
         # Every gate record now names the format it answered with, and a gate
         # answering with a document carries the four fields describing it.
-        self.assertEqual(16, EVIDENCE_SCHEMA_VERSION)
+        self.assertEqual(17, EVIDENCE_SCHEMA_VERSION)
 
     def test_names_both_backends_when_one_serves_both_roles(self) -> None:
         actuator = self._actuator()

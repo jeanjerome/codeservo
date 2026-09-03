@@ -77,15 +77,15 @@ class ValidRunTests(unittest.TestCase):
                     "artifact.iterations/01/prompt.md",
                     "artifact.iterations/01/agent/events.jsonl",
                     "artifact.baseline/unit.stdout.log",
-                    "artifact.review/result.json",
+                    "artifact.iterations/01/review/result.json",
                     "artifact.change.patch",
                     "digest.baseline.0",
                     "digest.iterations.1.quick_gates.0",
-                    "digest.full_gates.0",
+                    "digest.iterations.1.full_gates.0",
                     "digest.iterations.1.agent",
-                    "digest.review.result",
-                    "digest.review.observations",
-                    "digest.review.meta",
+                    "digest.iterations.1.review.result",
+                    "digest.iterations.1.review.observations",
+                    "digest.iterations.1.review.meta",
                     "journal.sequence",
                     "journal.chain",
                     "journal.digests",
@@ -213,13 +213,16 @@ class InvalidRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             run_dir = build_run(Path(temp))
             record = read_record(run_dir)
-            record["full_gates"][0]["passed"] = False
+            record["iterations"][0]["full_gates"][0]["passed"] = False
             rewrite_record(run_dir, record)
 
             report = self._report(run_dir)
 
             self.assertEqual(
-                ["full_gates.0.result_sha256: does not describe what the record holds"],
+                [
+                    "iterations.1.full_gates.0.result_sha256:"
+                    " does not describe what the record holds"
+                ],
                 report["failures"],
             )
 
@@ -227,13 +230,17 @@ class InvalidRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             run_dir = build_run(Path(temp))
             record = read_record(run_dir)
-            record["review"]["result"]["findings"] = [{"severity": "blocker"}]
+            review = record["iterations"][0]["review"]
+            review["result"]["findings"] = [{"severity": "blocker"}]
             rewrite_record(run_dir, record)
 
             report = self._report(run_dir)
 
             self.assertEqual(
-                ["review.result_sha256: does not describe what the record holds"],
+                [
+                    "iterations.1.review.result_sha256:"
+                    " does not describe what the record holds"
+                ],
                 report["failures"],
             )
 
@@ -391,7 +398,7 @@ class UnreadableRecordTests(unittest.TestCase):
 
     def test_a_record_naming_something_else_where_gates_belong(self) -> None:
         """A verdict, not a traceback: the record is the input to distrust."""
-        for field in ("baseline", "iterations", "full_gates"):
+        for field in ("baseline", "iterations"):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as temp:
                 run_dir = build_run(Path(temp))
                 record = json.loads(
@@ -446,9 +453,10 @@ class VerbatimContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             run_dir = build_run(Path(temp))
             record = read_record(run_dir)
-            result = record["review"]["result"]
+            review = record["iterations"][0]["review"]
+            result = review["result"]
             result["findings"] = [{"path": "../outside.py", "sha256": "0" * 64}]
-            record["review"]["result_sha256"] = sha256_json(result)
+            review["result_sha256"] = sha256_json(result)
             rewrite_record(run_dir, record)
 
             report = verify_run(run_dir)

@@ -6,13 +6,43 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from codeservo.controller.document import FileRecord, Iteration, ScopeResult
+from codeservo.controller.document import (
+    FileRecord,
+    IsolationEvidence,
+    Iteration,
+    ReviewBlock,
+    ScopeResult,
+)
 from codeservo.controller.phases.iteration import iteration_recap
 from codeservo.domain.constitution import ResultFormat
 from codeservo.sensors.gates import GateResult, UnsignedGateResult
 from codeservo.sensors.observations import Classification
 
 SNAPSHOT = FileRecord(path="input.patch", sha256="0" * 64)
+CRITERIA = {"AC1": "one", "AC2": "two"}
+BLOCKING = ("blocker", "major")
+OK = ScopeResult(passed=True, summary="scope OK", details={})
+
+
+def recap(iterations: tuple[Iteration, ...]) -> tuple[str, ...]:
+    return iteration_recap(iterations, CRITERIA, BLOCKING)
+
+
+def review_block(result: dict | None) -> ReviewBlock:
+    block = ReviewBlock(
+        prompt=FileRecord(path="review/prompt.md", sha256="1" * 64),
+        observations={"schema_version": 1, "gates": []},
+        observations_sha256="2" * 64,
+        isolation=IsolationEvidence(
+            mechanism="none",
+            denied_paths=(),
+            read_only_paths=(),
+            user_config_ignored=True,
+        ),
+    )
+    if result is None:
+        return block
+    return replace(block, result=result, result_sha256="3" * 64)
 
 
 class IterationRecapTests(unittest.TestCase):
@@ -65,7 +95,12 @@ class IterationRecapTests(unittest.TestCase):
         ).signed()
 
     def _iteration(
-        self, number: int, *, scope: ScopeResult, gates: tuple[GateResult, ...]
+        self,
+        number: int,
+        *,
+        scope: ScopeResult = OK,
+        gates: tuple[GateResult, ...],
+        **rest,
     ) -> Iteration:
         return Iteration(
             iteration=number,
@@ -73,13 +108,14 @@ class IterationRecapTests(unittest.TestCase):
             input_state=SNAPSHOT,
             scope=scope,
             quick_gates=gates,
+            **rest,
         )
 
     def test_nothing_to_tell_before_the_first_iteration(self) -> None:
-        self.assertEqual((), iteration_recap(()))
+        self.assertEqual((), recap(()))
 
     def test_one_line_per_iteration_in_order(self) -> None:
-        ok = ScopeResult(passed=True, summary="scope OK", details={})
+        ok = OK
         first = self._iteration(
             1,
             scope=ok,
@@ -101,8 +137,6 @@ class IterationRecapTests(unittest.TestCase):
             ),
         )
 
-        recap = iteration_recap((first, second))
-
         self.assertEqual(
             (
                 "Iteration 1: scope OK; quick gates: 1 of 3 passed;"
@@ -110,15 +144,70 @@ class IterationRecapTests(unittest.TestCase):
                 "Iteration 2: changed files 15 exceed max 12; quick gates: 2 of 3 passed;"
                 " failed: unit (1 of 44 tests failed)",
             ),
-            recap,
+            recap((first, second)),
         )
+
+    def test_the_full_gates_follow_the_quick_ones(self) -> None:
+        entry = self._iteration(
+            1,
+            gates=(self._gate("lint", passed=True),),
+            full_gates=(
+                self._gate("coverage", passed=True),
+                self._gate("mutation", passed=False, summary="3 mutants survived"),
+            ),
+        )
+
+        self.assertEqual(
+            (
+                "Iteration 1: scope OK; quick gates: 1 of 1 passed;"
+                " full gates: 1 of 2 passed; failed: mutation (3 mutants survived)",
+            ),
+            recap((entry,)),
+        )
+
+    def test_the_review_says_what_it_decided_against(self) -> None:
+        result = {
+            "criteria": [
+                {"id": "AC1", "status": "satisfied", "evidence": "x"},
+                {"id": "AC2", "status": "not_satisfied", "evidence": "y"},
+            ],
+            "findings": [
+                {"severity": "major", "message": "m"},
+                {"severity": "minor", "message": "n"},
+            ],
+        }
+        entry = self._iteration(
+            1,
+            gates=(self._gate("lint", passed=True),),
+            full_gates=(self._gate("coverage", passed=True),),
+            review=review_block(result),
+        )
+
+        self.assertEqual(
+            (
+                "Iteration 1: scope OK; quick gates: 1 of 1 passed;"
+                " full gates: 1 of 1 passed;"
+                " review: 1 of 2 criteria not satisfied (AC2), 1 blocking finding",
+            ),
+            recap((entry,)),
+        )
+
+    def test_a_review_without_an_answer_says_so(self) -> None:
+        entry = self._iteration(
+            1,
+            gates=(self._gate("lint", passed=True),),
+            full_gates=(self._gate("coverage", passed=True),),
+            review=review_block(None),
+        )
+
+        self.assertTrue(recap((entry,))[0].endswith("; review: no answer"))
 
     def test_an_iteration_the_loop_never_measured_is_said_to_be_unmeasured(
         self,
     ) -> None:
         unmeasured = Iteration(iteration=1, feedback_received="", input_state=SNAPSHOT)
 
-        self.assertEqual(("Iteration 1: not measured",), iteration_recap((unmeasured,)))
+        self.assertEqual(("Iteration 1: not measured",), recap((unmeasured,)))
 
 
 if __name__ == "__main__":

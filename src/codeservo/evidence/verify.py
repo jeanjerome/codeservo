@@ -242,9 +242,12 @@ def _digest_pairs(record: dict) -> list[tuple[tuple[str, ...], str, str]]:
     pairs: list[tuple[tuple[str, ...], str, str]] = []
 
     def visit(value: Any, trail: tuple[str, ...]) -> None:
+        # A trail is spelled in keys alone, the way the relativisation that
+        # wrote the record spells it: an element of a list is at its list's
+        # trail, so a contract declared once reads the same on both sides.
         if isinstance(value, list):
-            for index, item in enumerate(value):
-                visit(item, (*trail, str(index)))
+            for item in value:
+                visit(item, trail)
             return
         if not isinstance(value, dict):
             return
@@ -340,36 +343,40 @@ def _check_recomputed(report: _Report, record: dict) -> None:
         if not isinstance(iteration, dict):
             continue
         number = iteration.get("iteration", position)
+        location = f"iterations.{number}"
         for index, gate in enumerate(_sequence(iteration.get("quick_gates"))):
-            _check_gate(report, f"iterations.{number}.quick_gates.{index}", gate)
+            _check_gate(report, f"{location}.quick_gates.{index}", gate)
         agent = iteration.get("agent")
         if isinstance(agent, dict):
             _recomputed(
                 report,
-                f"digest.iterations.{number}.agent",
-                f"iterations.{number}.agent.result_sha256",
+                f"digest.{location}.agent",
+                f"{location}.agent.result_sha256",
                 agent.get("result_sha256"),
                 sha256_record(agent),
             )
-    for index, gate in enumerate(_sequence(record.get("full_gates"))):
-        _check_gate(report, f"full_gates.{index}", gate)
+        for index, gate in enumerate(_sequence(iteration.get("full_gates"))):
+            _check_gate(report, f"{location}.full_gates.{index}", gate)
+        review = iteration.get("review")
+        if isinstance(review, dict):
+            _check_review(report, f"{location}.review", review)
 
-    review = record.get("review")
-    if not isinstance(review, dict):
-        return
+
+def _check_review(report: _Report, location: str, review: dict) -> None:
+    """The digests one iteration's review recomputes from what it holds."""
     if "result" in review:
         _recomputed(
             report,
-            "digest.review.result",
-            "review.result_sha256",
+            f"digest.{location}.result",
+            f"{location}.result_sha256",
             review.get("result_sha256"),
             sha256_json(review["result"]),
         )
     if "observations" in review:
         _recomputed(
             report,
-            "digest.review.observations",
-            "review.observations_sha256",
+            f"digest.{location}.observations",
+            f"{location}.observations_sha256",
             review.get("observations_sha256"),
             sha256_json(review["observations"]),
         )
@@ -377,8 +384,8 @@ def _check_recomputed(report: _Report, record: dict) -> None:
     if isinstance(meta, dict):
         _recomputed(
             report,
-            "digest.review.meta",
-            "review.meta.meta_sha256",
+            f"digest.{location}.meta",
+            f"{location}.meta.meta_sha256",
             meta.get("meta_sha256"),
             sha256_record(
                 {key: value for key, value in meta.items() if key != "meta_sha256"}

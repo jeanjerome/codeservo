@@ -1,7 +1,11 @@
 import json
 import unittest
 
-from codeservo.controller.decision import review_decision
+from codeservo.controller.decision import (
+    review_decision,
+    review_faults,
+    review_feedback,
+)
 
 BLOCKING = ("blocker", "major")
 
@@ -111,6 +115,91 @@ class ReviewDecisionTests(unittest.TestCase):
             }
         )
         self.assertEqual(review_decision(review, {"AC1": "x"}, BLOCKING), [])
+
+
+class ReviewFaultTests(unittest.TestCase):
+    """What the reviewer got wrong is a fault of the sensor, not of the candidate."""
+
+    def test_a_complete_review_has_no_fault_whatever_it_decided(self):
+        review = {
+            "criteria": [{"id": "AC1", "status": "not_satisfied", "evidence": "x"}],
+            "findings": [{"severity": "blocker", "message": "bad"}],
+        }
+        self.assertEqual([], review_faults(review, {"AC1": "x"}))
+
+    def test_names_a_missing_a_duplicated_and_an_unknown_criterion(self):
+        review = _reported(
+            {
+                "criteria": [
+                    {"id": "AC2", "status": "satisfied"},
+                    {"id": "AC2", "status": "satisfied"},
+                    {"id": "AC9", "status": "satisfied"},
+                ],
+                "findings": [],
+            }
+        )
+        self.assertEqual(
+            [
+                "review duplicated criterion AC2",
+                "review missing criterion AC1",
+                "review returned unknown criterion AC9",
+            ],
+            review_faults(review, {"AC1": "x", "AC2": "y"}),
+        )
+
+
+class ReviewFeedbackTests(unittest.TestCase):
+    """Only what decided against the candidate is fed back to it."""
+
+    def test_nothing_to_feed_back_from_an_accepting_review(self):
+        review = {
+            "criteria": [{"id": "AC1", "status": "satisfied", "evidence": "t"}],
+            "findings": [{"severity": "minor", "message": "style"}],
+        }
+        self.assertEqual("", review_feedback(review, {"AC1": "x"}, BLOCKING))
+
+    def test_names_the_criteria_and_the_blocking_findings_with_their_place(self):
+        review = _reported(
+            {
+                "criteria": [
+                    {"id": "AC1", "status": "satisfied", "evidence": "fine"},
+                    {"id": "AC2", "status": "not_satisfied", "evidence": "no test"},
+                    {"id": "AC3", "status": "not_verifiable", "evidence": ""},
+                ],
+                "findings": [
+                    {
+                        "severity": "major",
+                        "path": "app.py",
+                        "line": 2,
+                        "message": "ignores its caller",
+                        "evidence": "app.py:2",
+                    },
+                    {"severity": "blocker", "path": None, "message": "corrupts"},
+                    {"severity": "minor", "path": "app.py", "message": "style"},
+                ],
+            }
+        )
+
+        feedback = review_feedback(
+            review, {"AC1": "a", "AC2": "b", "AC3": "c"}, BLOCKING
+        )
+
+        self.assertEqual(
+            "\n".join(
+                [
+                    "Review did not accept the candidate.",
+                    "Criteria not satisfied:",
+                    "- AC2 (not_satisfied): no test",
+                    "- AC3 (not_verifiable): no evidence given",
+                    "Blocking findings:",
+                    "- [major] app.py:2: ignores its caller",
+                    "  evidence: app.py:2",
+                    "- [blocker] (no path): corrupts",
+                ]
+            ),
+            feedback,
+        )
+        self.assertNotIn("style", feedback)
 
 
 if __name__ == "__main__":

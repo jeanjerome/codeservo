@@ -1,15 +1,20 @@
-"""The feedback loop: actuate, measure, and either converge or say why not.
+"""The feedback loop: actuate, measure, and either accept or say why not.
 
 One iteration hands the actuator the task and whatever the last measurement
-returned, then measures what it left behind. The candidate is snapshotted at
-each boundary, so a phase that moved the tree it was measuring is visible
-afterwards even where no confinement refused the write.
+returned, then measures what it left behind: the scope and the quick gates,
+then the full gates, then the independent review. The first of the three to
+decide against the candidate writes the feedback the next iteration starts
+from, and an iteration that all three let through is the accepted one. The
+candidate is snapshotted at each boundary, so a phase that moved the tree it
+was measuring is visible afterwards even where no confinement refused the
+write.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from pathlib import Path
 
 from ...actuators import ActuatorError
@@ -22,7 +27,8 @@ from ...sensors.gates import GateResult, run_gates
 from ...sensors.observations import ObservationPathError
 from ...sensors.scope import scope_sensor
 from ..context import RunContext
-from ..document import Feedback, FileRecord, Iteration, ScopeResult
+from ..decision import SATISFIED
+from ..document import Feedback, FileRecord, Iteration, ReviewBlock, ScopeResult
 from ..environment import changed_environment
 from ..errors import ControlFailure, Rejection
 from ..freeze import sensor_tampering
@@ -36,39 +42,52 @@ from ..gate_results import (
 from ..inference import record_actuation
 from ..record import RunRecord
 from ..snapshots import mutated, write_patch_snapshot
+from .converged import Converged
+from .full import measure_full
+from .review import review_candidate
 
 
-@dataclass(frozen=True)
-class Converged:
-    """The candidate the quick phase accepted, and what it looked like then."""
+class Stage(StrEnum):
+    """Which measurement of an iteration decided against the candidate."""
 
-    quick_gates: tuple[GateResult, ...]
-    state: FileRecord
+    QUICK = "quick"
+    FULL = "full"
+    REVIEW = "review"
 
 
 @dataclass(frozen=True)
 class IterationOutcome:
-    """What one iteration reached: an accepted candidate, or what to feed back."""
+    """What one iteration reached: acceptance, or why not and what to feed back."""
 
-    accepted: Converged | None
+    accepted: bool
+    reasons: list[str]
     feedback: str
 
 
-def converge(context: RunContext, record: RunRecord) -> Converged:
-    """Iterate until the quick gates pass, or until the budget is exhausted."""
-    feedback = ""
+ACCEPTED = IterationOutcome(accepted=True, reasons=[], feedback="")
+
+
+def converge(context: RunContext, record: RunRecord) -> None:
+    """Iterate until an iteration is accepted, or until the budget is exhausted.
+
+    A budget that runs out is not a failure of the candidate: what the last
+    iteration decided against it is named beside the exhaustion, so the
+    decision says where the loop stopped.
+    """
+    outcome = IterationOutcome(accepted=False, reasons=[], feedback="")
     for iteration in range(1, context.request.max_iterations + 1):
-        outcome = _iterate(context, record, iteration, feedback)
-        if outcome.accepted is not None:
-            return outcome.accepted
-        feedback = outcome.feedback
+        outcome = _iterate(context, record, iteration, outcome.feedback)
+        if outcome.accepted:
+            return
 
     record.record(
         "budget.exhausted", {"max_iterations": context.request.max_iterations}
     )
     raise Rejection(
-        "quick gates did not converge within"
-        f" {context.request.max_iterations} iterations"
+        [
+            f"did not converge within {context.request.max_iterations} iterations",
+            *outcome.reasons,
+        ]
     )
 
 
@@ -89,20 +108,74 @@ def _iterate(
     try:
         _actuate(context, record, iteration_dir, iteration, feedback)
         quick = _measure(context, record, iteration_dir)
-        return _verdict(record, iteration_dir, quick)
+        converged = _quick_verdict(record, iteration_dir, quick)
+        if isinstance(converged, IterationOutcome):
+            return converged
+        full = measure_full(context, record, converged, iteration_dir)
+        if full.reasons:
+            return _decided(
+                record, iteration_dir, Stage.FULL, full.reasons, full.feedback
+            )
+        review = review_candidate(context, record, converged, full.gates, iteration_dir)
+        if review.reasons:
+            return _decided(
+                record, iteration_dir, Stage.REVIEW, review.reasons, review.feedback
+            )
+        record.attempt = replace(record.attempted(), controller_feedback=None)
+        return ACCEPTED
     finally:
         record.keep()
         record.persist()
 
 
-def iteration_recap(iterations: Sequence[Iteration]) -> tuple[str, ...]:
-    """One line per iteration so far: what the scope and the quick gates said.
+def _gates_clauses(phase: str, gates: Sequence[GateResult]) -> list[str]:
+    passed = sum(1 for gate in gates if gate.passed)
+    clauses = [f"{phase} gates: {passed} of {len(gates)} passed"]
+    failed = [gate_clause(gate) for gate in gates if not gate.passed]
+    if failed:
+        clauses.append("failed: " + ", ".join(failed))
+    return clauses
 
-    The line names each failing gate with what its document summarised, so an
-    actuator reading several of them sees what moved between attempts and
-    what did not. An iteration the record holds without a measurement, which
-    the loop never continues past, is said to be unmeasured rather than
-    described.
+
+def _review_clause(
+    review: ReviewBlock, criteria: dict[str, str], blocking: tuple[str, ...]
+) -> str:
+    result = review.result
+    if isinstance(result, Unset):
+        return "review: no answer"
+    reported = {str(item.get("id", "")): item for item in result.get("criteria", [])}
+    unsatisfied = [
+        criterion_id
+        for criterion_id in criteria
+        if str(reported.get(criterion_id, {}).get("status", "")) != SATISFIED
+    ]
+    findings = sum(
+        1
+        for finding in result.get("findings", [])
+        if str(finding.get("severity", "")) in set(blocking)
+    )
+    parts = []
+    if unsatisfied:
+        parts.append(
+            f"{len(unsatisfied)} of {len(criteria)} criteria not satisfied"
+            f" ({', '.join(unsatisfied)})"
+        )
+    parts.append(f"{findings} blocking finding{'' if findings == 1 else 's'}")
+    return "review: " + ", ".join(parts)
+
+
+def iteration_recap(
+    iterations: Sequence[Iteration],
+    criteria: dict[str, str],
+    blocking: tuple[str, ...],
+) -> tuple[str, ...]:
+    """One line per iteration so far: what each measurement said of it.
+
+    The line names each failing gate with what its document summarised, and
+    the review with what it decided against, so an actuator reading several of
+    them sees what moved between attempts and what did not. An iteration the
+    record holds without a measurement, which the loop never continues past,
+    is said to be unmeasured rather than described.
     """
     lines: list[str] = []
     for entry in iterations:
@@ -111,11 +184,11 @@ def iteration_recap(iterations: Sequence[Iteration]) -> tuple[str, ...]:
         if isinstance(scope, Unset) or isinstance(quick, Unset):
             lines.append(f"Iteration {entry.iteration}: not measured")
             continue
-        passed = sum(1 for gate in quick if gate.passed)
-        clauses = [scope.summary, f"quick gates: {passed} of {len(quick)} passed"]
-        failed = [gate_clause(gate) for gate in quick if not gate.passed]
-        if failed:
-            clauses.append("failed: " + ", ".join(failed))
+        clauses = [scope.summary, *_gates_clauses("quick", quick)]
+        if not isinstance(entry.full_gates, Unset):
+            clauses.extend(_gates_clauses("full", entry.full_gates))
+        if not isinstance(entry.review, Unset):
+            clauses.append(_review_clause(entry.review, criteria, blocking))
         lines.append(f"Iteration {entry.iteration}: " + "; ".join(clauses))
     return tuple(lines)
 
@@ -131,7 +204,11 @@ def _actuate(
         context.task,
         context.constitution,
         feedback,
-        iteration_recap(record.document.iterations),
+        iteration_recap(
+            record.document.iterations,
+            context.task.criteria,
+            context.constitution.review.blocking_severities,
+        ),
     )
     prompt_path = iteration_dir / "prompt.md"
     prompt_path.parent.mkdir(parents=True, exist_ok=True)
@@ -254,30 +331,41 @@ def _reached(state: FileRecord | Unset) -> FileRecord:
     return state
 
 
-def _verdict(
+def _quick_verdict(
     record: RunRecord,
     iteration_dir: Path,
     quick: tuple[GateResult, ...],
-) -> IterationOutcome:
+) -> Converged | IterationOutcome:
+    """The candidate the quick phase lets through, or what it decided against."""
     entry = record.attempted()
     scope = entry.scope
     if isinstance(scope, Unset):
         raise ControlFailure("the iteration has measured no scope yet")
     if scope.passed and all(gate.passed for gate in quick):
-        record.attempt = replace(entry, controller_feedback=None)
-        return IterationOutcome(
-            accepted=Converged(
-                quick_gates=quick, state=_reached(entry.observed_state)
-            ),
-            feedback="",
-        )
+        return Converged(quick_gates=quick, state=_reached(entry.observed_state))
 
+    reasons = []
     parts = []
     if not scope.passed:
+        reasons.append(f"scope: {scope.summary}")
         parts.append("Structural invariant failures:\n" + scope.summary)
+    reasons.extend(f"quick gate {gate.name} failed" for gate in quick if not gate.passed)
     parts.append(gate_feedback(quick))
     feedback = "\n\n".join(part for part in parts if part).strip()
+    return _decided(record, iteration_dir, Stage.QUICK, reasons, feedback)
 
+
+def _decided(
+    record: RunRecord,
+    iteration_dir: Path,
+    stage: Stage,
+    reasons: list[str],
+    feedback: str,
+) -> IterationOutcome:
+    """Write what a stage decided against the candidate, for the next iteration.
+
+    The feedback is written once, wherever in the iteration it came from.
+    """
     feedback_path = iteration_dir / "controller-feedback.md"
     feedback_path.write_text(feedback, encoding="utf-8")
     emitted = Feedback(
@@ -285,9 +373,13 @@ def _verdict(
         sha256=sha256_text(feedback),
         text=feedback,
     )
-    record.attempt = replace(entry, controller_feedback=emitted)
+    record.attempt = replace(record.attempted(), controller_feedback=emitted)
     record.record(
         "feedback.emitted",
-        {"iteration": entry.iteration, "sha256": emitted.sha256},
+        {
+            "iteration": record.attempted().iteration,
+            "stage": stage,
+            "sha256": emitted.sha256,
+        },
     )
-    return IterationOutcome(accepted=None, feedback=feedback)
+    return IterationOutcome(accepted=False, reasons=reasons, feedback=feedback)

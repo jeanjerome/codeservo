@@ -20,9 +20,7 @@ from .phases import (
     create_candidate,
     freeze_execution_environment,
     measure_baseline,
-    measure_full,
     prepare_candidate_environment,
-    review_candidate,
 )
 from .record import RunRecord
 
@@ -70,17 +68,10 @@ def run(
         measure_baseline(context, record)
         create_candidate(context, record)
         prepare_candidate_environment(context, record)
-        accepted = converge(context, record)
-        full = measure_full(context, record, accepted)
-        reasons = review_candidate(context, record, accepted, full)
+        converge(context, record)
     except Rejection as rejection:
         return _close(context, record, RunStatus.REJECTED, rejection.reasons)
-    return _close(
-        context,
-        record,
-        RunStatus.ACCEPTED if not reasons else RunStatus.REJECTED,
-        reasons,
-    )
+    return _close(context, record, RunStatus.ACCEPTED, [])
 
 
 def _verify_control_inputs(context: RunContext, record: RunRecord) -> None:

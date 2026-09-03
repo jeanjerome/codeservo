@@ -13,7 +13,7 @@ a property of the code and becomes a property of the controls around it.
 CodeServo is the attempt to build those controls and see what they actually
 establish.
 
-## The loop in v0.7.0
+## The loop
 
 ```mermaid
 flowchart TD
@@ -22,20 +22,31 @@ flowchart TD
     baseline --> checkout["isolated shallow Git checkout<br/>locked environment"]
     checkout --> implementer["actuator implementer"]
     implementer --> quick{"scope sensor<br/>+ quick gates"}
-    quick -- pass --> full["full gates"]
-    full --> review["independent read-only review sensor"]
-    review --> decision{"mechanical decision"}
-    decision -- every gate, sensor and criterion satisfied --> accepted(["ACCEPTED"])
-    decision -- any failure, blocking finding or control error --> rejected(["REJECTED"])
+    quick -- pass --> full{"full gates"}
+    full -- pass --> review{"independent read-only review sensor<br/>+ mechanical decision"}
+    review -- every criterion satisfied,<br/>no blocking finding --> accepted(["ACCEPTED"])
+    quick -- fail --> feedback["controller feedback:<br/>observations, findings, review objections"]
+    full -- fail --> feedback
+    review -- criterion not satisfied<br/>or blocking finding --> feedback
+    feedback --> budget{"iteration budget"}
+    budget -- remaining --> implementer
+    budget -- exhausted --> rejected(["REJECTED"])
+    quick -- control error --> rejected
+    full -- control error --> rejected
+    review -- reviewer fault --> rejected
     accepted --> record["events.jsonl<br/>evidence.json<br/>change.patch<br/>gate observations"]
     rejected --> record
-    quick -- fail --> feedback["controller feedback"]
-    feedback --> budget{"iteration budget"}
-    budget -- exhausted --> decision
-    budget -- remaining --> implementer
 ```
 
 The implementer never gets to mark itself done. `ACCEPTED` is computed by CodeServo from explicit evidence.
+
+One iteration is one actuation followed by three measurements in order of
+cost: the scope sensor and the quick gates, the full gates, then the review.
+The first to decide against the candidate writes the feedback the next
+iteration starts from, and the budget counts iterations whatever stage ended
+them. What ends a run early is a control error, never a failing measurement: a
+gate that changed the tree it measured, a sensor that could not say what it
+saw, a reviewer that misreported the criteria it was asked to decide.
 
 `FINDINGS.md` records what the experiments run through this controller
 established, what they did not, and what follows for its design.
@@ -44,10 +55,11 @@ established, what they did not, and what follows for its design.
 
 - One actuator and one candidate per run: Claude Code or Codex CLI.
 - One target repository per run.
-- One bounded implementation loop.
+- One bounded loop, one budget: quick gates, full gates and review each open
+  another iteration when they decide against the candidate, until the budget
+  is exhausted.
 - No auto-commit, auto-merge, PR creation, queue, daemon, UI, memory, multi-agent planning, or learning.
-- Full gates run once after quick convergence. A full-gate failure rejects the candidate.
-- Review is semantic evidence, not an opaque verdict: the reviewer returns criterion statuses and findings; CodeServo computes the decision.
+- Review is semantic evidence, not an opaque verdict: the reviewer returns criterion statuses and findings; CodeServo computes the decision. Each review sees one iteration's candidate and nothing of the reviews before it.
 
 ## Requirements
 
@@ -371,11 +383,11 @@ target repository. Sensor references in the constitution resolve below
     │   │   ├── actuator.patch
     │   │   ├── quick/
     │   │   ├── observed.patch
-    │   │   └── controller-feedback.md  # only when sensors fail
+    │   │   ├── full/                   # once the quick gates passed
+    │   │   ├── full.patch
+    │   │   ├── review/                 # once the full gates passed
+    │   │   └── controller-feedback.md  # when a measurement decided against the candidate
     │   └── ...
-    ├── full/
-    ├── full.patch
-    ├── review/
     ├── change.patch
     ├── events.jsonl
     └── evidence.json
