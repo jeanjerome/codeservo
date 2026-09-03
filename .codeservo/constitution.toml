@@ -84,13 +84,13 @@ result_format = "codeservo-json"
 # reports what it measured: a shell command keeps its environment, so the
 # adapter reads from it both the sensor to run and the document to write.
 [[gate]]
-name = "git-metadata-contract"
+name = "environment-block-contract"
 phase = "quick"
 command = "python3.12 tools/gate.py sensor"
 timeout_seconds = 300
 baseline = false
 result_format = "codeservo-json"
-sensor = "codeservo/023-git-metadata-of-a-linked-worktree"
+sensor = "codeservo/024-the-environment-block-asserts-only-what-was-established"
 
 [review]
 blocking_severities = ["blocker", "major"]
