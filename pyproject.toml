@@ -119,6 +119,7 @@ data_file = "${TMPDIR-/tmp}/codeservo-coverage"
 # would otherwise carry a total that hides the code deciding acceptance.
 include = [
   "*/controller/decision.py",
+  "*/controller/ratchet.py",
   "*/policies/*",
   "*/evidence/verify.py",
 ]

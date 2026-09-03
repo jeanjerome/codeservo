@@ -29,9 +29,9 @@ The controller:
 2. verifies baseline gates;
 3. creates an isolated shallow Git checkout without a remote;
 4. invokes the configured actuator CLI as the implementation actuator, with a prompt naming every acceptance criterion by its id and by the control that decides it, the actuator's view of the constitution, one line per iteration so far and the previous iteration's feedback in full;
-5. runs the scope sensor and the quick gates, then, once they pass, the full gates, then, once they pass, hands an independent, read-only semantic reviewer an immutable summary of the gates that passed, carrying no filesystem path and no sensor source, and invokes it about the criteria the task did not hand to a gate;
+5. runs the scope sensor and the quick gates, then, once they pass, the full gates, holding each gate that declares a ratchet to the document it wrote at the baseline, then, once they pass, hands an independent, read-only semantic reviewer an immutable summary of the gates that passed, carrying no filesystem path and no sensor source, and invokes it about the criteria the task did not hand to a gate;
 6. applies the acceptance rules mechanically to what the reviewer returned;
-7. feeds the first measurement that decided against the candidate back to the actuator: for a failing gate, the acceptance criteria that gate decides, the document the gate wrote when it wrote a valid one (summary, findings with the place each names, metrics), then the tail of what it printed; for the review, the criteria it did not find satisfied and the findings the constitution declares blocking;
+7. feeds the first measurement that decided against the candidate back to the actuator: for a failing gate, the acceptance criteria that gate decides, the document the gate wrote when it wrote a valid one (summary, findings with the place each names, metrics), then the tail of what it printed; for a ratchet a passing gate broke, the metric, both values and the direction; for the review, the criteria it did not find satisfied and the findings the constitution declares blocking;
 8. iterates until an iteration is accepted or the budget is exhausted;
 9. persists complete run evidence.
 
@@ -99,6 +99,30 @@ location is therefore appended to the command as the task's one argument,
 which the provider passes through. Both are the controller's business: the
 target repository writes an adapter that takes a location, not one that knows
 where the location came from.
+
+## Ratchets
+
+A gate reporting through a document may declare `ratchet = { missing = "<=",
+line_coverage = ">=" }`: each named metric of its document is held to that
+direction between the baseline and the candidate. The controller applies the
+rule because it is a policy over two observations it already owns, the one the
+gate wrote about the source tree before any candidate existed and the one it
+wrote about the candidate, so an adapter is asked for nothing beyond the metric
+it already reports. The exit code stays the gate's verdict, and a ratchet is
+read over a gate that passed: a failing one has decided already, over a
+different amount of work.
+
+A broken ratchet decides against the candidate the way a failing gate does, in
+the phase its gate belongs to: the iteration is not converged, the reasons name
+the gate, the metric and both values, and the feedback hands the actuator the
+same, as does the one line per iteration the next prompt carries. A ratchet is
+silent when either document lacks the metric, a comparison with a value nobody
+measured being a verdict no measurement produced; that silence is safe only
+while the adapter writing the metric is a protected path, which the
+constitution declares. The reader refuses a ratchet on a gate answering with its
+exit code alone and on a gate outside the baseline, each being a control that
+could never speak. The record gains no field: the two documents and the reasons
+it already holds are what the comparison is recomputed from.
 
 ## Measurement Confinement
 

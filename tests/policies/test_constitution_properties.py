@@ -63,6 +63,18 @@ def _toml(value: object) -> str:
     return repr(value)
 
 
+def _with_ratchet(declaration: str) -> str:
+    """The valid constitution, its quick gate writing a document and declaring this."""
+    lines: list[str] = []
+    declared = False
+    for line in VALID.splitlines():
+        lines.append(line)
+        if line.startswith("baseline = true") and not declared:
+            lines.extend(['result_format = "codeservo-json"', declaration])
+            declared = True
+    return "\n".join(lines) + "\n"
+
+
 class ReadingProperties(unittest.TestCase):
     """A constitution is read, or refused by name. There is no third answer."""
 
@@ -111,6 +123,14 @@ class ReadingProperties(unittest.TestCase):
             line for line in VALID.splitlines() if not line.startswith(f"{key} ")
         ]
         self.read("\n".join(lines) + "\n")
+
+    @given(value=TOML_SCALARS)
+    def test_any_ratchet_is_read_or_refused_by_name(self, value):
+        self.read(_with_ratchet(f"ratchet = {_toml(value)}"))
+
+    @given(value=TOML_SCALARS)
+    def test_any_ratchet_direction_is_read_or_refused_by_name(self, value):
+        self.read(_with_ratchet(f"ratchet = {{ missing = {_toml(value)} }}"))
 
     @given(value=JSON_SCALARS)
     def test_any_review_policy_is_read_or_refused_by_name(self, value):

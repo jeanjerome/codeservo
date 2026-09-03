@@ -1,8 +1,8 @@
 """The full gate set, measured once the candidate has passed the quick one.
 
-A full gate that fails is fed back like a quick one: the phase is slower, not
-more final. What ends the run from here is a control failure, never a
-failing gate.
+A full gate that fails is fed back like a quick one, and so is a full gate
+that passed and broke a ratchet: the phase is slower, not more final. What
+ends the run from here is a control failure, never a failing gate.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from ..gate_results import (
     record_gate_events,
     sensor_faults,
 )
+from ..ratchet import broken_ratchets, ratchet_feedback, ratchet_reasons
 from ..record import RunRecord
 from ..snapshots import mutated, write_patch_snapshot
 from .converged import Converged
@@ -81,9 +82,14 @@ def measure_full(
         raise Rejection(control_failures)
 
     criteria = criteria_by_gate(context.task.criteria)
-    reasons = gate_reasons(GatePhase.FULL, full, criteria)
+    broken = broken_ratchets(context.constitution.gates, record.baseline(), full)
+    reasons = [
+        *gate_reasons(GatePhase.FULL, full, criteria),
+        *ratchet_reasons(GatePhase.FULL, broken),
+    ]
+    parts = (gate_feedback(full, criteria), ratchet_feedback(broken))
     return FullOutcome(
         gates=tuple(full),
         reasons=reasons,
-        feedback=gate_feedback(full, criteria) if reasons else "",
+        feedback="\n\n".join(part for part in parts if part) if reasons else "",
     )

@@ -14,7 +14,7 @@ from codeservo.controller.document import (
     ScopeResult,
 )
 from codeservo.controller.phases.iteration import iteration_recap
-from codeservo.domain.constitution import ResultFormat
+from codeservo.domain.constitution import Direction, Gate, Ratchet, ResultFormat
 from codeservo.domain.task import Criterion
 from codeservo.sensors.gates import GateResult, UnsignedGateResult
 from codeservo.sensors.observations import Classification
@@ -57,7 +57,14 @@ class IterationRecapTests(unittest.TestCase):
         self.addCleanup(self._temp.cleanup)
         self.out = Path(self._temp.name)
 
-    def _gate(self, name: str, *, passed: bool, summary: str | None = None) -> GateResult:
+    def _gate(
+        self,
+        name: str,
+        *,
+        passed: bool,
+        summary: str | None = None,
+        metrics: dict | None = None,
+    ) -> GateResult:
         # Each measurement keeps its own document, as each iteration's does.
         self.count = getattr(self, "count", 0) + 1
         measured = UnsignedGateResult(
@@ -85,7 +92,7 @@ class IterationRecapTests(unittest.TestCase):
                     "status": "passed" if passed else "failed",
                     "summary": summary,
                     "findings": [],
-                    "metrics": {},
+                    "metrics": metrics or {},
                 }
             ),
             encoding="utf-8",
@@ -218,6 +225,31 @@ class IterationRecapTests(unittest.TestCase):
 
         self.assertIn("review: 1 of 1 reviewed criteria not satisfied (AC1)", line)
         self.assertNotIn("AC2", line)
+
+    def test_a_ratchet_a_passing_gate_broke_is_named_with_both_values(self) -> None:
+        coverage = Gate(
+            name="coverage",
+            phase="full",
+            command="make coverage",
+            result_format=ResultFormat.CODESERVO_JSON,
+            ratchets=(Ratchet(metric="missing", direction=Direction.AT_MOST),),
+        )
+        baseline = (self._gate("coverage", passed=True, summary="b", metrics={"missing": 12}),)
+        entry = self._iteration(
+            1,
+            gates=(self._gate("lint", passed=True),),
+            full_gates=(
+                self._gate("coverage", passed=True, summary="c", metrics={"missing": 15}),
+            ),
+        )
+
+        line = iteration_recap((entry,), CRITERIA, BLOCKING, (coverage,), baseline)[0]
+
+        self.assertEqual(
+            "Iteration 1: scope OK; quick gates: 1 of 1 passed;"
+            " full gates: 1 of 1 passed; ratchet broken: coverage missing 15 vs 12",
+            line,
+        )
 
     def test_a_review_without_an_answer_says_so(self) -> None:
         entry = self._iteration(

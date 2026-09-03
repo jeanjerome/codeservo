@@ -4,7 +4,9 @@ One iteration hands the actuator the task and whatever the last measurement
 returned, then measures what it left behind: the scope and the quick gates,
 then the full gates, then the independent review. The first of the three to
 decide against the candidate writes the feedback the next iteration starts
-from, and an iteration that all three let through is the accepted one. The
+from, and an iteration that all three let through is the accepted one. A gate
+that passed may still decide against the candidate through a ratchet it
+declares, read against the document the same gate wrote at the baseline. The
 candidate is snapshotted at each boundary, so a phase that moved the tree it
 was measuring is visible afterwards even where no confinement refused the
 write.
@@ -19,7 +21,7 @@ from pathlib import Path
 
 from ...actuators import ActuatorError
 from ...actuators.prompts import implementer_prompt
-from ...domain.constitution import Phase
+from ...domain.constitution import Gate, Phase
 from ...domain.document import Unset
 from ...domain.task import Criterion, criteria_by_gate, reviewed_criteria
 from ...evidence.digests import sha256_text
@@ -42,6 +44,13 @@ from ..gate_results import (
     sensor_faults,
 )
 from ..inference import record_actuation
+from ..ratchet import (
+    BrokenRatchet,
+    broken_ratchets,
+    ratchet_clause,
+    ratchet_feedback,
+    ratchet_reasons,
+)
 from ..record import RunRecord
 from ..snapshots import mutated, write_patch_snapshot
 from .converged import Converged
@@ -130,12 +139,16 @@ def _iterate(
         record.persist()
 
 
-def _gates_clauses(phase: str, gates: Sequence[GateResult]) -> list[str]:
+def _gates_clauses(
+    phase: str, gates: Sequence[GateResult], broken: Sequence[BrokenRatchet]
+) -> list[str]:
     passed = sum(1 for gate in gates if gate.passed)
     clauses = [f"{phase} gates: {passed} of {len(gates)} passed"]
     failed = [gate_clause(gate) for gate in gates if not gate.passed]
     if failed:
         clauses.append("failed: " + ", ".join(failed))
+    if broken:
+        clauses.append(ratchet_clause(broken))
     return clauses
 
 
@@ -177,14 +190,17 @@ def iteration_recap(
     iterations: Sequence[Iteration],
     criteria: Mapping[str, Criterion],
     blocking: tuple[str, ...],
+    gates: Sequence[Gate] = (),
+    baseline: Sequence[GateResult] = (),
 ) -> tuple[str, ...]:
     """One line per iteration so far: what each measurement said of it.
 
-    The line names each failing gate with what its document summarised, and
-    the review with what it decided against, so an actuator reading several of
-    them sees what moved between attempts and what did not. An iteration the
-    record holds without a measurement, which the loop never continues past,
-    is said to be unmeasured rather than described.
+    The line names each failing gate with what its document summarised, each
+    ratchet a passing gate broke with both values, and the review with what
+    it decided against, so an actuator reading several of them sees what
+    moved between attempts and what did not. An iteration the record holds
+    without a measurement, which the loop never continues past, is said to be
+    unmeasured rather than described.
     """
     lines: list[str] = []
     for entry in iterations:
@@ -193,9 +209,15 @@ def iteration_recap(
         if isinstance(scope, Unset) or isinstance(quick, Unset):
             lines.append(f"Iteration {entry.iteration}: not measured")
             continue
-        clauses = [scope.summary, *_gates_clauses("quick", quick)]
+        clauses = [
+            scope.summary,
+            *_gates_clauses("quick", quick, broken_ratchets(gates, baseline, quick)),
+        ]
         if not isinstance(entry.full_gates, Unset):
-            clauses.extend(_gates_clauses("full", entry.full_gates))
+            full = entry.full_gates
+            clauses.extend(
+                _gates_clauses("full", full, broken_ratchets(gates, baseline, full))
+            )
         if not isinstance(entry.review, Unset):
             clauses.append(_review_clause(entry.review, criteria, blocking))
         lines.append(f"Iteration {entry.iteration}: " + "; ".join(clauses))
@@ -217,6 +239,8 @@ def _actuate(
             record.document.iterations,
             context.task.criteria,
             context.constitution.review.blocking_severities,
+            context.constitution.gates,
+            record.baseline(),
         ),
     )
     prompt_path = iteration_dir / "prompt.md"
@@ -346,12 +370,18 @@ def _quick_verdict(
     iteration_dir: Path,
     quick: tuple[GateResult, ...],
 ) -> Converged | IterationOutcome:
-    """The candidate the quick phase lets through, or what it decided against."""
+    """The candidate the quick phase lets through, or what it decided against.
+
+    A gate that passed and broke a ratchet decides against the candidate the
+    way a failing gate does: the phase is not converged, and the actuator is
+    told both values.
+    """
     entry = record.attempted()
     scope = entry.scope
     if isinstance(scope, Unset):
         raise ControlFailure("the iteration has measured no scope yet")
-    if scope.passed and all(gate.passed for gate in quick):
+    broken = broken_ratchets(context.constitution.gates, record.baseline(), quick)
+    if scope.passed and all(gate.passed for gate in quick) and not broken:
         return Converged(quick_gates=quick, state=_reached(entry.observed_state))
 
     criteria = criteria_by_gate(context.task.criteria)
@@ -361,7 +391,9 @@ def _quick_verdict(
         reasons.append(f"scope: {scope.summary}")
         parts.append("Structural invariant failures:\n" + scope.summary)
     reasons.extend(gate_reasons(GatePhase.QUICK, quick, criteria))
+    reasons.extend(ratchet_reasons(GatePhase.QUICK, broken))
     parts.append(gate_feedback(quick, criteria))
+    parts.append(ratchet_feedback(broken))
     feedback = "\n\n".join(part for part in parts if part).strip()
     return _decided(record, iteration_dir, Stage.QUICK, reasons, feedback)
 

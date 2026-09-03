@@ -133,6 +133,9 @@ def constitution(
     sensor_phase: str = "quick",
     quick_result_format: str | None = None,
     sensor_result_format: str | None = None,
+    quick_ratchet: str | None = None,
+    full_result_format: str | None = None,
+    full_ratchet: str | None = None,
 ) -> str:
     """The constitution a case runs under.
 
@@ -162,6 +165,13 @@ environment = "{execution}"
     )
     if quick_result_format is not None:
         quick += f'\nresult_format = "{quick_result_format}"'
+    if quick_ratchet is not None:
+        quick += f"\nratchet = {quick_ratchet}"
+    full = f'command = "{full_command}"'
+    if full_result_format is not None:
+        full += f'\nresult_format = "{full_result_format}"'
+    if full_ratchet is not None:
+        full += f"\nratchet = {full_ratchet}"
     text += f"""
 [[gate]]
 name = "syntax"
@@ -172,7 +182,7 @@ baseline = true
 [[gate]]
 name = "full"
 phase = "full"
-command = "{full_command}"
+{full}
 baseline = true
 """
     if sensor_command is not None:

@@ -60,7 +60,7 @@ def sensor_faults(results: Sequence[GateResult]) -> list[str]:
     return faults
 
 
-def _observed(result: GateResult) -> observations.Observation | None:
+def observed(result: GateResult) -> observations.Observation | None:
     """The document a gate wrote, when it wrote a valid one.
 
     The record keeps the bytes the gate produced, already held to the
@@ -119,7 +119,7 @@ def gate_clause(result: GateResult) -> str:
     answered with its exit code alone, or a summary it left empty, with how
     it ended.
     """
-    document = _observed(result)
+    document = observed(result)
     if document is not None and document.summary:
         return f"{result.name} ({document.summary})"
     if result.timed_out:
@@ -173,7 +173,7 @@ def gate_feedback(
             lines.append(
                 "Acceptance criteria this gate decides: " + ", ".join(decided)
             )
-        document = _observed(result)
+        document = observed(result)
         if document is not None:
             lines.extend(observation_feedback(document))
         lines.extend(

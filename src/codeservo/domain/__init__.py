@@ -7,9 +7,11 @@ dependency in the package points in.
 
 from .constitution import (
     Constitution,
+    Direction,
     ExecutionEnvironment,
     Gate,
     Phase,
+    Ratchet,
     ResultFormat,
     ReviewPolicy,
     ScopePolicy,
@@ -30,9 +32,11 @@ __all__ = [
     "CommandResult",
     "Constitution",
     "Criterion",
+    "Direction",
     "ExecutionEnvironment",
     "Gate",
     "Phase",
+    "Ratchet",
     "ResultFormat",
     "ReviewPolicy",
     "RunStatus",

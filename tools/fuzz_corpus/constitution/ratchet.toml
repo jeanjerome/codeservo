@@ -1,0 +1,27 @@
+version = 1
+
+[scope]
+protected = [".codeservo/**", "tools/**"]
+max_changed_files = 14
+max_diff_lines = 2200
+
+[[gate]]
+name = "unit"
+phase = "quick"
+command = "make test"
+timeout_seconds = 120
+baseline = true
+result_format = "codeservo-json"
+ratchet = { failures = "<=", "whole suite.seconds" = "<=" }
+
+[[gate]]
+name = "coverage"
+phase = "full"
+command = "make coverage"
+timeout_seconds = 600
+baseline = true
+result_format = "codeservo-json"
+ratchet = { line_coverage = ">=", missing = "<=" }
+
+[review]
+blocking_severities = ["blocker", "major"]

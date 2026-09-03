@@ -6,8 +6,11 @@ from pathlib import Path
 from codeservo.actuators.prompts import implementer_prompt, reviewer_prompt
 from codeservo.domain.constitution import (
     Constitution,
+    Direction,
     ExecutionEnvironment,
     Gate,
+    Ratchet,
+    ResultFormat,
     ReviewPolicy,
     ScopePolicy,
 )
@@ -79,7 +82,17 @@ def _mixed_constitution() -> Constitution:
         ),
         gates=(
             Gate(name="unit", phase="quick", command="make test", timeout_seconds=120),
-            Gate(name="coverage", phase="full", task="coverage", timeout_seconds=600),
+            Gate(
+                name="coverage",
+                phase="full",
+                task="coverage",
+                timeout_seconds=600,
+                result_format=ResultFormat.CODESERVO_JSON,
+                ratchets=(
+                    Ratchet(metric="line_coverage", direction=Direction.AT_LEAST),
+                    Ratchet(metric="whole suite.seconds", direction=Direction.AT_MOST),
+                ),
+            ),
             Gate(
                 name="acceptance",
                 phase="quick",
@@ -228,10 +241,23 @@ class ImplementerPromptTests(unittest.TestCase):
                 "task": "coverage",
                 "timeout_seconds": 600,
                 "baseline": True,
+                "ratchet": {"line_coverage": ">=", "whole suite.seconds": "<="},
             },
             gate,
         )
         self.assertNotIn("command", gate)
+
+    def test_a_gate_declaring_no_ratchet_carries_none_in_the_view(self) -> None:
+        gates = _view(_mixed_constitution())["gate"]
+
+        self.assertNotIn("ratchet", gates[0])
+        self.assertNotIn("ratchet", gates[2])
+        self.assertNotIn("ratchet", gates[3])
+
+    def test_the_rules_say_what_a_ratchet_holds(self) -> None:
+        prompt = implementer_prompt(_task(), _mixed_constitution(), "")
+
+        self.assertIn("A gate declaring a ratchet holds each named metric", prompt)
 
     def test_renders_a_sensor_gate_as_the_placeholder_alone(self) -> None:
         gates = _view(_mixed_constitution())["gate"]

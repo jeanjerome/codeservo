@@ -37,6 +37,22 @@ def _measurement(gate: Gate) -> tuple[str, ...]:
     return ()
 
 
+def _ratchet(gate: Gate) -> tuple[str, ...]:
+    """The metrics a gate holds between the baseline and the candidate.
+
+    Rendered as the inline table the constitution declares it with, so the
+    view stays a TOML document and the actuator reads the rule it will be
+    measured against.
+    """
+    if not gate.ratchets:
+        return ()
+    held = ", ".join(
+        f"{_toml_string(ratchet.metric)} = {_toml_string(ratchet.direction)}"
+        for ratchet in gate.ratchets
+    )
+    return (f"ratchet = {{ {held} }}",)
+
+
 def _actuator_constitution(constitution: Constitution) -> str:
     protected = ", ".join(
         _toml_string(pattern) for pattern in constitution.scope.protected
@@ -59,6 +75,7 @@ def _actuator_constitution(constitution: Constitution) -> str:
                 *_measurement(gate),
                 f"timeout_seconds = {gate.timeout_seconds}",
                 f"baseline = {str(gate.baseline).lower()}",
+                *_ratchet(gate),
             ]
         )
     severities = ", ".join(
@@ -174,6 +191,7 @@ Rules:
 - Do not commit, push, create PRs, or change Git configuration.
 - Prefer the smallest coherent change.
 - The controller will run the authoritative gates. You may run checks yourself, but your claims are not evidence.
+- A gate declaring a ratchet holds each named metric of its report to the declared direction between the baseline and your change. When one moves the wrong way, the feedback gives both values.
 - Every acceptance criterion below is decided by its id, by the control it names: a gate the controller runs, or an independent reviewer. Satisfy all of them.
 
 ACCEPTANCE CRITERIA

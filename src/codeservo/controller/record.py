@@ -12,10 +12,11 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ..domain.document import rendered
+from ..domain.document import Unset, rendered
 from ..domain.run import RunStatus
 from ..evidence.digests import relative_evidence_paths, sha256_text, write_json
 from ..evidence.journal import Journal
+from ..sensors.gates import GateResult
 from ..workspace.git import make_patch
 from .document import Decision, Evidence, Iteration
 from .errors import ControlFailure
@@ -60,6 +61,17 @@ class RunRecord:
         if self.attempt is None:
             raise ControlFailure("no iteration is in progress")
         return self.attempt
+
+    def baseline(self) -> tuple[GateResult, ...]:
+        """The baseline measurement, which every phase after it reads.
+
+        A ratchet compares a candidate's document with the baseline's, so a
+        phase asking for one before the baseline was measured is a control
+        failure of the loop rather than a fact about the run.
+        """
+        if isinstance(self.document.baseline, Unset):
+            raise ControlFailure("the run has measured no baseline yet")
+        return self.document.baseline
 
     def keep(self) -> None:
         """Keep the iteration in progress, however far it got."""

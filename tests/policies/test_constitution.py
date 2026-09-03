@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from codeservo.domain.constitution import Direction, Ratchet
 from codeservo.policies.constitution import ConstitutionError, load_constitution
 
 EXECUTION = """
@@ -233,6 +234,122 @@ command = "true"
         )
 
         with self.assertRaisesRegex(ConstitutionError, "junit-xml"):
+            load_constitution(repo)
+
+
+class GateRatchetTests(unittest.TestCase):
+    """The metrics a gate holds between the baseline and the candidate."""
+
+    _write = ConstitutionTests._write
+
+    def _gates(self, quick: str) -> str:
+        return f"""
+[[gate]]
+name = "quick"
+phase = "quick"
+command = "true"
+{quick}
+
+[[gate]]
+name = "full"
+phase = "full"
+command = "true"
+"""
+
+    def test_a_gate_declares_no_ratchet_by_default(self) -> None:
+        constitution = load_constitution(self._write(GATES))
+
+        self.assertEqual([(), ()], [gate.ratchets for gate in constitution.gates])
+
+    def test_reads_each_metric_with_its_direction_in_order(self) -> None:
+        repo = self._write(
+            self._gates(
+                'result_format = "codeservo-json"\n'
+                'ratchet = { missing = "<=", line_coverage = ">=" }'
+            )
+        )
+
+        constitution = load_constitution(repo)
+
+        self.assertEqual(
+            (
+                Ratchet(metric="missing", direction=Direction.AT_MOST),
+                Ratchet(metric="line_coverage", direction=Direction.AT_LEAST),
+            ),
+            constitution.gates[0].ratchets,
+        )
+        self.assertEqual((), constitution.gates[1].ratchets)
+
+    def test_a_quoted_metric_is_read_as_written(self) -> None:
+        repo = self._write(
+            self._gates(
+                'result_format = "codeservo-json"\n'
+                'ratchet = { "whole suite.seconds" = "<=" }'
+            )
+        )
+
+        self.assertEqual(
+            (Ratchet(metric="whole suite.seconds", direction=Direction.AT_MOST),),
+            load_constitution(repo).gates[0].ratchets,
+        )
+
+    def test_requires_a_document_to_compare(self) -> None:
+        repo = self._write(self._gates('ratchet = { missing = "<=" }'))
+
+        with self.assertRaisesRegex(ConstitutionError, "codeservo-json"):
+            load_constitution(repo)
+
+    def test_requires_a_baseline_measurement(self) -> None:
+        repo = self._write(
+            self._gates(
+                'baseline = false\n'
+                'sensor = "example/acceptance"\n'
+                'result_format = "codeservo-json"\n'
+                'ratchet = { missing = "<=" }'
+            )
+        )
+
+        with self.assertRaisesRegex(ConstitutionError, "baseline"):
+            load_constitution(repo)
+
+    def test_refuses_a_ratchet_that_is_not_a_table(self) -> None:
+        repo = self._write(
+            self._gates('result_format = "codeservo-json"\nratchet = "<="')
+        )
+
+        with self.assertRaisesRegex(ConstitutionError, "must be a table"):
+            load_constitution(repo)
+
+    def test_refuses_a_ratchet_naming_no_metric(self) -> None:
+        repo = self._write(
+            self._gates('result_format = "codeservo-json"\nratchet = {}')
+        )
+
+        with self.assertRaisesRegex(ConstitutionError, "names no metric"):
+            load_constitution(repo)
+
+    def test_refuses_an_empty_metric_name(self) -> None:
+        repo = self._write(
+            self._gates('result_format = "codeservo-json"\nratchet = { "" = "<=" }')
+        )
+
+        with self.assertRaisesRegex(ConstitutionError, "empty metric"):
+            load_constitution(repo)
+
+    def test_refuses_a_direction_it_does_not_know_naming_it(self) -> None:
+        repo = self._write(
+            self._gates('result_format = "codeservo-json"\nratchet = { missing = "<" }')
+        )
+
+        with self.assertRaisesRegex(ConstitutionError, "<=, >=, not '<'"):
+            load_constitution(repo)
+
+    def test_refuses_a_direction_that_is_not_a_string(self) -> None:
+        repo = self._write(
+            self._gates('result_format = "codeservo-json"\nratchet = { missing = 1 }')
+        )
+
+        with self.assertRaisesRegex(ConstitutionError, "must be a string"):
             load_constitution(repo)
 
 

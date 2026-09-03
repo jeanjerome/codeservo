@@ -44,9 +44,11 @@ One iteration is one actuation followed by three measurements in order of
 cost: the scope sensor and the quick gates, the full gates, then the review.
 The first to decide against the candidate writes the feedback the next
 iteration starts from, and the budget counts iterations whatever stage ended
-them. What ends a run early is a control error, never a failing measurement: a
-gate that changed the tree it measured, a sensor that could not say what it
-saw, a reviewer that misreported the criteria it was asked to decide.
+them. A gate that passed can still decide against the candidate through a
+ratchet it declares, read against what the same gate reported at the baseline.
+What ends a run early is a control error, never a failing measurement: a gate
+that changed the tree it measured, a sensor that could not say what it saw, a
+reviewer that misreported the criteria it was asked to decide.
 
 `FINDINGS.md` records what the experiments run through this controller
 established, what they did not, and what follows for its design.
@@ -236,6 +238,39 @@ controller handed the gate — it is what gets fed back when a gate fails, and a
 suite can recognise that it runs confined through the directory of its own
 descriptors. And the exit code must stay the tool's: an adapter that decided a
 verdict would be the thing being measured.
+
+### Ratchets between the baseline and the candidate
+
+A gate that reports what it measured can hold a metric of that report to a
+direction across the change. The rule is declared beside the gate and the
+controller applies it: it already holds the document the gate wrote about the
+source tree at the baseline and the one it wrote about the candidate, so no
+adapter has to reconstruct the state before the change to compare against.
+
+```toml
+[[gate]]
+name = "coverage"
+phase = "full"
+task = "coverage"
+timeout_seconds = 600
+baseline = true
+result_format = "codeservo-json"
+ratchet = { line_coverage = ">=", missing = "<=" }
+```
+
+`<=` says the candidate's value may not exceed the baseline's, `>=` that it may
+not fall below it, and an unchanged value always holds. A ratchet is read over
+a gate that passed: a failing gate has already decided against the candidate,
+and its document describes a different amount of work. When a ratchet breaks,
+the candidate is not let through, the decision names the gate, the metric and
+both values, and the actuator is told the same before the next iteration.
+
+A ratchet is silent when either document lacks the metric, because a comparison
+with a value nobody measured would be a verdict no measurement produced. That
+silence is safe only while the adapter writing the metric is a protected path,
+which is why `tools/**` sits under `protected` wherever a gate reports through
+one. The constitution refuses a ratchet on a gate answering with its exit code
+alone, and on a gate outside the baseline: neither could ever be compared.
 
 ## Write one task
 
@@ -483,8 +518,8 @@ A candidate is `ACCEPTED` only when all of the following hold:
 2. The original repository baseline was green.
 3. The source repository was and remained clean during baseline.
 4. Scope invariants pass.
-5. Every quick gate passes within the iteration budget.
-6. Every full gate passes.
+5. Every quick gate passes within the iteration budget, and no ratchet a quick gate declares is broken.
+6. Every full gate passes, and no ratchet a full gate declares is broken.
 7. No frozen sensor changed, and no measurement phase changed the candidate.
 8. The independent review returns exactly the acceptance criteria left to it, each as `satisfied`.
 9. The review contains no finding whose severity is configured as blocking.

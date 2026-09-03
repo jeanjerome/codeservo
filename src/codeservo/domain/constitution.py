@@ -38,6 +38,27 @@ class ExecutionEnvironment:
     environment: str = "default"
 
 
+class Direction(StrEnum):
+    """Which way a ratchet lets a metric move from the baseline to the candidate."""
+
+    AT_MOST = "<="
+    AT_LEAST = ">="
+
+
+@dataclass(frozen=True)
+class Ratchet:
+    """One metric of a gate's document, held to a direction across a change.
+
+    The candidate's value is compared with the baseline's: a missing count may
+    not rise, a coverage percentage may not fall. Both documents are ones the
+    controller already holds, so the rule needs nothing of the adapter beyond
+    the metric it reports.
+    """
+
+    metric: str
+    direction: Direction
+
+
 @dataclass(frozen=True)
 class Gate:
     name: str
@@ -51,6 +72,10 @@ class Gate:
     # phase, of naming a command or a task, of the baseline, and of an
     # external sensor.
     result_format: ResultFormat = ResultFormat.EXIT_CODE
+    # The metrics of its document held between the baseline and the
+    # candidate. Only a gate that writes a document and measures the
+    # baseline can carry one, which the reader holds it to.
+    ratchets: tuple[Ratchet, ...] = ()
 
 
 @dataclass(frozen=True)

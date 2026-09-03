@@ -8,9 +8,11 @@ from typing import Any
 
 from ..domain.constitution import (
     Constitution,
+    Direction,
     ExecutionEnvironment,
     Gate,
     Phase,
+    Ratchet,
     ResultFormat,
     ReviewPolicy,
     ScopePolicy,
@@ -187,11 +189,59 @@ def _sensor(item: dict, name: str) -> str | None:
     return sensor
 
 
+def _ratchets(
+    item: dict, name: str, result_format: ResultFormat, baseline: bool
+) -> tuple[Ratchet, ...]:
+    """The metrics a gate holds between the baseline and the candidate.
+
+    A ratchet compares two documents of one gate, so it is refused on a gate
+    that writes none, and on a gate outside the baseline, which measures the
+    candidate alone. Either declaration would be a control that can never
+    speak, kept in a file that reads as though it did.
+    """
+    if "ratchet" not in item:
+        return ()
+    what = f"gate {name}: ratchet"
+    table = _table(item["ratchet"], what)
+    if result_format != ResultFormat.CODESERVO_JSON:
+        raise ConstitutionError(
+            f'{what} requires result_format = "{ResultFormat.CODESERVO_JSON}"'
+        )
+    if not baseline:
+        raise ConstitutionError(
+            f"{what} requires a baseline measurement, which baseline=false has none of"
+        )
+    if not table:
+        raise ConstitutionError(f"{what} names no metric")
+    ratchets: list[Ratchet] = []
+    for metric, value in table.items():
+        if not metric:
+            raise ConstitutionError(f"{what} names an empty metric")
+        ratchets.append(
+            Ratchet(
+                metric=metric,
+                direction=_declared(
+                    Direction, _text(value, f"{what} {metric}"), f"{what} {metric}"
+                ),
+            )
+        )
+    return tuple(ratchets)
+
+
 def _gate(item: Any, execution: ExecutionEnvironment | None) -> Gate:
     """One declared gate, held to the shape a gate must have."""
     item = _table(item, "each [[gate]]")
     name = _name(_string(item, "name", "gate"), "gate name")
     _measurement(item, name, execution)
+    baseline = _boolean(item, "baseline", True, f"gate {name}")
+    result_format = _declared(
+        ResultFormat,
+        _text(
+            item.get("result_format", ResultFormat.EXIT_CODE),
+            f"gate {name}: result_format",
+        ),
+        f"gate {name}: result_format",
+    )
     return Gate(
         name=name,
         phase=_declared(
@@ -200,16 +250,10 @@ def _gate(item: Any, execution: ExecutionEnvironment | None) -> Gate:
         command=_string(item, "command", f"gate {name}") if "command" in item else None,
         task=_string(item, "task", f"gate {name}") if "task" in item else None,
         timeout_seconds=_integer(item, "timeout_seconds", 300, f"gate {name}"),
-        baseline=_boolean(item, "baseline", True, f"gate {name}"),
+        baseline=baseline,
         sensor=_sensor(item, name),
-        result_format=_declared(
-            ResultFormat,
-            _text(
-                item.get("result_format", ResultFormat.EXIT_CODE),
-                f"gate {name}: result_format",
-            ),
-            f"gate {name}: result_format",
-        ),
+        result_format=result_format,
+        ratchets=_ratchets(item, name, result_format, baseline),
     )
 
 
