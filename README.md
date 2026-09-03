@@ -533,6 +533,21 @@ verifies.
 
 ## Release notes
 
+### 0.7.1
+
+The Git metadata of a measured tree is protected where Git writes it. The gates
+measuring the source repository were held to `<repo>/.git`, which is that
+metadata only in an ordinary checkout: in a linked worktree it is a file holding
+a pointer, Git writes elsewhere, and a baseline gate could rewrite the refs, the
+objects and the index of a repository it was only supposed to read. The
+directory the controller already resolves, and already denies to the actuator,
+now bounds those gates too.
+
+The actuator's view of the frozen constitution names what each gate measures. It
+rendered a gate's command alone, so a gate naming a provider task reached the
+actuator as `command = null` — a declaration no constitution can make, and not a
+TOML document either.
+
 ### 0.7.0
 
 Gates report what they measured. A gate declaring `result_format =
