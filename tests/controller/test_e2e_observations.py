@@ -207,7 +207,20 @@ class GateObservationE2ETests(unittest.TestCase):
 
     def test_a_valid_document_reporting_a_failure_is_fed_back(self) -> None:
         failing = writes_observation(
-            {**OBSERVATION, "status": "failed", "summary": "still returns 1"},
+            {
+                **OBSERVATION,
+                "status": "failed",
+                "summary": "still returns 1",
+                "findings": [
+                    {
+                        "id": "app.py::main",
+                        "severity": "major",
+                        "path": "app.py",
+                        "line": 3,
+                        "message": "returns 1 where 2 is required",
+                    }
+                ],
+            },
             exit_code=1,
         )
         with tempfile.TemporaryDirectory() as temp:
@@ -231,10 +244,16 @@ class GateObservationE2ETests(unittest.TestCase):
             )
             self.assertEqual(2, len(result["iterations"]))
             for iteration in result["iterations"]:
+                # The actuator is told what the gate's own document says,
+                # before the tail of what the gate printed.
+                text = iteration["controller_feedback"]["text"]
+                self.assertIn("Gate task-outcome FAILED", text)
+                self.assertIn("Summary: still returns 1", text)
                 self.assertIn(
-                    "Gate task-outcome FAILED",
-                    iteration["controller_feedback"]["text"],
+                    "- [major] app.py:3: returns 1 where 2 is required", text
                 )
+                self.assertIn("Metrics: checked=1 surviving=0", text)
+                self.assertLess(text.index("Summary:"), text.index("stdout (tail):"))
                 sensor = [
                     g
                     for g in iteration["quick_gates"]

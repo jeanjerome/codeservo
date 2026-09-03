@@ -30,7 +30,7 @@ The controller:
 3. creates an isolated shallow Git checkout without a remote;
 4. invokes the configured actuator CLI as the implementation actuator;
 5. runs scope and quick gates;
-6. feeds failures back to the actuator;
+6. feeds failures back to the actuator: for each failing gate, the document the gate wrote when it wrote a valid one (summary, findings with the place each names, metrics), then the tail of what it printed;
 7. iterates until quick gates pass or the budget is exhausted;
 8. runs full gates;
 9. hands an independent, read-only semantic reviewer an immutable summary of the gates that passed, carrying no filesystem path and no sensor source, and invokes it;
