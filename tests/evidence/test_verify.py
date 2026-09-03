@@ -4,7 +4,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from codeservo.evidence import digests, verify
+from codeservo.evidence.digests import sha256_json
 from codeservo.evidence.journal import JOURNAL_NAME
 from codeservo.evidence.verify import (
     JOURNAL_EVIDENCE_VERSION,
@@ -402,6 +405,56 @@ class UnreadableRecordTests(unittest.TestCase):
                 report = verify_run(run_dir)
 
                 self.assertIn(report["status"], set(Verdict))
+
+
+class VerbatimContractTests(unittest.TestCase):
+    """The verification honours the declaration the writing side carries.
+
+    A document the two readers disagreed about would make the verification
+    look inside the run directory for a location that belongs to the document,
+    fail to find it, and answer INVALID on a sound record.
+    """
+
+    def test_the_verification_reads_the_one_declaration(self) -> None:
+        self.assertIs(digests.VERBATIM_TRAILS, verify.VERBATIM_TRAILS)
+
+    def test_a_pair_under_a_trail_nobody_declares_is_an_artefact_of_the_run(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = build_run(Path(temp))
+            record = read_record(run_dir)
+            record["returned"] = {"path": "../outside.log", "sha256": "0" * 64}
+            rewrite_record(run_dir, record)
+
+            report = verify_run(run_dir)
+
+            self.assertEqual(
+                ["../outside.log: the record names a path outside this run"],
+                report["failures"],
+            )
+            self.assertEqual("INVALID", report["status"])
+
+            declared = digests.VERBATIM_TRAILS | {("returned",)}
+            with patch.object(verify, "VERBATIM_TRAILS", declared):
+                report = verify_run(run_dir)
+
+            self.assertEqual([], report["failures"])
+            self.assertEqual("VALID", report["status"])
+
+    def test_a_location_the_reviewer_returned_is_no_artefact_of_the_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = build_run(Path(temp))
+            record = read_record(run_dir)
+            result = record["review"]["result"]
+            result["findings"] = [{"path": "../outside.py", "sha256": "0" * 64}]
+            record["review"]["result_sha256"] = sha256_json(result)
+            rewrite_record(run_dir, record)
+
+            report = verify_run(run_dir)
+
+            self.assertEqual([], report["failures"])
+            self.assertEqual("VALID", report["status"])
 
 
 if __name__ == "__main__":

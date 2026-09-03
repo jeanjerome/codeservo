@@ -1,8 +1,14 @@
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from codeservo.evidence import digests
 from codeservo.evidence.digests import (
+    VERBATIM_TRAILS,
     relative_evidence_paths,
     sha256_file,
     sha256_json,
@@ -72,6 +78,69 @@ class EvidenceTests(unittest.TestCase):
                 sha256_record({"status": "passed", "stdout_path": "/first"}),
                 sha256_record({"status": "passed", "stdout_path": "/moved"}),
             )
+
+
+class VerbatimContractTests(unittest.TestCase):
+    """The one declaration of which documents are recorded as returned.
+
+    The relativisation here and the verification beside it both read it, so
+    what it holds, what shape it holds it in, and where it is reachable from
+    are stated once rather than left to whichever reader is looked at.
+    """
+
+    def test_the_contract_is_a_frozen_set_of_trails(self) -> None:
+        self.assertIsInstance(VERBATIM_TRAILS, frozenset)
+        for trail in VERBATIM_TRAILS:
+            self.assertIsInstance(trail, tuple)
+            for step in trail:
+                self.assertIsInstance(step, str)
+        self.assertIn(("review", "result"), VERBATIM_TRAILS)
+
+    def test_the_writing_side_reaches_it_without_the_verification(self) -> None:
+        """The declaration sits under the reader that writes a record.
+
+        Stating it in the verification instead would make the module that
+        writes a record load the module that audits one.
+        """
+        source = Path(digests.__file__).resolve().parents[2]
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import sys, codeservo.evidence.digests as digests;"
+                "print(('review', 'result') in digests.VERBATIM_TRAILS);"
+                "print('codeservo.evidence.verify' in sys.modules)",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            env={**os.environ, "PYTHONPATH": str(source)},
+        )
+        self.assertEqual(["True", "False"], completed.stdout.split()[:2])
+
+    def test_relativisation_leaves_every_declared_trail_and_no_other(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            run_dir = root / "runs" / "repo" / "run"
+            located = str(root / "worktrees" / "repo" / "run" / "app.py")
+            payload = {
+                "returned": {"findings": [{"path": located}]},
+                "artifact": {"path": str(run_dir / "agent" / "events.jsonl")},
+            }
+
+            # A trail nobody declares is relativised like any other.
+            portable = relative_evidence_paths(payload, run_dir)
+            self.assertEqual(
+                "../../../worktrees/repo/run/app.py",
+                portable["returned"]["findings"][0]["path"],
+            )
+
+            declared = VERBATIM_TRAILS | {("returned",)}
+            with patch.object(digests, "VERBATIM_TRAILS", declared):
+                portable = relative_evidence_paths(payload, run_dir)
+
+            self.assertEqual(located, portable["returned"]["findings"][0]["path"])
+            self.assertEqual("agent/events.jsonl", portable["artifact"]["path"])
 
 
 if __name__ == "__main__":

@@ -61,8 +61,10 @@ def sha256_path(path: Path) -> str:
 
 
 # Documents recorded as their producer returned them. Their digest is taken
-# over what was returned, so relativisation never descends into them: a
-# location they name belongs to the document and not to the run directory.
+# over what was returned, so a location they name belongs to the document and
+# not to the run directory: relativisation never descends into them, and the
+# verification beside it looks under them for no artefact of the run. One
+# contract, declared here and read from here by both.
 VERBATIM_TRAILS = frozenset({("review", "result")})
 
 

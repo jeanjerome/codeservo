@@ -16,7 +16,13 @@ from pathlib import Path
 from typing import Any
 
 from ..domain.run import RunStatus
-from .digests import sha256_file, sha256_json, sha256_path, sha256_record
+from .digests import (
+    VERBATIM_TRAILS,
+    sha256_file,
+    sha256_json,
+    sha256_path,
+    sha256_record,
+)
 from .journal import (
     JOURNAL_NAME,
     JournalError,
@@ -61,9 +67,10 @@ SOURCE_REPOSITORY_TRAILS = (
 # are checked on their own rather than as files.
 SENSOR_TRAIL = ("sensors",)
 
-# Documents recorded as their producer returned them: what they name belongs
-# to the document, not to the run directory.
-VERBATIM_TRAILS = (("review", "result"),)
+# The third trail this reads, `VERBATIM_TRAILS`, is not declared here. It
+# states which documents were recorded as their producer returned them, which
+# the relativisation that writes a record and this verification have to agree
+# on, so it is stated once beside the writer and imported from there.
 
 
 class VerificationError(RuntimeError):
