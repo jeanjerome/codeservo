@@ -1,14 +1,34 @@
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 
 from codeservo.cli import build_parser
 from codeservo.evidence.journal import JOURNAL_NAME
 from run_fixtures import RUN_ID, build_run, read_record, rewrite_record
+
+
+def refusal(argv: list[str]) -> tuple[object, str]:
+    """What the parser refuses a command line with, and why it says so.
+
+    `argparse` writes its usage and its reason to `sys.stderr` before raising,
+    and a suite runs on the streams the controller handed the gate: those bytes
+    are what a failing gate feeds back to the actuator, so a refusal this suite
+    asked for has no business arriving there. Captured here, and read, because
+    capturing a message nobody checks would throw it away instead.
+    """
+    captured = io.StringIO()
+    with redirect_stderr(captured):
+        try:
+            build_parser().parse_args(argv)
+        except SystemExit as refused:
+            return refused.code, captured.getvalue()
+    raise AssertionError(f"the parser accepted {argv}")
 
 
 def verify_run_command(run_dir: Path, *arguments: str) -> subprocess.CompletedProcess:
@@ -115,28 +135,26 @@ class CliTests(unittest.TestCase):
         self.assertEqual("fast", args.review_speed)
 
     def test_run_rejects_a_review_backend_it_cannot_load(self) -> None:
-        with self.assertRaises(SystemExit) as raised:
-            build_parser().parse_args(
-                ["run", "--task", "TASK.md", "--review-actuator", "gemini"]
-            )
+        code, reason = refusal(
+            ["run", "--task", "TASK.md", "--review-actuator", "gemini"]
+        )
 
-        self.assertNotEqual(0, raised.exception.code)
+        self.assertNotEqual(0, code)
+        self.assertIn("--review-actuator", reason)
 
     def test_run_accepts_no_review_speed_tier_it_cannot_apply(self) -> None:
-        with self.assertRaises(SystemExit) as raised:
-            build_parser().parse_args(
-                ["run", "--task", "TASK.md", "--review-speed", "priority"]
-            )
+        code, reason = refusal(
+            ["run", "--task", "TASK.md", "--review-speed", "priority"]
+        )
 
-        self.assertNotEqual(0, raised.exception.code)
+        self.assertNotEqual(0, code)
+        self.assertIn("--review-speed", reason)
 
     def test_run_accepts_no_speed_tier_it_cannot_apply(self) -> None:
-        with self.assertRaises(SystemExit) as raised:
-            build_parser().parse_args(
-                ["run", "--task", "TASK.md", "--speed", "priority"]
-            )
+        code, reason = refusal(["run", "--task", "TASK.md", "--speed", "priority"])
 
-        self.assertNotEqual(0, raised.exception.code)
+        self.assertNotEqual(0, code)
+        self.assertIn("--speed", reason)
 
 
 class VerifyRunCommandTests(unittest.TestCase):
@@ -152,10 +170,10 @@ class VerifyRunCommandTests(unittest.TestCase):
         self.assertFalse(args.json)
 
     def test_verify_run_requires_a_run_directory(self) -> None:
-        with self.assertRaises(SystemExit) as raised:
-            build_parser().parse_args(["verify-run"])
+        code, reason = refusal(["verify-run"])
 
-        self.assertNotEqual(0, raised.exception.code)
+        self.assertNotEqual(0, code)
+        self.assertIn("run_dir", reason)
 
     def test_a_valid_run_writes_the_report_document_and_exits_zero(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -246,10 +264,10 @@ class ModelsCommandTests(unittest.TestCase):
         self.assertEqual(Path("state"), args.state_dir)
 
     def test_models_rejects_an_unknown_backend(self) -> None:
-        with self.assertRaises(SystemExit) as raised:
-            build_parser().parse_args(["models", "--actuator", "gemini"])
+        code, reason = refusal(["models", "--actuator", "gemini"])
 
-        self.assertNotEqual(0, raised.exception.code)
+        self.assertNotEqual(0, code)
+        self.assertIn("--actuator", reason)
 
 
 if __name__ == "__main__":
