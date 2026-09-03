@@ -722,6 +722,11 @@
           "detail": "ACCEPTED",
           "name": "journal.decision",
           "status": "ok"
+        },
+        {
+          "detail": "not landed",
+          "name": "journal.landing",
+          "status": "ok"
         }
       ],
       "failures": [],
@@ -1669,6 +1674,11 @@
           "detail": "ACCEPTED",
           "name": "journal.decision",
           "status": "ok"
+        },
+        {
+          "detail": "not landed",
+          "name": "journal.landing",
+          "status": "ok"
         }
       ],
       "failures": [],
@@ -2427,6 +2437,11 @@
         {
           "detail": "REJECTED",
           "name": "journal.decision",
+          "status": "ok"
+        },
+        {
+          "detail": "not landed",
+          "name": "journal.landing",
           "status": "ok"
         }
       ],
@@ -3631,6 +3646,11 @@
           "detail": "ESCALATED",
           "name": "journal.decision",
           "status": "ok"
+        },
+        {
+          "detail": "not landed",
+          "name": "journal.landing",
+          "status": "ok"
         }
       ],
       "failures": [],
@@ -4799,6 +4819,11 @@
           "detail": "ACCEPTED",
           "name": "journal.decision",
           "status": "ok"
+        },
+        {
+          "detail": "not landed",
+          "name": "journal.landing",
+          "status": "ok"
         }
       ],
       "failures": [],
@@ -5535,6 +5560,11 @@
         {
           "detail": "ESCALATED",
           "name": "journal.decision",
+          "status": "ok"
+        },
+        {
+          "detail": "not landed",
+          "name": "journal.landing",
           "status": "ok"
         }
       ],
@@ -6319,6 +6349,11 @@
         {
           "detail": "ACCEPTED",
           "name": "journal.decision",
+          "status": "ok"
+        },
+        {
+          "detail": "not landed",
+          "name": "journal.landing",
           "status": "ok"
         }
       ],

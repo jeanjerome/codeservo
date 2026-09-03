@@ -194,12 +194,28 @@ task as much as about the change.
 mean the change is the one you wanted, and an accepted patch stays a proposal
 until its diff has been read.
 
-### 14. Apply it, and measure the tree you applied it to
+### 14. Land it, and measure the tree it landed on
 
-The run measured an isolated checkout of the base plus the patch. The tree you
-apply to is the one that ships. Run the gates again there, and whatever else
-holds that repository — a lockfile check, a reference comparison, continuous
-integration — before the commit leaves your machine.
+```bash
+codeservo land <run-directory>
+```
+
+The run measured an isolated checkout of the base plus the patch, and the
+landing holds the repository to that: it refuses a repository whose head moved
+past the base commit or that holds uncommitted work, applies `change.patch`,
+commits it with the run, the base and the patch digest in the body, and
+appends the commit to the run's journal, after the decision, where
+`verify-run` reads it as the one event allowed there. Pass `--message` for the
+commit subject the repository's conventions want. A run that was not accepted
+is not landed; an escalated one is yours to settle first, and the controller
+records nothing of how you did.
+
+The tree you landed on is the one that ships. Run the gates again there, and
+whatever else holds that repository — a lockfile check, a reference comparison,
+continuous integration — before the commit leaves your machine. The review's
+findings on the landed candidate are now one line each in
+`<state-dir>/findings/<repository>.tsv`, with `none` in the last column until a
+gate covers them and you write its name there.
 
 ### 15. Keep the run directory
 

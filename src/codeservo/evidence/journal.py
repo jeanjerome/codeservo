@@ -26,6 +26,12 @@ EVENT_SCHEMA_VERSION = 1
 # Where a run keeps its journal, relative to the run directory.
 JOURNAL_NAME = "events.jsonl"
 
+# The one transition that may follow a decision: the accepted change entered
+# the repository it was measured against. It is appended after `run.finished`
+# and chained like every other event, so the record stays the document the
+# decision closed and the integration is still evidence rather than a note.
+LANDED_EVENT = "run.landed"
+
 
 @dataclass(frozen=True, kw_only=True)
 class UnsignedEvent(Document):
@@ -96,6 +102,24 @@ class Journal:
         self.run_id = run_id
         self._sequence = 0
         self._head: str | None = None
+
+    @classmethod
+    def resume(cls, path: Path, run_id: str) -> Journal:
+        """The journal of a run that ended, positioned to append after its tail.
+
+        Every event already there is replayed first: a journal whose chain no
+        longer holds is not one to append to, because the event added would
+        chain on a link nobody can trust.
+        """
+        events = read_journal(path)
+        failures = chain_failures(events, run_id)
+        if failures:
+            raise JournalError(failures[0][1])
+        journal = cls(path, run_id)
+        if events:
+            journal._sequence = int(events[-1]["sequence"])
+            journal._head = str(events[-1]["sha256"])
+        return journal
 
     @property
     def count(self) -> int:

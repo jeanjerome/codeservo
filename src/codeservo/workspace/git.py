@@ -51,6 +51,17 @@ def create_worktree(repo: Path, destination: Path, commit: str) -> None:
     git(destination, "remote", "remove", "origin")
 
 
+def apply_patch(repo: Path, patch: Path) -> None:
+    """Apply one patch file to the working tree and the index together."""
+    git(repo, "apply", "--index", "--whitespace=nowarn", str(patch))
+
+
+def commit(repo: Path, subject: str, body: str) -> str:
+    """Commit what the index holds, and name the commit it made."""
+    git(repo, "commit", "-q", "-m", subject, "-m", body)
+    return head(repo)
+
+
 def make_patch(worktree: Path, base_commit: str) -> str:
     parts = [git(worktree, "diff", "--binary", "--no-ext-diff", base_commit, "--", check=False)]
     untracked = git(worktree, "ls-files", "--others", "--exclude-standard").splitlines()

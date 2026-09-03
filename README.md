@@ -308,6 +308,7 @@ codeservo init [repo]                     # add a starter constitution
 codeservo run --task ./TASK.md            # run one controlled change
 codeservo models                          # report the models a backend advertises locally
 codeservo verify-run <run-directory>      # verify one run directory
+codeservo land <run-directory>            # land an accepted run on the repository it measured
 ```
 
 ### run
@@ -341,6 +342,28 @@ speed it declares itself; a profile it cannot check is recorded `unverified` and
 proceeds, because an inventory is informative and never an authority on what an
 account may use. The record keeps the requested profile beside the observed one
 and never fills the second from the first.
+
+### land
+
+```bash
+codeservo land <run-directory> [--message "feat: health endpoint"] [--json]
+```
+
+Applies an accepted run's `change.patch` to the repository the run measured and
+commits it there, with the run, the base commit and the patch digest in the
+commit body. It refuses everything that would make the commit a change nothing
+measured: a run directory that does not verify, a run that was not accepted, a
+run already landed, a repository whose head is no longer the base commit the
+run froze, or one holding uncommitted work.
+
+The record is not touched. The integration is one more event, `run.landed`,
+appended to the run's journal after the decision and chained like every other,
+and `verify-run` reads it as the one event allowed there: a landing that names
+another base, another patch, or a run that was not accepted is invalid, and
+one altered afterwards breaks the chain. The findings the review reported on
+the landed candidate go to `<state-dir>/findings/<repository>.tsv`, one line
+each, with `none` in the last column until a gate covers them and a person
+writes its name there.
 
 ### models
 

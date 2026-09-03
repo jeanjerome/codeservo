@@ -160,3 +160,32 @@ events and the recorded decision. A record edited after the fact cannot make a
 rejected run look accepted, because the decision is itself an event the chain
 closes over.
 
+## Landing
+
+`codeservo land <run-directory>` applies an accepted run's `change.patch` to
+the repository the run measured and commits it there. It refuses everything
+that would make the commit a change nothing measured: a run directory that
+does not verify, a run that was not accepted, a run already landed, a
+repository whose head is no longer the base commit the run froze, or one
+holding uncommitted work. The commit's body names the run, the base commit
+and the patch digest, so a commit can be dated against the record that
+accepted it without opening the record.
+
+The record is closed by the decision and the journal chains on it, so the
+integration is not written into the record. It is one more event, `run.landed`,
+appended after `run.finished` and chained like every other, naming the commit,
+the base and the patch digest. The verification reads the journal in two
+parts: the record's `events` block describes the journal as the decision
+closed it, through `run.finished`, and exactly one event may follow, of that
+type, on an accepted run, naming the base and the patch the record names.
+Anything else after the decision is invalid, and a landing altered afterwards
+breaks the chain like any other line.
+
+The findings the review reported on the candidate that landed go to
+`<state-dir>/findings/<repository>.tsv`, one tabulated line each: when, which
+run, which commit, the severity, the place, the message, the evidence, and a
+last column the controller writes as `none`. A person names there the
+deterministic control that covers the finding once one does, which is what
+makes the same kind of finding countable across runs and a repeat of it the
+case for a gate.
+

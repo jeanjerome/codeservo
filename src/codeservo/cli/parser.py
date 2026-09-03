@@ -82,6 +82,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    landing = sub.add_parser(
+        "land", help="apply an accepted run's patch to the repository it measured"
+    )
+    landing.add_argument("run_dir", type=Path)
+    landing.add_argument(
+        "--message", help="the subject of the integration commit (default names the run)"
+    )
+    landing.add_argument(
+        "--json", action="store_true", help="write what landed as a document to stdout"
+    )
+
     verify = sub.add_parser(
         "verify-run", help="verify one run directory against the record it holds"
     )

@@ -10,7 +10,9 @@ machine the run ran on: what is not readable here is reported as such.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -25,10 +27,14 @@ from .digests import (
 )
 from .journal import (
     JOURNAL_NAME,
+    LANDED_EVENT,
     JournalError,
     chain_failures,
     read_journal,
 )
+
+# What a commit is named by, in the one event that may follow a decision.
+COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 
 # The shape of the report. The verification versions its own shape.
 REPORT_SCHEMA_VERSION = 1
@@ -436,8 +442,12 @@ def _check_journal(report: _Report, run_dir: Path, record: dict) -> None:
         report.absent("journal.events", statement)
         report.absent("journal.decision", statement)
         return
-    _check_events_block(report, journal_path, location, block, events)
-    _check_decision(report, location, record, events)
+    # The record describes the journal as the decision closed it. What follows
+    # `run.finished` was appended afterwards, and is read on its own terms.
+    closed = _closed_count(events)
+    _check_events_block(report, journal_path, location, block, events[:closed])
+    _check_decision(report, location, record, events[:closed])
+    _check_landing(report, location, record, events[closed:])
 
 
 def _check_chain(report: _Report, events: list[dict], run_id: Any) -> None:
@@ -451,6 +461,32 @@ def _check_chain(report: _Report, events: list[dict], run_id: Any) -> None:
             report.ok(f"journal.{aspect}", f"{len(events)} events")
 
 
+def _closed_count(events: list[dict]) -> int:
+    """How many events the decision closed: through `run.finished`, or all."""
+    for index, event in enumerate(events):
+        if event.get("type") == "run.finished":
+            return index + 1
+    return len(events)
+
+
+def _closed_digest(journal_path: Path, closed: int) -> str:
+    """The digest of the journal's bytes through its first `closed` events.
+
+    A landing appends after the decision, so the file no longer digests to
+    what the record wrote at close. The bytes up to the closing event still
+    do, and they are what the record's block described.
+    """
+    kept: list[bytes] = []
+    seen = 0
+    for line in journal_path.read_bytes().splitlines(keepends=True):
+        if seen == closed:
+            break
+        kept.append(line)
+        if line.strip():
+            seen += 1
+    return hashlib.sha256(b"".join(kept)).hexdigest()
+
+
 def _check_events_block(
     report: _Report,
     journal_path: Path,
@@ -462,7 +498,7 @@ def _check_events_block(
         report.failed("journal.events", f"{location}: the record declares no journal")
         return
     head = events[-1].get("sha256") if events else None
-    bytes_digest = sha256_file(journal_path)
+    bytes_digest = _closed_digest(journal_path, len(events))
     stated = [
         statement
         for statement, recorded, computed in (
@@ -512,3 +548,42 @@ def _check_decision(
             report.failed("journal.decision", statement)
     else:
         report.ok("journal.decision", str(status))
+
+
+def _check_landing(
+    report: _Report, location: str, record: dict, tail: list[dict]
+) -> None:
+    """What follows the decision: nothing, or the one event that landed the run.
+
+    The chain already holds the tail to the events before it. What is read
+    here is what the tail says: that exactly one event follows, that it is the
+    landing, that it landed an accepted run, and that it names the base commit
+    and the patch the record names, so the commit it points at is the one the
+    run measured and no other.
+    """
+    if not tail:
+        report.ok("journal.landing", "not landed")
+        return
+    statements = []
+    if len(tail) > 1:
+        statements.append(f"{location}: {len(tail)} events follow run.finished")
+    landed = tail[0]
+    if landed.get("type") != LANDED_EVENT:
+        statements.append(f"{location}: what follows run.finished is not {LANDED_EVENT}")
+    payload = landed.get("payload")
+    payload = payload if isinstance(payload, dict) else {}
+    commit = payload.get("commit")
+    if landed.get("type") == LANDED_EVENT:
+        if record.get("status") != RunStatus.ACCEPTED:
+            statements.append(f"{location}: a run that was not accepted was landed")
+        if payload.get("base_commit") != record.get("base_commit"):
+            statements.append(f"{location}: {LANDED_EVENT} names another base commit")
+        if payload.get("patch_sha256") != record.get("patch_sha256"):
+            statements.append(f"{location}: {LANDED_EVENT} names another patch")
+        if not isinstance(commit, str) or COMMIT_PATTERN.fullmatch(commit) is None:
+            statements.append(f"{location}: {LANDED_EVENT} names no commit")
+    if statements:
+        for statement in statements:
+            report.failed("journal.landing", statement)
+    else:
+        report.ok("journal.landing", f"landed as {commit}")

@@ -216,5 +216,50 @@ class ChainReadingTests(unittest.TestCase):
             self.assertIn(JOURNAL_NAME, str(raised.exception))
 
 
+class JournalResumeTests(unittest.TestCase):
+    """Appending to the journal of a run that ended, without breaking it."""
+
+    def test_continues_the_sequence_and_the_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp, JOURNAL_NAME)
+            first = Journal(path, "run")
+            first.record("run.started", {})
+            closing = first.record("run.finished", {"status": "ACCEPTED"})
+
+            resumed = Journal.resume(path, "run")
+            landed = resumed.record("run.landed", {"commit": "a" * 40})
+
+            self.assertEqual(3, landed.sequence)
+            self.assertEqual(closing.sha256, landed.previous_sha256)
+            self.assertEqual([], chain_failures(read_journal(path), "run"))
+            self.assertEqual(3, resumed.count)
+            self.assertEqual(landed.sha256, resumed.head_sha256)
+
+    def test_refuses_a_journal_whose_chain_no_longer_holds(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp, JOURNAL_NAME)
+            journal = Journal(path, "run")
+            journal.record("run.started", {})
+            journal.record("run.finished", {"status": "ACCEPTED"})
+            lines = path.read_text(encoding="utf-8").splitlines()
+            path.write_text(lines[1] + "\n", encoding="utf-8")
+
+            with self.assertRaises(JournalError):
+                Journal.resume(path, "run")
+
+    def test_refuses_a_journal_of_another_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp, JOURNAL_NAME)
+            Journal(path, "run").record("run.started", {})
+
+            with self.assertRaises(JournalError):
+                Journal.resume(path, "other")
+
+    def test_an_absent_journal_is_refused_rather_than_started(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaises(JournalError):
+                Journal.resume(Path(temp, JOURNAL_NAME), "run")
+
+
 if __name__ == "__main__":
     unittest.main()

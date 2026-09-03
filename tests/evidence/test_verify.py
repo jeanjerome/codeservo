@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from codeservo.evidence import digests, verify
 from codeservo.evidence.digests import sha256_json
-from codeservo.evidence.journal import JOURNAL_NAME
+from codeservo.evidence.journal import JOURNAL_NAME, LANDED_EVENT, Journal
 from codeservo.evidence.verify import (
     JOURNAL_EVIDENCE_VERSION,
     REPORT_SCHEMA_VERSION,
@@ -353,6 +353,120 @@ class InvalidRunTests(unittest.TestCase):
                 f"{JOURNAL_NAME}: the recorded events block counts",
                 report["failures"],
             )
+
+
+class LandedRunTests(unittest.TestCase):
+    """The one event that may follow a decision, and what it must say."""
+
+    COMMIT = "b" * 40
+
+    def _land(self, run_dir: Path, **payload: object) -> None:
+        """Append the landing the way the controller does, or a variant of it."""
+        record = read_record(run_dir)
+        stated = {
+            "commit": self.COMMIT,
+            "base_commit": record["base_commit"],
+            "patch_sha256": record["patch_sha256"],
+        }
+        stated.update(payload)
+        Journal.resume(run_dir / JOURNAL_NAME, RUN_ID).record(LANDED_EVENT, stated)
+
+    def test_a_landed_run_verifies_and_names_its_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = build_run(Path(temp))
+            self._land(run_dir)
+
+            report = verify_run(run_dir)
+
+            self.assertEqual("VALID", report["status"])
+            self.assertEqual(
+                f"landed as {self.COMMIT}", named(report, "journal.landing")["detail"]
+            )
+            # The record described the journal as the decision closed it, and
+            # still does: the landing is read after that, not against it.
+            self.assertEqual("ok", named(report, "journal.events")["status"])
+            self.assertEqual("ok", named(report, "journal.decision")["status"])
+
+    def test_an_unlanded_run_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = build_run(Path(temp))
+
+            report = verify_run(run_dir)
+
+            self.assertEqual("VALID", report["status"])
+            self.assertEqual("not landed", named(report, "journal.landing")["detail"])
+
+    def test_a_landing_naming_another_base_or_patch_is_invalid(self) -> None:
+        for field in ("base_commit", "patch_sha256"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temp:
+                run_dir = build_run(Path(temp))
+                self._land(run_dir, **{field: "c" * 40})
+
+                report = verify_run(run_dir)
+
+                self.assertEqual("INVALID", report["status"])
+                self.assertEqual("failed", named(report, "journal.landing")["status"])
+
+    def test_a_landing_naming_no_commit_is_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = build_run(Path(temp))
+            self._land(run_dir, commit="not-a-commit")
+
+            report = verify_run(run_dir)
+
+            self.assertIn(f"{JOURNAL_NAME}: {LANDED_EVENT} names no commit", report["failures"])
+
+    def test_a_landed_run_that_was_not_accepted_is_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = build_run(Path(temp), status="REJECTED", reasons=("red gate",))
+            self._land(run_dir)
+
+            report = verify_run(run_dir)
+
+            self.assertIn(
+                f"{JOURNAL_NAME}: a run that was not accepted was landed",
+                report["failures"],
+            )
+
+    def test_more_than_one_event_after_the_decision_is_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = build_run(Path(temp))
+            self._land(run_dir)
+            self._land(run_dir)
+
+            report = verify_run(run_dir)
+
+            self.assertIn(
+                f"{JOURNAL_NAME}: 2 events follow run.finished", report["failures"]
+            )
+
+    def test_another_event_after_the_decision_is_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = build_run(Path(temp))
+            Journal.resume(run_dir / JOURNAL_NAME, RUN_ID).record(
+                "decision.recorded", {"status": "ACCEPTED", "reasons": []}
+            )
+
+            report = verify_run(run_dir)
+
+            self.assertEqual("INVALID", report["status"])
+            self.assertIn(
+                f"{JOURNAL_NAME}: what follows run.finished is not {LANDED_EVENT}",
+                report["failures"],
+            )
+
+    def test_a_landing_altered_afterwards_breaks_the_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = build_run(Path(temp))
+            self._land(run_dir)
+            lines = journal_lines(run_dir)
+            lines[-1] = lines[-1].replace(self.COMMIT, "d" * 40)
+            rewrite_journal(run_dir, lines)
+
+            report = verify_run(run_dir)
+
+            self.assertEqual("INVALID", report["status"])
+            self.assertEqual("failed", named(report, "journal.digests")["status"])
 
 
 class IncompleteRunTests(unittest.TestCase):

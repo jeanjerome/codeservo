@@ -16,6 +16,7 @@ from ..actuators.inventory import (
     write_inventory,
 )
 from ..controller import run
+from ..controller.landing import LandingError, land
 from ..domain.run import RunStatus
 from ..domain.task import TaskError
 from ..evidence.verify import (
@@ -107,6 +108,28 @@ def report_run(run_dir: Path, as_json: bool) -> int:
     else:
         sys.stdout.write(render_report(report))
     return VERIFY_EXIT_STATUS[report["status"]]
+
+
+def land_run(run_dir: Path, message: str | None, as_json: bool) -> int:
+    """Land one accepted run, and report the commit it became."""
+    try:
+        landed = land(run_dir, message)
+    except (LandingError, VerificationError) as exc:
+        print(f"codeservo: {exc}", file=sys.stderr)
+        return USAGE_ERROR
+    document = {
+        "run_id": landed.run_id,
+        "repo": str(landed.repo),
+        "commit": landed.commit,
+        "register": str(landed.register),
+        "findings": landed.findings,
+    }
+    if as_json:
+        print(json.dumps(document, indent=2, sort_keys=True))
+    else:
+        print(f"landed run {landed.run_id} as {landed.commit} in {landed.repo}")
+        print(f"{landed.findings} finding(s) registered in {landed.register}")
+    return 0
 
 
 def control_change(args) -> int:

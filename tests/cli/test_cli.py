@@ -168,6 +168,29 @@ class CliTests(unittest.TestCase):
         self.assertIn("--speed", reason)
 
 
+class LandCommandTests(unittest.TestCase):
+    def test_land_takes_a_run_directory_a_subject_and_a_document_form(self) -> None:
+        args = build_parser().parse_args(
+            ["land", "runs/one", "--message", "feat: health endpoint", "--json"]
+        )
+
+        self.assertEqual(Path("runs/one"), args.run_dir)
+        self.assertEqual("feat: health endpoint", args.message)
+        self.assertTrue(args.json)
+
+    def test_land_names_the_run_by_default(self) -> None:
+        args = build_parser().parse_args(["land", "runs/one"])
+
+        self.assertIsNone(args.message)
+        self.assertFalse(args.json)
+
+    def test_land_requires_a_run_directory(self) -> None:
+        code, reason = refusal(["land"])
+
+        self.assertNotEqual(0, code)
+        self.assertIn("run_dir", reason)
+
+
 class VerifyRunCommandTests(unittest.TestCase):
     def test_verify_run_takes_a_run_directory_and_a_document_form(self) -> None:
         args = build_parser().parse_args(["verify-run", "runs/one", "--json"])
