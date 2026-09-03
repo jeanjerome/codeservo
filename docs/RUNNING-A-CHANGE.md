@@ -126,9 +126,11 @@ measurement in two fields does not.
 ### 8. Choose the budget and the inference profile
 
 Both are control inputs, and both belong in whatever you write down before the
-run. `codeservo models` reports what each backend advertises on this machine;
-read it before naming a model, an effort or a speed, and remember it is a dated
-inventory rather than proof that an account may use what it lists.
+run. `codeservo models` lists the catalogue: the models a run may name, per
+backend, and the list prices their tokens are rated at. A run names a model
+and an effort for the implementer, and the reviewer's default to the same. The
+catalogue is what makes one run's cost comparable to another's, and the run
+freezes the copy it was rated by.
 
 The iteration budget decides what the run can establish. One iteration measures
 a first actuation and nothing about feedback. More than one lets a failing gate

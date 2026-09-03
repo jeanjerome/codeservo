@@ -205,6 +205,7 @@ def _check_inputs(report: _Report, run_dir: Path, record: dict) -> None:
     for location, field in (
         ("TASK.md", "task_sha256"),
         ("constitution.toml", "constitution_sha256"),
+        ("catalogue.toml", "catalogue_sha256"),
     ):
         digest = record.get(field)
         if isinstance(digest, str):

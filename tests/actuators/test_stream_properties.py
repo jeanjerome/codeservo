@@ -178,16 +178,22 @@ class SessionProperties(unittest.TestCase):
         _writable(session.to_document())
 
     @given(events=claude_streams())
-    def test_a_usage_record_is_a_model_name_over_what_it_billed(self, events):
-        models = claude_code._models(events)
+    def test_a_usage_record_is_a_model_name_over_counts_or_nothing(self, events):
+        usage = claude_code._usage(events)
+        self.assertIsInstance(usage.billed, tuple)
+        for billed in usage.billed:
+            self.assertIsInstance(billed.model, str)
+            for count in billed.tokens.to_document().values():
+                self.assertTrue(count is None or isinstance(count, int))
+            self.assertTrue(
+                billed.reported_cost_usd is None
+                or isinstance(billed.reported_cost_usd, float)
+            )
         self.assertTrue(
-            models.session_model is None or isinstance(models.session_model, str)
+            usage.cache_write_duration is None
+            or isinstance(usage.cache_write_duration, str)
         )
-        self.assertIsInstance(models.usage, dict)
-        for name, billed in models.usage.items():
-            self.assertIsInstance(name, str)
-            self.assertIsInstance(billed, dict)
-        _writable(models.to_document())
+        _writable(usage.to_document())
 
 
 class ReviewResultProperties(unittest.TestCase):

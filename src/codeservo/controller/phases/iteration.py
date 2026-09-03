@@ -44,6 +44,7 @@ from ..gate_results import (
     sensor_faults,
 )
 from ..inference import record_actuation
+from ..pricing import consumption
 from ..ratchet import (
     BrokenRatchet,
     broken_ratchets,
@@ -269,21 +270,27 @@ def _actuate(
     )
 
     try:
+        requested = record.document.inference.implementer.requested
         agent = context.implementer.implement(
             worktree=context.worktree,
             prompt=prompt,
             out_dir=iteration_dir / "agent",
-            model=context.request.model,
+            model=requested.model,
+            effort=requested.effort,
             timeout_seconds=context.request.agent_timeout_seconds,
             isolation=context.confinement.actuator,
-            effort=context.request.effort,
-            speed=context.request.speed,
         )
     except (ActuatorError, SandboxError) as exc:
         record.attempt = replace(record.attempted(), agent_error=str(exc))
         raise Rejection(str(exc)) from exc
 
-    record.attempt = replace(record.attempted(), agent=agent)
+    record.attempt = replace(
+        record.attempted(),
+        agent=agent,
+        consumption=consumption(
+            context.catalogue, requested.backend, requested.model, agent.usage
+        ),
+    )
     record.record(
         "actuator.finished",
         {

@@ -22,6 +22,7 @@ path = "src/codeservo/__init__.py"
 packages = ["src/codeservo"]
 include = [
   "src/codeservo/resources/constitution.example.toml",
+  "src/codeservo/resources/models.toml",
   "src/codeservo/resources/observation.schema.json",
   "src/codeservo/resources/review.schema.json",
 ]

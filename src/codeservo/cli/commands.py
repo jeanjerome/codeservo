@@ -7,13 +7,12 @@ import shutil
 import sys
 from pathlib import Path
 
-from ..actuators.inventory import (
-    ModelSelectionError,
-    Speed,
-    build_inventory,
-    render_document,
-    render_listing,
-    write_inventory,
+from ..actuators.catalogue import (
+    Backend,
+    Catalogue,
+    CatalogueError,
+    Model,
+    load_catalogue,
 )
 from ..controller import run
 from ..controller.landing import LandingError, land
@@ -59,35 +58,75 @@ def init_repo(repo: Path) -> int:
     return 0
 
 
-def report_models(
-    actuator: str | None,
-    model: str | None,
-    as_json: bool,
-    state_dir: Path | None,
-) -> int:
-    """Report the models a backend advertises locally.
+def _catalogue_document(catalogue: Catalogue, models: list[Model]) -> dict:
+    return {
+        "version": catalogue.version,
+        "priced_at": catalogue.priced_at,
+        "basis": catalogue.basis,
+        "models": [
+            {
+                "backend": model.backend,
+                "id": model.id,
+                "positioning": model.positioning,
+                "source": model.source,
+                "price_per_million_tokens": (
+                    None
+                    if model.price is None
+                    else {
+                        "input": model.price.input,
+                        "cached_input": model.price.cached_input,
+                        "cache_write": dict(model.price.cache_write),
+                        "output": model.price.output,
+                    }
+                ),
+            }
+            for model in models
+        ],
+    }
 
-    The report reads provider caches and nothing else: no agent starts, no
-    cache is refreshed, and an unreadable cache leaves the exit status at 0.
+
+def _model_line(model: Model) -> str:
+    if model.price is None:
+        priced = "unpriced"
+    else:
+        writes = ", ".join(
+            f"{duration} {price:g}" for duration, price in model.price.cache_write.items()
+        )
+        priced = (
+            f"input {model.price.input:g}  cached {model.price.cached_input:g}"
+            f"  cache write {writes}  output {model.price.output:g}"
+        )
+    return f"  {model.backend}  {model.id}  {priced}  {model.positioning}"
+
+
+def report_models(actuator: str | None, model: str | None, as_json: bool) -> int:
+    """List the models a run may request, from the catalogue and nothing else.
+
+    No agent starts and no provider cache is read: what a run may name is
+    what this package publishes, at the prices it was read with.
     """
     try:
-        document = build_inventory(actuator=actuator, model=model)
-    except ModelSelectionError as exc:
+        catalogue = load_catalogue()
+        models = list(catalogue.models)
+        if actuator is not None:
+            models = list(catalogue.models_for(Backend(actuator)))
+        if model is not None:
+            if actuator is None:
+                raise CatalogueError("--model names one backend's model, so it requires --actuator")
+            models = [catalogue.lookup(Backend(actuator), model)]
+    except (CatalogueError, ValueError) as exc:
         print(f"codeservo: {exc}", file=sys.stderr)
         return USAGE_ERROR
 
-    text = render_document(document)
-    try:
-        path = write_inventory(state_dir, text)
-    except OSError as exc:
-        print(f"codeservo: cannot write the inventory: {exc}", file=sys.stderr)
-        return USAGE_ERROR
-
     if as_json:
-        sys.stdout.write(text)
-    else:
-        sys.stdout.write(render_listing(document))
-        print(f"inventory: {path}")
+        print(json.dumps(_catalogue_document(catalogue, models), indent=2, sort_keys=True))
+        return 0
+    print(
+        f"catalogue version {catalogue.version}, {catalogue.basis},"
+        f" priced {catalogue.priced_at or 'undated'}, USD per million tokens"
+    )
+    for entry in models:
+        print(_model_line(entry))
     return 0
 
 
@@ -138,17 +177,15 @@ def control_change(args) -> int:
         result = run(
             repo_path=Path(args.repo),
             task_path=Path(args.task),
-            max_iterations=args.max_iterations,
             model=args.model,
+            effort=args.effort,
+            max_iterations=args.max_iterations,
             review_model=args.review_model,
             agent_timeout_seconds=args.agent_timeout_seconds,
             state_dir=args.state_dir,
             actuator=args.actuator,
-            effort=args.effort,
-            speed=Speed(args.speed),
             review_actuator=args.review_actuator,
             review_effort=args.review_effort,
-            review_speed=Speed(args.review_speed),
         )
     except (ConstitutionError, TaskError, RuntimeError, ValueError) as exc:
         print(f"codeservo: {exc}", file=sys.stderr)

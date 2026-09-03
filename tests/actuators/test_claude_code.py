@@ -10,11 +10,12 @@ from codeservo.actuators.claude_code import (
     _base_command,
     _implementer_command,
     _inline_schema,
-    _models,
     _observed,
+    _reported_model,
     _review_result,
     _reviewer_command,
     _session,
+    _usage,
     describe_isolation,
 )
 from codeservo.runtime.sandbox import Isolation
@@ -28,7 +29,7 @@ REVIEW_SCHEMA = {
 
 class CommandTests(unittest.TestCase):
     def test_implementer_runs_without_user_configuration(self) -> None:
-        command = _base_command(model="opus", tools=IMPLEMENTER_TOOLS)
+        command = _base_command(model="claude-opus-5", tools=IMPLEMENTER_TOOLS, effort="high")
 
         self.assertEqual("claude", command[0])
         for flag in (
@@ -42,71 +43,40 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(
             "bypassPermissions", command[command.index("--permission-mode") + 1]
         )
-        self.assertEqual("opus", command[command.index("--model") + 1])
+        self.assertEqual("claude-opus-5", command[command.index("--model") + 1])
         self.assertEqual(IMPLEMENTER_TOOLS, command[command.index("--tools") + 1])
 
     def test_reviewer_cannot_reach_editing_tools(self) -> None:
-        command = _base_command(model=None, tools=REVIEWER_TOOLS)
+        command = _base_command(model="claude-opus-5", tools=REVIEWER_TOOLS, effort="low")
         tools = command[command.index("--tools") + 1].split(",")
 
         self.assertNotIn("Write", tools)
         self.assertNotIn("Edit", tools)
         self.assertIn("Read", tools)
 
-    def test_omits_the_model_flag_when_unset(self) -> None:
-        self.assertNotIn("--model", _base_command(model=None, tools=REVIEWER_TOOLS))
-
-    def test_passes_a_requested_effort_under_the_flag_the_cli_accepts(self) -> None:
-        command = _base_command(model=None, tools=IMPLEMENTER_TOOLS, effort="xhigh")
+    def test_passes_the_effort_under_the_flag_the_cli_accepts_unchanged(self) -> None:
+        command = _base_command(model="claude-opus-5", tools=IMPLEMENTER_TOOLS, effort="xhigh")
 
         self.assertEqual("xhigh", command[command.index("--effort") + 1])
 
-    def test_leaves_the_backend_default_when_no_effort_is_requested(self) -> None:
-        self.assertNotIn(
-            "--effort", _base_command(model=None, tools=IMPLEMENTER_TOOLS)
-        )
+    def test_the_command_carries_the_profile_and_no_settings_source(self) -> None:
+        command = _base_command(model="claude-opus-5", tools=REVIEWER_TOOLS, effort="high")
 
-    def test_the_base_command_carries_no_profile_of_its_own(self) -> None:
-        command = _base_command(model="opus", tools=REVIEWER_TOOLS)
-
-        self.assertNotIn("--effort", command)
+        self.assertEqual(1, command.count("--model"))
+        self.assertEqual(1, command.count("--effort"))
         self.assertNotIn("--settings", command)
-
 
 class ImplementerProfileTests(unittest.TestCase):
-    def _built(self, **overrides) -> tuple[list[str], dict, Path]:
-        request = {"model": "opus", "effort": None, "speed": "standard"}
-        request.update(overrides)
-        directory = Path(tempfile.mkdtemp())
-        command, native = _implementer_command(settings_dir=directory, **request)
-        return command, native, directory
+    def test_records_the_two_flags_the_command_carried(self) -> None:
+        command, native = _implementer_command(model="claude-opus-5", effort="high")
 
-    def test_the_standard_speed_adds_no_settings_document(self) -> None:
-        command, native, directory = self._built(effort="high")
+        self.assertEqual({"--model": "claude-opus-5", "--effort": "high"}, native)
+        for flag, value in native.items():
+            self.assertEqual(value, command[command.index(flag) + 1])
+        self.assertEqual("stream-json", command[command.index("--output-format") + 1])
 
-        self.assertNotIn("--settings", command)
-        self.assertEqual({"--effort": "high"}, native)
-        self.assertEqual([], sorted(directory.iterdir()))
-
-    def test_the_fast_speed_points_at_a_document_codeservo_writes(self) -> None:
-        command, native, directory = self._built(effort="high", speed="fast")
-        settings_path = Path(command[command.index("--settings") + 1])
-
-        self.assertTrue(settings_path.is_relative_to(directory))
-        self.assertEqual(
-            {"fastMode": True},
-            json.loads(settings_path.read_text(encoding="utf-8")),
-        )
-        # The document outlives no run, so the record keeps its content.
-        self.assertEqual(
-            {"--effort": "high", "--settings": {"fastMode": True}}, native
-        )
-        self.assertNotIn(str(settings_path), json.dumps(native))
-
-    def test_keeps_the_hermetic_flags_and_adds_no_other_settings_source(
-        self,
-    ) -> None:
-        command, _, _ = self._built(effort="max", speed="fast")
+    def test_keeps_the_hermetic_flags(self) -> None:
+        command, _ = _implementer_command(model="claude-opus-5", effort="high")
 
         for flag in (
             "--print",
@@ -116,32 +86,22 @@ class ImplementerProfileTests(unittest.TestCase):
             "--no-session-persistence",
         ):
             self.assertIn(flag, command)
-        self.assertEqual(1, command.count("--settings"))
-
-    def test_records_nothing_when_no_profile_was_requested(self) -> None:
-        command, native, _ = self._built()
-
-        self.assertEqual({}, native)
-        self.assertNotIn("--effort", command)
         self.assertNotIn("--settings", command)
-
 
 class ReviewerProfileTests(unittest.TestCase):
     """The reviewer carries its own profile on the read-only command."""
 
     def _built(self, **overrides) -> tuple[list[str], dict, Path]:
-        request = {"model": "opus", "effort": None, "speed": "standard"}
+        request = {"model": "claude-opus-5", "effort": "high"}
         request.update(overrides)
         directory = Path(tempfile.mkdtemp())
         schema_path = directory / "review.schema.json"
         schema_path.write_text(json.dumps(REVIEW_SCHEMA), encoding="utf-8")
-        command, native = _reviewer_command(
-            settings_dir=directory, schema_path=schema_path, **request
-        )
+        command, native = _reviewer_command(schema_path=schema_path, **request)
         return command, native, directory
 
     def test_keeps_the_read_only_review_command_the_backend_answers(self) -> None:
-        command, _, _ = self._built(effort="high", speed="fast")
+        command, _, _ = self._built()
 
         self.assertIn("--safe-mode", command)
         self.assertEqual(REVIEWER_TOOLS, command[command.index("--tools") + 1])
@@ -150,45 +110,20 @@ class ReviewerProfileTests(unittest.TestCase):
         self.assertNotIn("$schema", schema)
         self.assertEqual(["criteria", "findings"], schema["required"])
 
-    def test_passes_a_requested_effort_under_the_flag_the_cli_accepts(self) -> None:
+    def test_passes_the_profile_under_the_flags_the_cli_accepts(self) -> None:
         command, native, _ = self._built(effort="xhigh")
 
         self.assertEqual("xhigh", command[command.index("--effort") + 1])
-        self.assertEqual({"--effort": "xhigh"}, native)
+        self.assertEqual("claude-opus-5", command[command.index("--model") + 1])
+        self.assertEqual({"--model": "claude-opus-5", "--effort": "xhigh"}, native)
 
-    def test_the_fast_speed_points_at_a_document_codeservo_writes(self) -> None:
-        command, native, directory = self._built(effort="high", speed="fast")
-        settings_path = Path(command[command.index("--settings") + 1])
-
-        self.assertTrue(settings_path.is_relative_to(directory))
-        self.assertEqual(
-            {"fastMode": True},
-            json.loads(settings_path.read_text(encoding="utf-8")),
-        )
-        # The document outlives no run, so the record keeps its content.
-        self.assertEqual(
-            {"--effort": "high", "--settings": {"fastMode": True}}, native
-        )
-        self.assertNotIn(str(settings_path), json.dumps(native))
-        # No settings source outside CodeServo is added.
-        self.assertEqual(1, command.count("--settings"))
-
-    def test_the_standard_speed_adds_no_settings_document(self) -> None:
-        command, native, directory = self._built(effort="high")
+    def test_writes_no_settings_document(self) -> None:
+        command, _, directory = self._built()
 
         self.assertNotIn("--settings", command)
-        self.assertEqual({"--effort": "high"}, native)
         self.assertEqual(
             ["review.schema.json"], sorted(item.name for item in directory.iterdir())
         )
-
-    def test_records_nothing_when_no_profile_was_requested(self) -> None:
-        command, native, _ = self._built()
-
-        self.assertEqual({}, native)
-        self.assertNotIn("--effort", command)
-        self.assertNotIn("--settings", command)
-
 
 class ObservedProfileTests(unittest.TestCase):
     """What Claude Code says about the session, in each of the two roles."""
@@ -196,39 +131,28 @@ class ObservedProfileTests(unittest.TestCase):
     def _result(self, **fields: object) -> dict:
         return {"type": "result", "subtype": "success", "result": "done", **fields}
 
-    def test_reports_the_model_and_the_speed_of_an_implementer_stream(self) -> None:
+    def test_reports_the_model_of_an_implementer_stream(self) -> None:
         events = [
             {"type": "system", "subtype": "init", "model": "claude-opus-5"},
-            self._result(
-                usage={"speed": "standard", "service_tier": "standard"},
-                modelUsage={"claude-opus-5": {"outputTokens": 24898}},
-            ),
+            self._result(modelUsage={"claude-opus-5": {"outputTokens": 24898}}),
         ]
 
         self.assertEqual(
-            {"model": "claude-opus-5", "effort": None, "speed": "standard"},
+            {"model": "claude-opus-5", "effort": None},
             _observed(events).to_document(),
         )
 
     def test_reads_the_reviewer_model_from_the_one_model_it_billed(self) -> None:
-        """The reviewer answers in one object, with no init event to name it."""
-        events = [
-            self._result(
-                usage={"speed": "fast"},
-                modelUsage={"claude-opus-5": {"outputTokens": 320}},
-            )
-        ]
+        events = [self._result(modelUsage={"claude-opus-5": {"outputTokens": 320}})]
 
         self.assertEqual(
-            {"model": "claude-opus-5", "effort": None, "speed": "fast"},
+            {"model": "claude-opus-5", "effort": None},
             _observed(events).to_document(),
         )
 
     def test_leaves_the_reviewer_model_unread_when_several_were_billed(self) -> None:
-        """Choosing among the models a session billed would be an inference."""
         events = [
             self._result(
-                usage={"speed": "standard"},
                 modelUsage={
                     "claude-opus-5": {"outputTokens": 320},
                     "claude-haiku-4-5-20251001": {"outputTokens": 15},
@@ -236,10 +160,7 @@ class ObservedProfileTests(unittest.TestCase):
             )
         ]
 
-        self.assertEqual(
-            {"model": None, "effort": None, "speed": "standard"},
-            _observed(events).to_document(),
-        )
+        self.assertEqual({"model": None, "effort": None}, _observed(events).to_document())
 
     def test_prefers_the_model_the_stream_resolved_over_what_it_billed(self) -> None:
         events = [
@@ -254,37 +175,85 @@ class ObservedProfileTests(unittest.TestCase):
 
         self.assertEqual("claude-opus-5", _observed(events).model)
 
-    def test_reports_the_model_the_session_named_not_the_one_requested(self) -> None:
-        events = [{"type": "system", "subtype": "init", "model": "claude-sonnet-5"}]
+    def test_reports_no_effort_whatever_the_stream_carries(self) -> None:
+        """Nothing in either role's stream is a reasoning effort."""
+        events = [
+            {"type": "system", "subtype": "init", "model": "claude-opus-5"},
+            self._result(usage={"speed": "fast"}, fast_mode_state="on"),
+        ]
 
-        self.assertEqual("claude-sonnet-5", _observed(events).model)
+        self.assertIsNone(_observed(events).effort)
 
-    def test_reports_no_effort_beside_a_speed_the_session_does_name(self) -> None:
-        """`fast_mode_state` is a speed; nothing in the stream is an effort."""
+
+class UsageTests(unittest.TestCase):
+    """What Claude Code reports the session consumed, under each model it billed."""
+
+    def _result(self, **fields: object) -> dict:
+        return {"type": "result", "subtype": "success", "result": "done", **fields}
+
+    def test_reads_the_five_counts_and_the_reported_cost_per_model(self) -> None:
         events = [
             self._result(
-                usage={"speed": "fast"},
-                fast_mode_state="on",
-                fast_mode_disabled_reason=None,
+                usage={"cache_creation": {"ephemeral_1h_input_tokens": 72277, "ephemeral_5m_input_tokens": 0}},
+                modelUsage={
+                    "claude-opus-5": {
+                        "inputTokens": 92,
+                        "outputTokens": 23966,
+                        "cacheReadInputTokens": 2297822,
+                        "cacheCreationInputTokens": 72277,
+                        "thinkingTokens": 10745,
+                        "costUSD": 2.471291,
+                        "contextWindow": 1000000,
+                    },
+                    "claude-haiku-4-5-20251001": {"inputTokens": 3232, "outputTokens": 18, "costUSD": 0.003322},
+                },
             )
         ]
 
-        observed = _observed(events)
+        usage = _usage(events)
 
-        self.assertIsNone(observed.effort)
-        self.assertEqual("fast", observed.speed)
-
-    def test_leaves_unreported_values_unknown(self) -> None:
+        self.assertEqual("1h", usage.cache_write_duration)
+        opus, haiku = usage.billed
+        self.assertEqual("claude-opus-5", opus.model)
         self.assertEqual(
-            {"model": None, "effort": None, "speed": None},
-            _observed([{"type": "result", "result": "done"}]).to_document(),
+            {"input": 92, "cached_input": 2297822, "cache_write": 72277, "output": 23966, "reasoning": 10745},
+            opus.tokens.to_document(),
+        )
+        self.assertEqual(2.471291, opus.reported_cost_usd)
+        # A count the block did not carry stays empty rather than zero.
+        self.assertEqual(
+            {"input": 3232, "cached_input": None, "cache_write": None, "output": 18, "reasoning": None},
+            haiku.tokens.to_document(),
         )
 
-    def test_leaves_every_value_unknown_when_nothing_was_read(self) -> None:
-        self.assertEqual(
-            {"model": None, "effort": None, "speed": None}, _observed([]).to_document()
+    def test_names_the_one_duration_the_session_wrote_with(self) -> None:
+        cases = (
+            ({"ephemeral_1h_input_tokens": 10, "ephemeral_5m_input_tokens": 0}, "1h"),
+            ({"ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 10}, "5m"),
+            ({"ephemeral_1h_input_tokens": 10, "ephemeral_5m_input_tokens": 10}, "mixed"),
+            ({"ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 0}, None),
+            ({}, None),
         )
+        for creation, expected in cases:
+            with self.subTest(creation=creation):
+                events = [self._result(usage={"cache_creation": creation}, modelUsage={})]
 
+                self.assertEqual(expected, _usage(events).cache_write_duration)
+
+    def test_a_stream_without_a_result_reports_nothing(self) -> None:
+        usage = _usage([{"type": "system", "subtype": "init", "model": "claude-opus-5"}])
+
+        self.assertEqual((), usage.billed)
+        self.assertIsNone(usage.cache_write_duration)
+
+    def test_a_count_of_another_shape_is_not_a_count(self) -> None:
+        events = [self._result(modelUsage={"claude-opus-5": {"inputTokens": "12", "outputTokens": True, "costUSD": "free"}})]
+
+        billed = _usage(events).billed[0]
+
+        self.assertIsNone(billed.tokens.input)
+        self.assertIsNone(billed.tokens.output)
+        self.assertIsNone(billed.reported_cost_usd)
 
 class SchemaTests(unittest.TestCase):
     def test_drops_the_unsupported_dialect_declaration(self) -> None:
@@ -364,67 +333,48 @@ class ReviewResultTests(unittest.TestCase):
 
 
 class ModelRecordTests(unittest.TestCase):
+    """The model a session names, and the numbers a record can carry back."""
+
+    def _result(self, **fields: object) -> dict:
+        return {"type": "result", "subtype": "success", "result": "done", **fields}
+
     def test_reports_the_resolved_model_and_everything_that_spent_tokens(self) -> None:
         events = [
             {"type": "system", "subtype": "init", "model": "claude-opus-5"},
-            {
-                "type": "result",
-                "modelUsage": {
-                    "claude-opus-5": {"outputTokens": 24898, "costUSD": 1.56},
-                    "claude-haiku-4-5-20251001": {
-                        "outputTokens": 15,
-                        "costUSD": 0.0024,
-                    },
-                },
-            },
+            self._result(
+                modelUsage={
+                    "claude-opus-5": {"outputTokens": 320, "costUSD": 1.5},
+                    "claude-haiku-4-5-20251001": {"outputTokens": 15, "costUSD": 0.01},
+                }
+            ),
         ]
 
-        models = _models(events)
-
-        self.assertEqual("claude-opus-5", models.session_model)
+        self.assertEqual("claude-opus-5", _reported_model(events))
         self.assertEqual(
-            {"output_tokens": 24898, "cost_usd": 1.56},
-            models.usage["claude-opus-5"],
+            ["claude-opus-5", "claude-haiku-4-5-20251001"],
+            [billed.model for billed in _usage(events).billed],
         )
-        self.assertEqual(15, models.usage["claude-haiku-4-5-20251001"]["output_tokens"])
 
     def test_reports_no_model_when_the_session_names_none(self) -> None:
-        models = _models([{"type": "result", "result": "done"}])
+        self.assertIsNone(_reported_model([self._result()]))
+        self.assertEqual((), _usage([self._result()]).billed)
 
-        self.assertIsNone(models.session_model)
-        self.assertEqual({}, models.usage)
+    def test_reports_no_model_where_the_stream_names_one_of_another_shape(self) -> None:
+        events = [
+            {"type": "system", "subtype": "init", "model": 12},
+            self._result(modelUsage={"claude-opus-5": ["not", "a", "record"]}),
+        ]
 
-    def test_reports_no_model_where_the_stream_names_one_of_another_shape(
-        self,
-    ) -> None:
-        """A mapping in the model field is not a name the record can carry."""
-        models = _models(
-            [{"type": "system", "subtype": "init", "model": {"alias": "opus"}}]
-        )
-
-        self.assertIsNone(models.session_model)
+        self.assertIsNone(_reported_model(events))
+        self.assertEqual((), _usage(events).billed)
 
     def test_bills_only_the_numbers_json_can_carry_back(self) -> None:
-        """`json.loads` reads `NaN`; nothing else reading the record would."""
-        models = _models(
-            [
-                {
-                    "type": "result",
-                    "modelUsage": {
-                        "claude-opus-5": {
-                            "outputTokens": "many",
-                            "costUSD": float("nan"),
-                        }
-                    },
-                }
-            ]
-        )
+        """`json.loads` reads NaN and Infinity; nothing else reads them back."""
+        for amount in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(amount=amount):
+                events = [self._result(modelUsage={"claude-opus-5": {"costUSD": amount}})]
 
-        self.assertEqual(
-            {"output_tokens": None, "cost_usd": None},
-            models.usage["claude-opus-5"],
-        )
-
+                self.assertIsNone(_usage(events).billed[0].reported_cost_usd)
 
 class SessionRecordTests(unittest.TestCase):
     """The result event is read as the record declares it, or not at all."""

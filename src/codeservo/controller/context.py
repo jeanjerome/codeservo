@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ..actuators import Actuator, default_actuator_name, load_actuator
-from ..actuators.inventory import Speed
+from ..actuators.catalogue import Catalogue, CatalogueError, Effort, load_catalogue
 from ..domain.constitution import Constitution, ExecutionEnvironment
 from ..domain.run import RunStatus
 from ..domain.task import Task, load_task
@@ -78,13 +78,11 @@ class RunRequest:
     agent_timeout_seconds: int
     state_dir: Path | None
     actuator: str | None
-    model: str | None
-    effort: str | None
-    speed: Speed
+    model: str
+    effort: str
     review_actuator: str | None
-    review_model: str | None
-    review_effort: str | None
-    review_speed: Speed
+    review_model: str
+    review_effort: str
 
 
 @dataclass(frozen=True)
@@ -95,6 +93,7 @@ class RunContext:
     repo: Path
     task: Task
     constitution: Constitution
+    catalogue: Catalogue
     base_commit: str
     run_id: str
     state_root: Path
@@ -109,6 +108,35 @@ class RunContext:
     @property
     def execution(self) -> ExecutionEnvironment | None:
         return self.constitution.execution
+
+
+def _effort(value: str, role: str) -> Effort:
+    """One of the four efforts, or a refusal naming what was asked."""
+    try:
+        return Effort(value)
+    except ValueError:
+        known = ", ".join(Effort)
+        raise ControlFailure(
+            f"{role} effort must be one of {known}, not {value!r}"
+        ) from None
+
+
+def _profile(
+    catalogue: Catalogue, actuator: Actuator, model: str, effort: str, role: str
+) -> InferenceRequest:
+    """One role's request, held to the catalogue before anything is frozen.
+
+    A model the catalogue does not list for that backend, or lists for the
+    other one, is refused by name here: the run directory does not exist yet,
+    so nothing records a run that never had a profile to run on.
+    """
+    try:
+        catalogue.lookup(actuator.name, model)
+    except CatalogueError as exc:
+        raise ControlFailure(f"{role} profile: {exc}") from None
+    return InferenceRequest(
+        backend=actuator.name, model=model, effort=_effort(effort, role)
+    )
 
 
 def new_run_id() -> str:
@@ -138,18 +166,13 @@ def prepare(request: RunRequest) -> tuple[RunContext, RunRecord]:
     # one command-line tool and decide with another. Asking for neither leaves
     # the implementer's backend serving both roles.
     reviewer = load_actuator(request.review_actuator or implementer.name)
+    catalogue = load_catalogue()
     inference = frozen_inference(
-        implementer=InferenceRequest(
-            backend=implementer.name,
-            model=request.model,
-            effort=request.effort,
-            speed=request.speed,
+        implementer=_profile(
+            catalogue, implementer, request.model, request.effort, "implementer"
         ),
-        reviewer=InferenceRequest(
-            backend=reviewer.name,
-            model=request.review_model,
-            effort=request.review_effort,
-            speed=request.review_speed,
+        reviewer=_profile(
+            catalogue, reviewer, request.review_model, request.review_effort, "reviewer"
         ),
     )
 
@@ -178,24 +201,22 @@ def prepare(request: RunRequest) -> tuple[RunContext, RunRecord]:
     (run_dir / "constitution.toml").write_text(
         constitution.raw_text, encoding="utf-8"
     )
+    # The catalogue rates every token of the run, so the run keeps the copy
+    # it was rated by, whatever the package publishes later.
+    (run_dir / "catalogue.toml").write_text(catalogue.raw_text, encoding="utf-8")
     sensor_paths, sensor_evidence = freeze_sensors(state_root, run_dir, constitution)
     journal.record(
         "inputs.frozen",
         {
             "task_sha256": sha256_text(task.raw_text),
             "constitution_sha256": sha256_text(constitution.raw_text),
+            "catalogue_sha256": sha256_text(catalogue.raw_text),
             "sensors": sorted(sensor_evidence),
         },
     )
     journal.record(
         "inference.profiles_frozen",
-        {
-            role: {
-                **profile.requested.to_document(),
-                "validation": profile.validation.status,
-            }
-            for role, profile in roles(inference)
-        },
+        {role: profile.requested.to_document() for role, profile in roles(inference)},
     )
 
     profiles = confinement(
@@ -212,6 +233,7 @@ def prepare(request: RunRequest) -> tuple[RunContext, RunRecord]:
         repo=repo,
         task=task,
         constitution=constitution,
+        catalogue=catalogue,
         base_commit=base_commit,
         run_id=run_id,
         state_root=state_root,
@@ -232,6 +254,7 @@ def prepare(request: RunRequest) -> tuple[RunContext, RunRecord]:
         base_commit=base_commit,
         task_sha256=sha256_text(task.raw_text),
         constitution_sha256=sha256_text(constitution.raw_text),
+        catalogue_sha256=sha256_text(catalogue.raw_text),
         runtime=runtime_metadata(
             implementer, reviewer, request.model, request.review_model
         ),

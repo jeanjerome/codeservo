@@ -145,7 +145,7 @@ class EscalationE2ETests(unittest.TestCase):
             self.assertEqual("VALID", verify_run(run_dir)["status"])
             evidence = json.loads((run_dir / "evidence.json").read_text(encoding="utf-8"))
             self.assertEqual("ESCALATED", evidence["status"])
-            self.assertEqual(18, evidence["schema_version"])
+            self.assertEqual(19, evidence["schema_version"])
             self.assertTrue((run_dir / "change.patch").is_file())
 
     def test_a_review_contradicting_a_gate_that_passed_is_escalated(self) -> None:

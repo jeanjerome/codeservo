@@ -18,10 +18,11 @@ written.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from typing import Any
 
-from ..actuators.base import Actuation, ObservedProfile, ReviewMeta
-from ..actuators.inventory import Backend, ProfileVerdict, Speed
+from ..actuators.base import Actuation, ObservedProfile, ReviewMeta, Tokens
+from ..actuators.catalogue import Backend, Effort
 from ..domain.document import UNSET, Document, Unset
 from ..domain.run import RunStatus
 from ..evidence.journal import EventsSummary
@@ -69,28 +70,72 @@ class RuntimeMetadata(Document):
 
 @dataclass(frozen=True, kw_only=True)
 class RequestedProfile(Document):
-    """One role's inference profile, as the run resolved the request."""
+    """One role's inference profile, as the run resolved the request.
+
+    Every field is named: the model is one the catalogue lists for that
+    backend and the effort one of the four it names, both settled before the
+    run directory exists.
+    """
 
     backend: Backend
-    model: str | None
-    effort: str | None
-    speed: Speed
+    model: str
+    effort: Effort
 
 
 @dataclass(frozen=True, kw_only=True)
 class InferenceProfile(Document):
-    """One role's profile: asked for, checked, then reported by the backend.
+    """One role's profile: asked for, then reported by the backend.
 
-    The request and the check are frozen before anything actuates. What the
-    backend then reported replaces whatever an earlier call reported, so the
-    block describes the last actuation of that role and never a mixture.
+    The request is frozen before anything actuates. What the backend then
+    reported replaces whatever an earlier call reported, so the block
+    describes the last actuation of that role and never a mixture.
     """
 
     requested: RequestedProfile
-    validation: ProfileVerdict
     native: dict[str, Any] | None
     observed: ObservedProfile
     provenance: dict[str, str]
+
+
+class PriceBasis(StrEnum):
+    """Which model a billed block was rated at, and why that one.
+
+    A backend that names the model it billed is rated at that model. One that
+    names none is rated at the model the run requested, the only model it
+    could have run, and the record says the attribution is the controller's.
+    """
+
+    REPORTED_MODEL = "reported_model"
+    REQUESTED_MODEL = "requested_model"
+
+
+@dataclass(frozen=True, kw_only=True)
+class PricedUsage(Document):
+    """One billed block, rated at the catalogue's list price for its model.
+
+    `cost_usd` is the controller's arithmetic and stays empty where the
+    catalogue cannot rate the block. `reported_cost_usd` is what the backend
+    itself said, kept beside it and never merged with it.
+    """
+
+    model: str
+    basis: PriceBasis
+    tokens: Tokens
+    cost_usd: float | None
+    reported_cost_usd: float | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class Consumption(Document):
+    """What one call consumed, and what it cost at list price.
+
+    The total is the sum of the blocks when every block was rated, and empty
+    otherwise: a sum over part of a session would read as the cost of all of
+    it.
+    """
+
+    items: tuple[PricedUsage, ...]
+    cost_usd: float | None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -214,6 +259,7 @@ class ReviewBlock(Document):
     result: dict[str, Any] | Unset = UNSET
     result_sha256: str | Unset = UNSET
     meta: ReviewMeta | Unset = UNSET
+    consumption: Consumption | Unset = UNSET
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -234,6 +280,7 @@ class Iteration(Document):
     prompt: FileRecord | Unset = UNSET
     agent_error: str | Unset = UNSET
     agent: Actuation | Unset = UNSET
+    consumption: Consumption | Unset = UNSET
     actuator_state: FileRecord | Unset = UNSET
     scope: ScopeResult | Unset = UNSET
     quick_gates: tuple[GateResult, ...] | Unset = UNSET
@@ -268,6 +315,7 @@ class Evidence(Document):
     base_commit: str
     task_sha256: str
     constitution_sha256: str
+    catalogue_sha256: str
     runtime: RuntimeMetadata
     inference: Inference
     sensors: dict[str, FrozenSensor]

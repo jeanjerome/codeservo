@@ -41,6 +41,7 @@ VOLATILE = frozenset(
         "stderr_sha256", "result_sha256", "meta_sha256", "observations_sha256",
         "patch_sha256", "manifest_sha256", "lock_sha256", "config_sha256",
         "packages_sha256", "head_sha256", "file_sha256", "constitution_sha256",
+        "catalogue_sha256",
         "codeservo_commit",
         "actuator_version", "review_actuator_version", "python_version",
         "git_version", "session_id", "stdout_tail", "stderr_tail", "text",

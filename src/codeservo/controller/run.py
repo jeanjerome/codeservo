@@ -9,12 +9,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..actuators.inventory import DEFAULT_SPEED, Speed
 from ..domain.run import RunStatus
 from ..workspace.git import is_clean
 from .context import RunContext, RunRequest, prepare
 from .errors import Escalation, Rejection
-from .inference import contradicted_profiles
 from .phases import (
     converge,
     create_candidate,
@@ -32,19 +30,23 @@ def run(
     *,
     repo_path: Path,
     task_path: Path,
+    model: str,
+    effort: str,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
-    model: str | None = None,
     review_model: str | None = None,
     agent_timeout_seconds: int = DEFAULT_AGENT_TIMEOUT_SECONDS,
     state_dir: Path | None = None,
     actuator: str | None = None,
-    effort: str | None = None,
-    speed: Speed = DEFAULT_SPEED,
     review_actuator: str | None = None,
     review_effort: str | None = None,
-    review_speed: Speed = DEFAULT_SPEED,
 ) -> dict:
-    """Drive one controlled software change, and return the record it wrote."""
+    """Drive one controlled software change, and return the record it wrote.
+
+    The implementer's model and effort are named by the caller; the reviewer's
+    default to the same two, which is a resolution of the request and never a
+    backend's own default. Whether each names a model its backend drives is
+    settled before the run directory exists.
+    """
     context, record = prepare(
         RunRequest(
             repo_path=repo_path,
@@ -55,15 +57,13 @@ def run(
             actuator=actuator,
             model=model,
             effort=effort,
-            speed=speed,
             review_actuator=review_actuator,
-            review_model=review_model,
-            review_effort=review_effort,
-            review_speed=review_speed,
+            review_model=review_model if review_model is not None else model,
+            review_effort=review_effort if review_effort is not None else effort,
         )
     )
     try:
-        _verify_control_inputs(context, record)
+        _verify_control_inputs(context)
         freeze_execution_environment(context, record)
         measure_baseline(context, record)
         create_candidate(context, record)
@@ -76,17 +76,13 @@ def run(
     return _close(context, record, RunStatus.ACCEPTED, [])
 
 
-def _verify_control_inputs(context: RunContext, record: RunRecord) -> None:
+def _verify_control_inputs(context: RunContext) -> None:
     """What must hold before a checkout or an agent process ever exists.
 
-    Each profile is a control input, so a request the inventory of its own
-    backend contradicts ends the run here. So does a source repository holding
-    uncommitted work, because the base commit would then not describe the tree
-    the baseline is about to measure.
+    A source repository holding uncommitted work ends the run here, because
+    the base commit would then not describe the tree the baseline is about to
+    measure.
     """
-    contradicted = contradicted_profiles(record.document.inference)
-    if contradicted:
-        raise Rejection(contradicted)
     if not is_clean(context.repo):
         raise Rejection("source repository is not clean")
 

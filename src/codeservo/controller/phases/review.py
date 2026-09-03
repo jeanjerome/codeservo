@@ -33,6 +33,7 @@ from ..decision import (
 from ..document import FileRecord, ReviewBlock
 from ..errors import ControlFailure, Rejection
 from ..inference import record_actuation
+from ..pricing import consumption
 from ..record import RunRecord
 from .converged import Converged
 
@@ -155,17 +156,17 @@ def review_candidate(
     )
     record.persist()
 
+    requested = record.document.inference.reviewer.requested
     try:
         review, meta = context.reviewer.review(
             worktree=context.worktree,
             prompt=prompt_text,
             schema_path=review_schema(),
             out_dir=iteration_dir / "review",
-            model=context.request.review_model,
+            model=requested.model,
+            effort=requested.effort,
             timeout_seconds=context.request.agent_timeout_seconds,
             isolation=context.confinement.actuator,
-            effort=context.request.review_effort,
-            speed=context.request.review_speed,
         )
     except (ActuatorError, SandboxError) as exc:
         raise Rejection(str(exc)) from exc
@@ -175,6 +176,9 @@ def review_candidate(
         result=review,
         result_sha256=sha256_json(review),
         meta=meta,
+        consumption=consumption(
+            context.catalogue, requested.backend, requested.model, meta.usage
+        ),
     )
     reviewer = record_actuation(record.document.inference.reviewer, meta)
     record.attempt = replace(record.attempted(), review=answered)

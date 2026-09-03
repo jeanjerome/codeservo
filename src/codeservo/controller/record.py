@@ -22,7 +22,7 @@ from .document import Decision, Evidence, Iteration
 from .errors import ControlFailure
 
 # The shape of evidence.json. The observation bundle versions its own shape.
-EVIDENCE_SCHEMA_VERSION = 18
+EVIDENCE_SCHEMA_VERSION = 19
 
 
 def utc_now() -> str:

@@ -35,6 +35,12 @@ TASK = "# Task\n\n- [AC1] `value()` returns `2`.\n"
 CONSTITUTION = 'version = 1\n\n[review]\nblocking_severities = ["blocker"]\n'
 
 
+CATALOGUE = (
+    'version = 1\nbasis = "test"\n\n[[model]]\nbackend = "claude"\n'
+    'id = "claude-haiku-4-5-20251001"\npositioning = "light"\n'
+)
+
+
 PATCH = "diff --git a/app.py b/app.py\n"
 
 
@@ -81,6 +87,7 @@ def build_run(
     (run_dir / "environment").mkdir(parents=True)
     (run_dir / "TASK.md").write_text(TASK, encoding="utf-8")
     (run_dir / "constitution.toml").write_text(CONSTITUTION, encoding="utf-8")
+    (run_dir / "catalogue.toml").write_text(CATALOGUE, encoding="utf-8")
     (run_dir / "change.patch").write_text(PATCH, encoding="utf-8")
 
     sensor = run_dir / "sensors" / "task-outcome"
@@ -128,6 +135,7 @@ def build_run(
         "base_commit": "abc",
         "task_sha256": sha256_text(TASK),
         "constitution_sha256": sha256_text(CONSTITUTION),
+        "catalogue_sha256": sha256_text(CATALOGUE),
         "sensors": {
             "task-outcome": {
                 "path": "sensors/task-outcome",

@@ -1,0 +1,85 @@
+# The models a run may request, and the list prices their tokens are rated at.
+#
+# This document is the controller's own. Nothing reads a provider cache or asks
+# an account what it may use: a model is named here or it is refused by name.
+# Identifiers are complete and case-sensitive; no alias such as `opus` is
+# accepted, so a CLI update cannot silently select another version.
+#
+# Prices are USD per million tokens at the public list price of each API, read
+# on the date below from the pages named beside each model. A cost the record
+# computes from them is comparable across backends and is not an invoice: a
+# subscription bills otherwise, and a negotiated rate too.
+
+version = 1
+priced_at = "2026-09-03"
+basis = "public API list price"
+
+[[model]]
+backend = "codex"
+id = "gpt-5.6-sol"
+positioning = "the most complete model, for complex tasks"
+source = "https://developers.openai.com/api/docs/pricing"
+# Cache writes on GPT-5.6 and later are rated at 1.25x the input price, and
+# the stream names no duration, so one write price applies.
+[model.price_per_million_tokens]
+input = 4.00
+cached_input = 0.40
+output = 20.00
+cache_write = { default = 5.00 }
+
+[[model]]
+backend = "codex"
+id = "gpt-5.6-terra"
+positioning = "the general model, for everyday development"
+source = "https://developers.openai.com/api/docs/pricing"
+[model.price_per_million_tokens]
+input = 2.00
+cached_input = 0.20
+output = 12.00
+cache_write = { default = 2.50 }
+
+[[model]]
+backend = "codex"
+id = "gpt-5.6-luna"
+positioning = "the light model, for simple and well-defined tasks"
+source = "https://developers.openai.com/api/docs/pricing"
+[model.price_per_million_tokens]
+input = 0.20
+cached_input = 0.02
+output = 1.20
+cache_write = { default = 0.25 }
+
+[[model]]
+backend = "claude"
+id = "claude-opus-5"
+positioning = "the most complete model, for complex tasks"
+source = "https://platform.claude.com/docs/en/about-claude/pricing"
+# Claude Code reports which cache duration a session wrote with, and the two
+# durations are priced apart.
+[model.price_per_million_tokens]
+input = 5.00
+cached_input = 0.50
+output = 25.00
+cache_write = { "5m" = 6.25, "1h" = 10.00 }
+
+[[model]]
+backend = "claude"
+id = "claude-sonnet-5"
+positioning = "the general model, for everyday development"
+source = "https://platform.claude.com/docs/en/about-claude/pricing"
+[model.price_per_million_tokens]
+input = 2.00
+cached_input = 0.20
+output = 10.00
+cache_write = { "5m" = 2.50, "1h" = 4.00 }
+
+[[model]]
+backend = "claude"
+id = "claude-haiku-4-5-20251001"
+positioning = "the light model, for simple and fast tasks"
+source = "https://platform.claude.com/docs/en/about-claude/pricing"
+[model.price_per_million_tokens]
+input = 1.00
+cached_input = 0.10
+output = 5.00
+cache_write = { "5m" = 1.25, "1h" = 2.00 }

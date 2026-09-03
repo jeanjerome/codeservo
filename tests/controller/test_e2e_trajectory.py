@@ -12,6 +12,13 @@ from codeservo.evidence.digests import sha256_text
 from e2e_support import FAKE_AGENTS, canonical
 from harness import TASK_TEXT, Case, commit_repository, constitution
 
+# A catalogue model of each backend, which the scripted CLI never reports
+# running on: the record keeps the request and the report apart.
+MODELS = {"claude": "claude-sonnet-5", "codex": "gpt-5.6-terra"}
+# What the fake Codex bills per turn at gpt-5.6-terra's prices: 200 uncached
+# input at 2, 1000 cache reads at 0.2, 300 output at 12, per million.
+CODEX_TURN_COST_USD = 0.0042
+
 
 @unittest.skipUnless(
     sys.platform == "darwin",
@@ -80,9 +87,9 @@ class AcceptedRunTests(unittest.TestCase):
                     "CODEX_HOME": str(root / "absent-codex"),
                 },
                 actuator=actuator,
-                max_iterations=3,
+                model=MODELS[actuator],
                 effort="high",
-                speed="fast",
+                max_iterations=3,
             )
 
             self.assertEqual("ACCEPTED", result["status"])
@@ -140,7 +147,7 @@ class AcceptedRunTests(unittest.TestCase):
             self.assertEqual("", remotes.stdout.strip())
             self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(18, evidence["schema_version"])
+            self.assertEqual(19, evidence["schema_version"])
             # A constitution declaring no provider keeps shell gates.
             self.assertEqual({"provider": "none"}, evidence["environment"])
             self.assertEqual(".", evidence["run_dir"])
@@ -185,13 +192,16 @@ class AcceptedRunTests(unittest.TestCase):
                 self.assertEqual(64, len(gate["stderr_sha256"]))
                 self.assertEqual(64, len(gate["result_sha256"]))
             if actuator == "claude":
-                models = evidence["iterations"][0]["agent"]["models"]
-                self.assertEqual("test-model", models["session_model"])
-                self.assertEqual(12, models["usage"]["test-model"]["output_tokens"])
+                usage = evidence["iterations"][0]["agent"]["usage"]
+                (billed,) = usage["billed"]
+                self.assertEqual("test-model", billed["model"])
+                self.assertEqual(300, billed["tokens"]["output"])
+                self.assertIsNone(usage["cache_write_duration"])
             for iteration in evidence["iterations"]:
                 self.assertEqual(64, len(iteration["agent"]["events_sha256"]))
                 self.assertEqual(64, len(iteration["agent"]["result_sha256"]))
             self._assert_inference(actuator, evidence)
+            self._assert_consumption(actuator, evidence)
             self.assertEqual("ACCEPTED", evidence["status"])
             self._assert_observations(result, evidence)
 
@@ -236,72 +246,44 @@ class AcceptedRunTests(unittest.TestCase):
         """The profile the run requested, sent and observed, for one backend."""
         implementer = evidence["inference"]["implementer"]
         reviewer = evidence["inference"]["reviewer"]
+        model = MODELS[actuator]
+        requested = {"backend": actuator, "model": model, "effort": "high"}
+        native = (
+            {"--model": model, "--effort": "high"}
+            if actuator == "claude"
+            else {"--model": model, "model_reasoning_effort": "high"}
+        )
 
         # No review flag was given: the implementer backend serves both roles
-        # on the documented defaults, and carries none of its own profile.
+        # on the implementer's own profile, resolved and recorded as such.
         self.assertEqual(actuator, evidence["runtime"]["review_actuator"])
         self.assertEqual(
             evidence["runtime"]["actuator_version"],
             evidence["runtime"]["review_actuator_version"],
         )
-        self.assertEqual(
-            {
-                "backend": actuator,
-                "model": None,
-                "effort": None,
-                "speed": "standard",
-            },
-            reviewer["requested"],
-        )
-        self.assertEqual("unverified", reviewer["validation"]["status"])
-        self.assertEqual({}, reviewer["native"])
+        self.assertEqual(model, evidence["runtime"]["implementer_model"])
+        self.assertEqual(model, evidence["runtime"]["reviewer_model"])
+        self.assertEqual(requested, reviewer["requested"])
+        self.assertEqual(native, reviewer["native"])
         if actuator == "claude":
             # No init event: the model comes from what the session billed.
             self.assertEqual(
-                {
-                    "model": "test-review-model",
-                    "effort": None,
-                    "speed": "standard",
-                },
-                reviewer["observed"],
+                {"model": "test-review-model", "effort": None}, reviewer["observed"]
             )
         else:
-            self.assertEqual(
-                {"model": None, "effort": None, "speed": None}, reviewer["observed"]
-            )
+            self.assertEqual({"model": None, "effort": None}, reviewer["observed"])
         self._assert_agrees(reviewer)
 
-        self.assertEqual(
-            {
-                "backend": actuator,
-                "model": None,
-                "effort": "high",
-                "speed": "fast",
-            },
-            implementer["requested"],
-        )
-        self.assertEqual("unverified", implementer["validation"]["status"])
+        self.assertEqual(requested, implementer["requested"])
+        self.assertEqual(native, implementer["native"])
         if actuator == "claude":
+            # Reported: the model of the init event, and no effort.
             self.assertEqual(
-                {"--effort": "high", "--settings": {"fastMode": True}},
-                implementer["native"],
-            )
-            # Reported: the model of the init event, the speed of the result.
-            self.assertEqual(
-                {"model": "test-model", "effort": None, "speed": "standard"},
-                implementer["observed"],
+                {"model": "test-model", "effort": None}, implementer["observed"]
             )
         else:
-            self.assertEqual(
-                {"model_reasoning_effort": "high", "service_tier": "priority"},
-                implementer["native"],
-            )
-            # The stream of the installed Codex names none of the three, and
-            # the fast tier it was sent is not read back off the command line.
-            self.assertEqual(
-                {"model": None, "effort": None, "speed": None},
-                implementer["observed"],
-            )
+            # The stream of the installed Codex names neither.
+            self.assertEqual({"model": None, "effort": None}, implementer["observed"])
         self._assert_agrees(implementer)
         # No backend reports a reasoning effort, and neither borrows the one
         # the request carried.
@@ -313,9 +295,54 @@ class AcceptedRunTests(unittest.TestCase):
         self.assertEqual(last["native"], implementer["native"])
         self.assertEqual(last["observed"], implementer["observed"])
 
+    def _assert_consumption(self, actuator: str, evidence: dict) -> None:
+        """What each actuation consumed, rated at the catalogue's list price."""
+        for iteration in evidence["iterations"]:
+            consumed = iteration["consumption"]
+            self.assertEqual({"items", "cost_usd"}, set(consumed))
+            self.assertEqual(1, len(consumed["items"]))
+            item = consumed["items"][0]
+            self.assertEqual(
+                {"model", "basis", "tokens", "cost_usd", "reported_cost_usd"},
+                set(item),
+            )
+            self.assertEqual(
+                {
+                    "input": 200,
+                    "cached_input": 1000,
+                    "cache_write": 0,
+                    "output": 300,
+                    "reasoning": 50,
+                },
+                item["tokens"],
+            )
+            if actuator == "codex":
+                # Codex names no model, so the tokens are rated at the one
+                # requested, and the record says the attribution is ours.
+                self.assertEqual(MODELS["codex"], item["model"])
+                self.assertEqual("requested_model", item["basis"])
+                self.assertEqual(CODEX_TURN_COST_USD, item["cost_usd"])
+                self.assertEqual(CODEX_TURN_COST_USD, consumed["cost_usd"])
+                self.assertIsNone(item["reported_cost_usd"])
+            else:
+                # The fake bills under a model the catalogue does not list:
+                # the tokens are kept, the cost stays unknown, and what the
+                # backend itself reported stays beside them.
+                self.assertEqual("test-model", item["model"])
+                self.assertEqual("reported_model", item["basis"])
+                self.assertIsNone(item["cost_usd"])
+                self.assertIsNone(consumed["cost_usd"])
+                self.assertEqual(0.0, item["reported_cost_usd"])
+        review = evidence["iterations"][-1]["review"]["consumption"]
+        self.assertEqual(1, len(review["items"]))
+        if actuator == "codex":
+            self.assertEqual(CODEX_TURN_COST_USD, review["cost_usd"])
+        else:
+            self.assertIsNone(review["cost_usd"])
+
     def _assert_agrees(self, profile: dict) -> None:
         """`observed` and `provenance` name the same fields and never disagree."""
-        self.assertEqual({"model", "effort", "speed"}, set(profile["observed"]))
+        self.assertEqual({"model", "effort"}, set(profile["observed"]))
         self.assertEqual(set(profile["observed"]), set(profile["provenance"]))
         for name, value in profile["observed"].items():
             self.assertEqual(

@@ -19,7 +19,5 @@ def main() -> None:
     if args.command == "land":
         raise SystemExit(land_run(args.run_dir, args.message, args.json))
     if args.command == "models":
-        raise SystemExit(
-            report_models(args.actuator, args.model, args.json, args.state_dir)
-        )
+        raise SystemExit(report_models(args.actuator, args.model, args.json))
     raise SystemExit(control_change(args))

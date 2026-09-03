@@ -5,8 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ..actuators import ACTUATOR_ENV_VAR, DEFAULT_ACTUATOR, Backend, Speed
-from ..actuators.inventory import DEFAULT_SPEED
+from ..actuators import ACTUATOR_ENV_VAR, DEFAULT_ACTUATOR, Backend, Effort
 from ..controller.run import DEFAULT_AGENT_TIMEOUT_SECONDS, DEFAULT_MAX_ITERATIONS
 
 PROGRAM = "codeservo"
@@ -25,20 +24,20 @@ def build_parser() -> argparse.ArgumentParser:
     execute.add_argument(
         "--max-iterations", type=int, default=DEFAULT_MAX_ITERATIONS
     )
-    execute.add_argument("--model")
-    execute.add_argument("--review-model")
     execute.add_argument(
-        "--effort",
-        help=(
-            "reasoning effort the implementer backend applies "
-            "(levels are backend-specific; unset leaves the backend default)"
-        ),
+        "--model",
+        required=True,
+        help="the complete identifier of a model the catalogue lists for --actuator",
     )
     execute.add_argument(
-        "--speed",
-        choices=tuple(Speed),
-        default=DEFAULT_SPEED,
-        help=f"speed tier the implementer backend applies (default: {DEFAULT_SPEED})",
+        "--effort",
+        required=True,
+        choices=tuple(Effort),
+        help="the reasoning effort handed to the implementer backend unchanged",
+    )
+    execute.add_argument(
+        "--review-model",
+        help="the reviewer's model (default: the same as --model)",
     )
     execute.add_argument(
         "--agent-timeout-seconds", type=int, default=DEFAULT_AGENT_TIMEOUT_SECONDS
@@ -62,16 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     execute.add_argument(
         "--review-effort",
-        help=(
-            "reasoning effort the reviewer backend applies "
-            "(levels are backend-specific; unset leaves the backend default)"
-        ),
-    )
-    execute.add_argument(
-        "--review-speed",
-        choices=tuple(Speed),
-        default=DEFAULT_SPEED,
-        help=f"speed tier the reviewer backend applies (default: {DEFAULT_SPEED})",
+        choices=tuple(Effort),
+        help="the reasoning effort handed to the reviewer backend (default: --effort)",
     )
     execute.add_argument(
         "--state-dir",
@@ -102,20 +93,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     models = sub.add_parser(
-        "models", help="report the models a backend advertises on this machine"
+        "models", help="list the models a run may request, and their list prices"
     )
     models.add_argument(
         "--actuator",
         choices=tuple(Backend),
-        help="report one backend instead of every known one",
+        help="list one backend's models instead of every backend's",
     )
-    models.add_argument("--model", help="report one model of the selected backend")
+    models.add_argument("--model", help="list one model of the selected backend")
     models.add_argument(
-        "--json", action="store_true", help="write the inventory document to stdout"
-    )
-    models.add_argument(
-        "--state-dir",
-        type=Path,
-        help="store the inventory outside the target repository",
+        "--json", action="store_true", help="write the catalogue as a document to stdout"
     )
     return parser

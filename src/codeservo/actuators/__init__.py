@@ -11,13 +11,16 @@ from .base import (
     Actuation,
     Actuator,
     ActuatorError,
+    Billed,
     ObservedProfile,
     ReportedProfile,
     ReviewMeta,
+    Tokens,
+    Usage,
     default_actuator_name,
     load_actuator,
 )
-from .inventory import Backend, Speed
+from .catalogue import Backend, Catalogue, CatalogueError, Effort, load_catalogue
 
 __all__ = [
     "ACTUATOR_ENV_VAR",
@@ -26,10 +29,16 @@ __all__ = [
     "Actuator",
     "ActuatorError",
     "Backend",
+    "Billed",
+    "Catalogue",
+    "CatalogueError",
+    "Effort",
     "ObservedProfile",
     "ReportedProfile",
     "ReviewMeta",
-    "Speed",
+    "Tokens",
+    "Usage",
     "default_actuator_name",
     "load_actuator",
+    "load_catalogue",
 ]

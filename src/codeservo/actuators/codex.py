@@ -17,20 +17,22 @@ from ..runtime.sandbox import (
     isolation_evidence,
     seatbelt_command,
 )
-from .base import ActuatorError, ObservedProfile
-from .inventory import DEFAULT_SPEED, Speed
+from .base import ActuatorError, Billed, ObservedProfile, Tokens, Usage
 
-# The two configuration keys Codex accepts for the inference profile, and the
+# The configuration key Codex accepts for the reasoning effort, and the
 # event-stream fields it answers with. The names differ on purpose: a key sets
 # the request, a field reports what the session ran on.
 EFFORT_KEY = "model_reasoning_effort"
-SPEED_KEY = "service_tier"
-FAST_SPEED_VALUE = "priority"
+MODEL_FLAG = "--model"
 OBSERVED_FIELDS = {
     "model": "model",
     "effort": "reasoning_effort",
-    "speed": "service_tier",
 }
+# Where the stream reports what a turn consumed, and the names it uses. The
+# input count is a total: the cached and the written parts sit inside it, as
+# the provider's caching guide states, so the uncached input is what remains.
+USAGE_EVENT = "turn.completed"
+USAGE_FIELD = "usage"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -41,6 +43,7 @@ class UnsignedActuation(Document):
     duration_ms: int
     native: dict[str, Any]
     observed: ObservedProfile
+    usage: Usage
     events_path: str
     events_sha256: str
     stderr_path: str
@@ -74,6 +77,7 @@ class UnsignedReviewMeta(Document):
     duration_ms: int
     native: dict[str, Any]
     observed: ObservedProfile
+    usage: Usage
     stdout_path: str
     stdout_sha256: str
     stderr_path: str
@@ -103,14 +107,13 @@ class CodexError(ActuatorError):
     pass
 
 
-def _base_command(
-    worktree: Path,
-    sandbox: str,
-    model: str | None,
-    effort: str | None = None,
-    speed: str = DEFAULT_SPEED,
-) -> list[str]:
-    command = [
+def _base_command(worktree: Path, sandbox: str, model: str, effort: str) -> list[str]:
+    """The command both roles start from: the model as a flag, the effort as a key.
+
+    Both are handed over unchanged. Whether the model accepts the effort is
+    the CLI's to decide, and it fails explicitly when it does not.
+    """
+    return [
         "codex",
         "exec",
         "--cd",
@@ -119,24 +122,16 @@ def _base_command(
         sandbox,
         "--ephemeral",
         "--ignore-user-config",
+        MODEL_FLAG,
+        model,
+        "-c",
+        f"{EFFORT_KEY}={effort}",
     ]
-    if model:
-        command.extend(["--model", model])
-    if effort:
-        command.extend(["-c", f"{EFFORT_KEY}={effort}"])
-    if speed == Speed.FAST:
-        command.extend(["-c", f"{SPEED_KEY}={FAST_SPEED_VALUE}"])
-    return command
 
 
-def _native_profile(effort: str | None, speed: Speed) -> dict[str, Any]:
-    """The configuration keys the command actually carried, and their values."""
-    native: dict[str, Any] = {}
-    if effort:
-        native[EFFORT_KEY] = effort
-    if speed == Speed.FAST:
-        native[SPEED_KEY] = FAST_SPEED_VALUE
-    return native
+def _native_profile(model: str, effort: str) -> dict[str, Any]:
+    """The flag and the configuration key the command carried, and their values."""
+    return {MODEL_FLAG: model, EFFORT_KEY: effort}
 
 
 def _events(path: Path) -> list[dict]:
@@ -174,10 +169,71 @@ def _observed(events: list[dict]) -> ObservedProfile:
                 reported = scope.get(field)
                 if isinstance(reported, str) and reported:
                     read[name] = reported
-    return ObservedProfile(
-        model=read["model"],
-        effort=read["effort"],
-        speed=read["speed"],
+    return ObservedProfile(model=read["model"], effort=read["effort"])
+
+
+def _count(record: dict, field: str) -> int | None:
+    value = record.get(field)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _usage(events: list[dict]) -> Usage:
+    """What the session consumed, summed over the turns that reported it.
+
+    codex-cli 0.151.0 reports, per completed turn, a total input count with
+    the cached and the written parts inside it, an output count and the
+    reasoning part of it. It names no model, no cost and no cache duration, so
+    the tokens are billed under no model here: the controller rates them at
+    the model it requested, and says so. A session that completed no turn
+    reported nothing.
+    """
+    usages = [
+        event[USAGE_FIELD]
+        for event in events
+        if event.get("type") == USAGE_EVENT and isinstance(event.get(USAGE_FIELD), dict)
+    ]
+    if not usages:
+        return Usage(billed=(), cache_write_duration=None)
+    totals: dict[str, int | None] = {
+        "input": 0,
+        "cached_input": 0,
+        "cache_write": 0,
+        "output": 0,
+        "reasoning": 0,
+    }
+    reported = {
+        "input": "input_tokens",
+        "cached_input": "cached_input_tokens",
+        "cache_write": "cache_write_input_tokens",
+        "output": "output_tokens",
+        "reasoning": "reasoning_output_tokens",
+    }
+    for usage in usages:
+        for category, field in reported.items():
+            count = _count(usage, field)
+            current = totals[category]
+            totals[category] = None if count is None or current is None else current + count
+    total_input, cached, written = totals["input"], totals["cached_input"], totals["cache_write"]
+    uncached = (
+        max(total_input - cached - written, 0)
+        if total_input is not None and cached is not None and written is not None
+        else None
+    )
+    return Usage(
+        billed=(
+            Billed(
+                model=None,
+                tokens=Tokens(
+                    input=uncached,
+                    cached_input=cached,
+                    cache_write=written,
+                    output=totals["output"],
+                    reasoning=totals["reasoning"],
+                ),
+                reported_cost_usd=None,
+            ),
+        ),
+        cache_write_duration=None,
     )
 
 
@@ -203,11 +259,10 @@ def run_implementer(
     worktree: Path,
     prompt: str,
     out_dir: Path,
-    model: str | None,
+    model: str,
+    effort: str,
     timeout_seconds: int,
     isolation: Isolation = Isolation(),
-    effort: str | None = None,
-    speed: Speed = DEFAULT_SPEED,
 ) -> CodexActuation:
     out_dir.mkdir(parents=True, exist_ok=True)
     events = out_dir / "events.jsonl"
@@ -220,7 +275,7 @@ def run_implementer(
         temporary_stderr = temporary_dir / "stderr.log"
         temporary_last_message = temporary_dir / "last-message.md"
         command = _base_command(
-            worktree, _sandbox(isolation, "workspace-write"), model, effort, speed
+            worktree, _sandbox(isolation, "workspace-write"), model, effort
         )
         command.extend(
             ["--json", "--output-last-message", str(temporary_last_message), "-"]
@@ -251,11 +306,13 @@ def run_implementer(
                 f"implementer timed out after {timeout_seconds}s"
             ) from timeout_error
 
+    reported = _events(events)
     return UnsignedActuation(
         exit_code=completed.returncode,
         duration_ms=int((time.monotonic() - started) * 1000),
-        native=_native_profile(effort, speed),
-        observed=_observed(_events(events)),
+        native=_native_profile(model, effort),
+        observed=_observed(reported),
+        usage=_usage(reported),
         events_path=str(events),
         events_sha256=sha256_file(events),
         stderr_path=str(stderr_path),
@@ -273,11 +330,10 @@ def run_reviewer(
     prompt: str,
     schema_path: Path,
     out_dir: Path,
-    model: str | None,
+    model: str,
+    effort: str,
     timeout_seconds: int,
     isolation: Isolation = Isolation(),
-    effort: str | None = None,
-    speed: Speed = DEFAULT_SPEED,
 ) -> tuple[dict[str, Any], CodexReviewMeta]:
     out_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = out_dir / "stdout.log"
@@ -298,7 +354,7 @@ def run_reviewer(
     with tempfile.TemporaryDirectory(prefix="codeservo-review-") as temp:
         temporary_result = Path(temp) / "review.json"
         command = _base_command(
-            worktree, _sandbox(isolation, "read-only"), model, effort, speed
+            worktree, _sandbox(isolation, "read-only"), model, effort
         )
         # `--json` turns stdout into the documented event stream the
         # implementer already receives, so the reviewer reports about its own
@@ -333,13 +389,15 @@ def run_reviewer(
         if temporary_result.is_file():
             shutil.copyfile(temporary_result, result_path)
 
+    reported = _events(stdout_path)
     meta = UnsignedReviewMeta(
         exit_code=completed.returncode,
         duration_ms=int((time.monotonic() - started) * 1000),
-        native=_native_profile(effort, speed),
+        native=_native_profile(model, effort),
         # Read from the event stream `--json` produces, under the names the
         # stream uses, and never from the keys the command line carried.
-        observed=_observed(_events(stdout_path)),
+        observed=_observed(reported),
+        usage=_usage(reported),
         stdout_path=str(stdout_path),
         stdout_sha256=sha256_file(stdout_path),
         stderr_path=str(stderr_path),

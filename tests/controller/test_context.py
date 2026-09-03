@@ -6,7 +6,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codeservo.actuators.inventory import DEFAULT_SPEED
 from codeservo.controller import ControlFailure
 from codeservo.controller.context import (
     RunContext,
@@ -15,7 +14,14 @@ from codeservo.controller.context import (
     resolve_state_dir,
 )
 from codeservo.controller.record import RunRecord
-from harness import TASK_TEXT, commit_repository, constitution, write_provider
+from harness import (
+    REQUESTED_EFFORT,
+    REQUESTED_MODEL,
+    TASK_TEXT,
+    commit_repository,
+    constitution,
+    write_provider,
+)
 
 
 def prepare_run(root: Path, tree: Path) -> tuple[RunContext, RunRecord]:
@@ -30,13 +36,11 @@ def prepare_run(root: Path, tree: Path) -> tuple[RunContext, RunRecord]:
             agent_timeout_seconds=60,
             state_dir=root / "state",
             actuator="claude",
-            model=None,
-            effort=None,
-            speed=DEFAULT_SPEED,
+            model=REQUESTED_MODEL,
+            effort=REQUESTED_EFFORT,
             review_actuator=None,
-            review_model=None,
-            review_effort=None,
-            review_speed=DEFAULT_SPEED,
+            review_model=REQUESTED_MODEL,
+            review_effort=REQUESTED_EFFORT,
         )
     )
 

@@ -6,7 +6,7 @@ them are in [COMMANDS.md](COMMANDS.md).
 
 ## Design
 
-- Keep CodeServo small, explicit, and independent from its actuator. Backend-specific behavior stays in one module loaded explicitly by `actuators.load_actuator`; it exposes `run_implementer`, `run_reviewer`, and `describe_isolation`, and may expose explicit model inventory or profile capabilities without introducing a plugin framework.
+- Keep CodeServo small, explicit, and independent from its actuator. Backend-specific behavior stays in one module loaded explicitly by `actuators.load_actuator`; it exposes `run_implementer`, `run_reviewer`, and `describe_isolation`, and reads no provider cache: what a run may name is the model catalogue the package publishes, and an adapter reports tokens without pricing them.
 - Prefer the Python standard library when practical. Keep tests and architecture checks deterministic.
 - A closed vocabulary is a `StrEnum`: its members are the whole of it, so one
   is added in a single place, and a member is the string it serialises to. A

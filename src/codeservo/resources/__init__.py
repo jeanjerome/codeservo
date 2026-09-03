@@ -35,6 +35,11 @@ def review_schema(source_root: Path | None = None) -> Path:
     return published("review.schema.json", source_root)
 
 
+def model_catalogue(source_root: Path | None = None) -> Path:
+    """The catalogue of the models a run may request, and their list prices."""
+    return published("models.toml", source_root)
+
+
 def constitution_example() -> Path:
     """The starter constitution `codeservo init` copies into a repository."""
     return PACKAGE_DIR / "constitution.example.toml"

@@ -9,6 +9,24 @@ import json
 
 from harness import SENSOR_COMMAND
 
+# What the two fake backends bill, in each backend's own spelling: the Codex
+# input count is a total holding the cached part, the Claude counts stand apart.
+CODEX_USAGE = {
+    "input_tokens": 1200,
+    "cached_input_tokens": 1000,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 300,
+    "reasoning_output_tokens": 50,
+}
+CLAUDE_USAGE = {
+    "inputTokens": 200,
+    "cacheReadInputTokens": 1000,
+    "cacheCreationInputTokens": 0,
+    "outputTokens": 300,
+    "thinkingTokens": 50,
+    "costUSD": 0.0,
+}
+
 JOURNAL_PROBE = '''"""Report the transitions the journal already holds."""
 import json
 import pathlib
@@ -60,27 +78,6 @@ emit_review(
 
 
 MUTATING_SENSOR = f"{SENSOR_COMMAND} && echo mutated > mutant.py"
-
-
-def codex_cache(model: str, efforts: list[str], fast: bool) -> str:
-    """A local Codex cache shaped like the one the `models` command projects."""
-    return json.dumps(
-        {
-            "fetched_at": "2026-08-31T21:49:12.689027Z",
-            "client_version": "0.151.0",
-            "models": [
-                {
-                    "slug": model,
-                    "display_name": model.upper(),
-                    "supported_reasoning_levels": [
-                        {"effort": effort} for effort in efforts
-                    ],
-                    "visibility": "list",
-                    "additional_speed_tiers": ["fast"] if fast else [],
-                }
-            ],
-        }
-    )
 
 
 def canonical(payload: dict) -> str:
@@ -237,12 +234,14 @@ sys.stdin.read()
 if "--output-schema" in args:
     probe_reviewer_isolation(worktree)
     print(json.dumps({{"argv": args}}))
+    print(json.dumps({{"type": "turn.completed", "usage": {CODEX_USAGE}}}))
     out.write_text(json.dumps(REVIEW))
 else:
     probe_implementer_isolation(worktree)
     next_implementation(worktree)
     out.write_text("implemented")
     print(json.dumps({{"type": "message", "message": "done"}}))
+    print(json.dumps({{"type": "turn.completed", "usage": {CODEX_USAGE}}}))
 '''
 
 
@@ -279,8 +278,8 @@ if value("--output-format") == "json":
             "structured_output": REVIEW,
             # One object and no init event: the model the reviewer ran on is
             # named only by the record of what the session billed.
-            "usage": {{"speed": "standard", "service_tier": "standard"}},
-            "modelUsage": {{"test-review-model": {{"outputTokens": 4}}}},
+            "usage": {{"cache_creation": {{}}}},
+            "modelUsage": {{"test-review-model": {CLAUDE_USAGE}}},
         }},
         sys.stdout,
     )
@@ -299,8 +298,8 @@ else:
                 "total_cost_usd": 0.0,
                 "terminal_reason": "completed",
                 "result": "implemented",
-                "usage": {{"speed": "standard", "service_tier": "standard"}},
-                "modelUsage": {{"test-model": {{"outputTokens": 12, "costUSD": 0.0}}}},
+                "usage": {{"cache_creation": {{}}}},
+                "modelUsage": {{"test-model": {CLAUDE_USAGE}}},
             }}
         )
     )

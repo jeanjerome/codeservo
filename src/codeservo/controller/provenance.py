@@ -39,8 +39,8 @@ def command_version(command: list[str]) -> str:
 def runtime_metadata(
     actuator: Actuator,
     reviewer: Actuator,
-    model: str | None,
-    review_model: str | None,
+    model: str,
+    review_model: str,
 ) -> RuntimeMetadata:
     """Name the two backends a run drives, and the CLI each one answered with.
 
@@ -61,8 +61,8 @@ def runtime_metadata(
             if reviewer.version_command == actuator.version_command
             else command_version(list(reviewer.version_command))
         ),
-        implementer_model=model or f"{actuator.name}-default",
-        reviewer_model=review_model or f"{reviewer.name}-default",
+        implementer_model=model,
+        reviewer_model=review_model,
         python_version=platform.python_version(),
         git_version=command_version(["git", "--version"]),
     )

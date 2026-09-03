@@ -85,6 +85,7 @@ class ValidRunTests(unittest.TestCase):
                 {
                     "input.TASK.md",
                     "input.constitution.toml",
+                    "input.catalogue.toml",
                     "sensor.task-outcome",
                     "artifact.environment/packages.json",
                     "artifact.iterations/01/prompt.md",

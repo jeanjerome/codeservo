@@ -1,4 +1,4 @@
-"""The inference profile each role was given, and what reached its backend."""
+"""The inference profile each role was given, what reached its backend, and what it cost."""
 
 import json
 import stat
@@ -9,8 +9,25 @@ from pathlib import Path
 from unittest.mock import patch
 
 from codeservo.actuators import claude_code, codex
-from e2e_support import FAKE_CODEX, codex_cache
-from harness import AGENT_MODEL, AGENT_SPEED, REVIEW_MODEL, build_case
+from codeservo.actuators.catalogue import load_catalogue
+from codeservo.controller import ControlFailure
+from codeservo.evidence.digests import sha256_text
+from codeservo.evidence.journal import JOURNAL_NAME, read_journal
+from codeservo.evidence.verify import verify_run
+from e2e_support import FAKE_CODEX
+from harness import (
+    AGENT_COST_USD,
+    AGENT_MODEL,
+    BILLED_MODEL,
+    REQUESTED_EFFORT,
+    REQUESTED_MODEL,
+    REVIEW_MODEL,
+    build_case,
+)
+
+# What the fake Codex reviewer bills at gpt-5.6-sol's prices: 200 uncached
+# input at 4, 1000 cache reads at 0.4, 300 output at 20, per million.
+CODEX_REVIEW_COST_USD = 0.0072
 
 
 @unittest.skipUnless(
@@ -18,19 +35,13 @@ from harness import AGENT_MODEL, AGENT_SPEED, REVIEW_MODEL, build_case
     "controller confinement requires macOS sandbox-exec",
 )
 class InferenceProfileE2ETests(unittest.TestCase):
-    def _codex_case(self, root: Path, *, efforts: list[str], fast: bool):
-        """A run whose backend has a local inventory the controller can read."""
+    def _codex_case(self, root: Path):
+        """A run whose reviewer can be the scripted Codex."""
         case = build_case(root, implementer="implement(ACCEPTABLE)")
         agent = case.bin_dir / "codex"
         agent.write_text(FAKE_CODEX, encoding="utf-8")
         agent.chmod(agent.stat().st_mode | stat.S_IXUSR)
-        codex_home = root / "codex"
-        codex_home.mkdir()
-        (codex_home / "models_cache.json").write_text(
-            codex_cache("gpt-5.6-sol", efforts, fast), encoding="utf-8"
-        )
         return case, {
-            "CODEX_HOME": str(codex_home),
             "CODESERVO_TEST_SOURCE_GIT": str((case.repo / ".git").resolve()),
             "CODESERVO_TEST_SOURCE_REPO": str(case.repo.resolve()),
         }
@@ -61,164 +72,127 @@ class InferenceProfileE2ETests(unittest.TestCase):
             case = build_case(Path(temp), implementer="implement(ACCEPTABLE)")
 
             with patch.object(claude_code, "run_implementer", observe):
-                result = case.run(model="opus", effort="high", speed="fast")
+                result = case.run(model="claude-opus-5", effort="high")
 
             self.assertEqual("ACCEPTED", result["status"])
-            # Both roles exist in the persisted record before anything starts.
+            requested = {"backend": "claude", "model": "claude-opus-5", "effort": "high"}
+            # Both roles exist in the persisted record before anything starts,
+            # the reviewer's resolved from the implementer's.
             self.assertEqual({"implementer", "reviewer"}, set(frozen[0]["inference"]))
-            self.assertEqual(
-                {
-                    "backend": "claude",
-                    "model": None,
-                    "effort": None,
-                    "speed": "standard",
-                },
-                frozen[0]["inference"]["reviewer"]["requested"],
-            )
+            self.assertEqual(requested, frozen[0]["inference"]["reviewer"]["requested"])
             before = frozen[0]["inference"]["implementer"]
-            self.assertEqual(
-                {
-                    "backend": "claude",
-                    "model": "opus",
-                    "effort": "high",
-                    "speed": "fast",
-                },
-                before["requested"],
-            )
-            self.assertEqual("unverified", before["validation"]["status"])
+            self.assertEqual(requested, before["requested"])
+            self.assertEqual({"requested", "native", "observed", "provenance"}, set(before))
             self.assertIsNone(before["native"])
             # Before any backend answered, every field is empty and says why.
+            self.assertEqual({"model": None, "effort": None}, before["observed"])
             self.assertEqual(
-                {"model": None, "effort": None, "speed": None}, before["observed"]
-            )
-            self.assertEqual(
-                {
-                    "model": "not_reported",
-                    "effort": "not_reported",
-                    "speed": "not_reported",
-                },
-                before["provenance"],
+                {"model": "not_reported", "effort": "not_reported"}, before["provenance"]
             )
 
             after = result["inference"]["implementer"]
             self.assertEqual(before["requested"], after["requested"])
-            # What the settings document holds, not the path it briefly had.
-            self.assertEqual(
-                {"--effort": "high", "--settings": {"fastMode": True}},
-                after["native"],
-            )
+            # The two flags the command carried, unchanged.
+            self.assertEqual({"--model": "claude-opus-5", "--effort": "high"}, after["native"])
             # The session named a model of its own: the record holds that one,
-            # not the alias the request carried.
-            self.assertEqual(
-                {
-                    "model": AGENT_MODEL,
-                    "effort": None,
-                    "speed": AGENT_SPEED,
-                },
-                after["observed"],
-            )
+            # not the one the request carried.
+            self.assertEqual({"model": AGENT_MODEL, "effort": None}, after["observed"])
             self.assertNotEqual(after["requested"]["model"], after["observed"]["model"])
             self.assertEqual(
-                {
-                    "model": "reported",
-                    "effort": "not_reported",
-                    "speed": "reported",
-                },
-                after["provenance"],
+                {"model": "reported", "effort": "not_reported"}, after["provenance"]
             )
-            # The requested effort reached the command line and no observation.
-            self.assertEqual("high", after["requested"]["effort"])
-            self.assertEqual("high", after["native"]["--effort"])
 
             reviewer = result["inference"]["reviewer"]
+            self.assertEqual({"model": REVIEW_MODEL, "effort": None}, reviewer["observed"])
             self.assertEqual(
-                {
-                    "model": REVIEW_MODEL,
-                    "effort": None,
-                    "speed": AGENT_SPEED,
-                },
-                reviewer["observed"],
+                {"model": "reported", "effort": "not_reported"}, reviewer["provenance"]
             )
-            self.assertEqual(
-                {
-                    "model": "reported",
-                    "effort": "not_reported",
-                    "speed": "reported",
-                },
-                reviewer["provenance"],
-            )
+            runtime = result["runtime"]
+            self.assertEqual("claude-opus-5", runtime["implementer_model"])
+            self.assertEqual("claude-opus-5", runtime["reviewer_model"])
 
-    def test_an_unsupported_profile_ends_the_run_before_any_checkout(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            case, env = self._codex_case(
-                Path(temp), efforts=["low", "medium", "high"], fast=False
-            )
-
-            result = case.run(
-                env=env,
-                actuator="codex",
-                model="gpt-5.6-sol",
-                effort="ultra",
-                speed="fast",
-            )
-
-            self.assertEqual("REJECTED", result["status"])
-            self.assertIsNone(result["worktree"])
-            self.assertEqual([], result["iterations"])
-            self.assertNotIn("baseline", result)
-            self.assertFalse(Path(result["run_dir"], "iterations").exists())
-            self.assertEqual(
-                1, len(result["decision"]["reasons"]), result["decision"]["reasons"]
-            )
-            self.assertIn("configuration error", result["decision"]["reasons"][0])
-            self.assertIn("implementer", result["decision"]["reasons"][0])
-
-            evidence = json.loads(
-                Path(result["run_dir"], "evidence.json").read_text(encoding="utf-8")
-            )
-            implementer = evidence["inference"]["implementer"]
-            validation = implementer["validation"]
-            self.assertEqual("unsupported", validation["status"])
-            self.assertEqual("backend-cache", validation["inventory_source"])
-            self.assertIn("effort ultra", validation["reason"])
-            self.assertIn("speed fast", validation["reason"])
-            self.assertEqual("ultra", implementer["requested"]["effort"])
-            self.assertIsNone(implementer["native"])
-            self.assertIsNone(evidence["worktree"])
-
-    def test_a_supported_profile_reaches_the_actuator(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            case, env = self._codex_case(
-                Path(temp), efforts=["low", "medium", "high"], fast=True
-            )
-
-            result = case.run(
-                env=env,
-                actuator="codex",
-                model="gpt-5.6-sol",
-                effort="high",
-                speed="fast",
-                max_iterations=3,
-            )
-
-            self.assertEqual("ACCEPTED", result["status"])
-            implementer = result["inference"]["implementer"]
-            self.assertEqual("supported", implementer["validation"]["status"])
-            self.assertEqual(
-                "backend-cache", implementer["validation"]["inventory_source"]
-            )
-            self.assertIsNotNone(result["worktree"])
-            self.assertEqual(
-                {"model_reasoning_effort": "high", "service_tier": "priority"},
-                implementer["native"],
-            )
-
-    def test_no_review_flag_keeps_one_backend_serving_both_roles(self) -> None:
-        """The documented defaults reproduce the behaviour of an earlier run."""
+    def test_a_model_the_catalogue_does_not_list_is_refused_before_any_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             case = build_case(Path(temp), implementer="implement(ACCEPTABLE)")
 
-            result = case.run(model="opus", effort="high", speed="fast")
+            with self.assertRaisesRegex(ControlFailure, "names no claude model 'opus'"):
+                case.run(model="opus", effort="high")
+
+            self.assertFalse((case.state_dir / "runs").exists())
+
+    def test_a_model_of_the_other_backend_is_refused_by_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            case = build_case(Path(temp), implementer="implement(ACCEPTABLE)")
+
+            with self.assertRaisesRegex(
+                ControlFailure, "implementer profile: gpt-5.6-sol is a codex model"
+            ):
+                case.run(model="gpt-5.6-sol", effort="high")
+
+            self.assertFalse((case.state_dir / "runs").exists())
+
+    def test_an_effort_outside_the_four_is_refused_by_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            case = build_case(Path(temp), implementer="implement(ACCEPTABLE)")
+
+            with self.assertRaisesRegex(ControlFailure, "reviewer effort must be one of"):
+                case.run(review_effort="ultra")
+
+            self.assertFalse((case.state_dir / "runs").exists())
+
+    def test_the_catalogue_is_frozen_with_the_run_and_rates_every_actuation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            case = build_case(Path(temp), implementer="implement(ACCEPTABLE)")
+
+            result = case.run()
+
+            self.assertEqual("ACCEPTED", result["status"])
+            run_dir = Path(result["run_dir"])
+            published = load_catalogue()
+            frozen = (run_dir / "catalogue.toml").read_text(encoding="utf-8")
+            self.assertEqual(published.raw_text, frozen)
+            self.assertEqual(sha256_text(frozen), result["catalogue_sha256"])
+            events = {event["type"]: event for event in read_journal(run_dir / JOURNAL_NAME)}
+            self.assertEqual(
+                result["catalogue_sha256"], events["inputs.frozen"]["payload"]["catalogue_sha256"]
+            )
+            self.assertEqual(
+                {
+                    "implementer": {"backend": "claude", "model": REQUESTED_MODEL, "effort": REQUESTED_EFFORT},
+                    "reviewer": {"backend": "claude", "model": REQUESTED_MODEL, "effort": REQUESTED_EFFORT},
+                },
+                events["inference.profiles_frozen"]["payload"],
+            )
+            report = verify_run(run_dir)
+            self.assertEqual("VALID", report["status"])
+            self.assertIn("input.catalogue.toml", {check["name"] for check in report["checks"]})
+
+            # The implementer billed under a model the catalogue prices.
+            consumed = result["iterations"][-1]["consumption"]
+            (item,) = consumed["items"]
+            self.assertEqual(BILLED_MODEL, item["model"])
+            self.assertEqual("reported_model", item["basis"])
+            self.assertEqual(
+                {"input": 1000, "cached_input": 2000, "cache_write": 500, "output": 1500, "reasoning": 100},
+                item["tokens"],
+            )
+            self.assertEqual(AGENT_COST_USD, item["cost_usd"])
+            self.assertEqual(AGENT_COST_USD, item["reported_cost_usd"])
+            self.assertEqual(AGENT_COST_USD, consumed["cost_usd"])
+            # The reviewer billed under one it does not: the tokens are kept
+            # and the cost stays unknown.
+            review = result["iterations"][-1]["review"]["consumption"]
+            (item,) = review["items"]
+            self.assertEqual(REVIEW_MODEL, item["model"])
+            self.assertEqual(40, item["tokens"]["input"])
+            self.assertIsNone(item["cost_usd"])
+            self.assertIsNone(review["cost_usd"])
+
+    def test_no_review_flag_keeps_one_backend_serving_both_roles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            case = build_case(Path(temp), implementer="implement(ACCEPTABLE)")
+
+            result = case.run(model="claude-opus-5", effort="high")
 
             self.assertEqual("ACCEPTED", result["status"])
             runtime = result["runtime"]
@@ -227,25 +201,13 @@ class InferenceProfileE2ETests(unittest.TestCase):
             self.assertEqual(
                 runtime["actuator_version"], runtime["review_actuator_version"]
             )
-            self.assertEqual("opus", runtime["implementer_model"])
-            self.assertEqual("claude-default", runtime["reviewer_model"])
-
             reviewer = result["inference"]["reviewer"]
-            self.assertEqual(
-                {
-                    "backend": "claude",
-                    "model": None,
-                    "effort": None,
-                    "speed": "standard",
-                },
-                reviewer["requested"],
-            )
-            # No effort, no settings document, no configuration override.
-            self.assertEqual({}, reviewer["native"])
+            self.assertEqual(result["inference"]["implementer"]["requested"], reviewer["requested"])
+            self.assertEqual({"--model": "claude-opus-5", "--effort": "high"}, reviewer["native"])
             command = result["iterations"][-1]["review"]["meta"]["command"]
-            self.assertNotIn("--effort", command)
+            self.assertEqual("claude-opus-5", command[command.index("--model") + 1])
+            self.assertEqual("high", command[command.index("--effort") + 1])
             self.assertNotIn("--settings", command)
-            self.assertNotIn("--model", command)
             self.assertIn("--safe-mode", command)
             self.assertEqual("json", command[command.index("--output-format") + 1])
 
@@ -262,9 +224,7 @@ class InferenceProfileE2ETests(unittest.TestCase):
             return review(**arguments)
 
         with tempfile.TemporaryDirectory() as temp:
-            case, env = self._codex_case(
-                Path(temp), efforts=["low", "medium", "high"], fast=False
-            )
+            case, env = self._codex_case(Path(temp))
 
             with patch.object(codex, "run_reviewer", observe):
                 result = case.run(
@@ -281,45 +241,32 @@ class InferenceProfileE2ETests(unittest.TestCase):
             self.assertEqual("0.0-test (Claude Code)", runtime["actuator_version"])
             self.assertEqual("codex", runtime["review_actuator"])
             self.assertEqual("codex-cli 0.0-test", runtime["review_actuator_version"])
-            self.assertEqual("claude-default", runtime["implementer_model"])
+            self.assertEqual(REQUESTED_MODEL, runtime["implementer_model"])
             self.assertEqual("gpt-5.6-sol", runtime["reviewer_model"])
 
             implementer = result["inference"]["implementer"]
             reviewer = result["inference"]["reviewer"]
-            # One backend's inventory never answers for the other's.
             self.assertEqual("claude", implementer["requested"]["backend"])
-            self.assertEqual("unverified", implementer["validation"]["status"])
             self.assertEqual(
-                {
-                    "backend": "codex",
-                    "model": "gpt-5.6-sol",
-                    "effort": "high",
-                    "speed": "standard",
-                },
+                {"backend": "codex", "model": "gpt-5.6-sol", "effort": "high"},
                 reviewer["requested"],
             )
-            self.assertEqual("supported", reviewer["validation"]["status"])
+            # The flag and the key the reviewer command carried, under the
+            # backend's names, and nothing of the implementer's.
             self.assertEqual(
-                "backend-cache", reviewer["validation"]["inventory_source"]
+                {"--model": "gpt-5.6-sol", "model_reasoning_effort": "high"},
+                reviewer["native"],
             )
-            # The keys the reviewer command carried, under the backend's names.
-            self.assertEqual({"model_reasoning_effort": "high"}, reviewer["native"])
-            # The reviewer effort reached the reviewer alone.
-            self.assertEqual({}, implementer["native"])
+            self.assertEqual(
+                {"--model": REQUESTED_MODEL, "--effort": REQUESTED_EFFORT},
+                implementer["native"],
+            )
             # Nothing requested is copied into what the backend reported: the
-            # Codex stream names none of the three, and says so per field.
+            # Codex stream names neither, and says so per field.
+            self.assertEqual({"model": None, "effort": None}, reviewer["observed"])
             self.assertEqual(
-                {"model": None, "effort": None, "speed": None}, reviewer["observed"]
+                {"model": "not_reported", "effort": "not_reported"}, reviewer["provenance"]
             )
-            self.assertEqual(
-                {
-                    "model": "not_reported",
-                    "effort": "not_reported",
-                    "speed": "not_reported",
-                },
-                reviewer["provenance"],
-            )
-            # The implementer of the other backend still reported its own.
             self.assertEqual(AGENT_MODEL, implementer["observed"]["model"])
             self.assertEqual("reported", implementer["provenance"]["model"])
 
@@ -327,72 +274,53 @@ class InferenceProfileE2ETests(unittest.TestCase):
             self.assertEqual(["codex", "exec"], argv[:2])
             self.assertIn("--ignore-user-config", argv)
             self.assertIn("--output-schema", argv)
-            # The reviewer reads the same documented event stream as the
-            # implementer, and still answers in the file it is given.
             self.assertIn("--json", argv)
             self.assertIn("--output-last-message", argv)
+            self.assertEqual("gpt-5.6-sol", argv[argv.index("--model") + 1])
             self.assertEqual(
                 ["model_reasoning_effort=high"],
                 [argv[index + 1] for index, item in enumerate(argv) if item == "-c"],
             )
             self.assertNotIn("service_tier=priority", argv)
 
+            # Codex names no model: the review's tokens are rated at the one
+            # requested, and the record says the attribution is the controller's.
+            consumed = result["iterations"][-1]["review"]["consumption"]
+            (item,) = consumed["items"]
+            self.assertEqual("gpt-5.6-sol", item["model"])
+            self.assertEqual("requested_model", item["basis"])
+            self.assertEqual(
+                {"input": 200, "cached_input": 1000, "cache_write": 0, "output": 300, "reasoning": 50},
+                item["tokens"],
+            )
+            self.assertEqual(CODEX_REVIEW_COST_USD, item["cost_usd"])
+            self.assertIsNone(item["reported_cost_usd"])
+            self.assertEqual(CODEX_REVIEW_COST_USD, consumed["cost_usd"])
+
             # The confinement the reviewer runs under, recorded before it ran.
             frozen_review = frozen[0]["iterations"][-1]["review"]
             isolation = frozen_review["isolation"]
             self.assertEqual("macos-sandbox-exec", isolation["mechanism"])
             self.assertTrue(isolation["user_config_ignored"])
-            review = result["iterations"][-1]["review"]
-            self.assertEqual(
-                set(review["isolation"]),
-                {"mechanism", "denied_paths", "read_only_paths", "user_config_ignored"},
-            )
-            self.assertIn(result["worktree"], review["isolation"]["read_only_paths"])
             self.assertNotIn("result", frozen_review)
-            # The candidate is unchanged by a reviewer that could not write.
             self.assertFalse(Path(result["worktree"], "reviewer-write.txt").exists())
 
-    def test_an_unsupported_reviewer_profile_ends_the_run_before_any_checkout(
-        self,
-    ) -> None:
+    def test_a_reviewer_model_of_the_other_backend_is_refused_by_name(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            case, env = self._codex_case(
-                Path(temp), efforts=["low", "medium", "high"], fast=False
-            )
+            case, env = self._codex_case(Path(temp))
 
-            result = case.run(
-                env=env,
-                actuator="claude",
-                review_actuator="codex",
-                review_model="gpt-5.6-sol",
-                review_effort="ultra",
-            )
+            with self.assertRaisesRegex(
+                ControlFailure, "reviewer profile: claude-opus-5 is a claude model"
+            ):
+                case.run(
+                    env=env,
+                    actuator="claude",
+                    review_actuator="codex",
+                    review_model="claude-opus-5",
+                    review_effort="high",
+                )
 
-            self.assertEqual("REJECTED", result["status"])
-            self.assertIsNone(result["worktree"])
-            self.assertEqual([], result["iterations"])
-            self.assertNotIn("baseline", result)
-            self.assertNotIn("review", result)
-            self.assertFalse(Path(result["run_dir"], "iterations").exists())
-            self.assertEqual(1, len(result["decision"]["reasons"]))
-            reason = result["decision"]["reasons"][0]
-            self.assertIn("configuration error", reason)
-            self.assertIn("reviewer", reason)
-
-            evidence = json.loads(
-                Path(result["run_dir"], "evidence.json").read_text(encoding="utf-8")
-            )
-            reviewer = evidence["inference"]["reviewer"]
-            self.assertEqual("unsupported", reviewer["validation"]["status"])
-            self.assertEqual(
-                "backend-cache", reviewer["validation"]["inventory_source"]
-            )
-            self.assertIn("effort ultra", reviewer["validation"]["reason"])
-            self.assertIsNone(reviewer["native"])
-            # The implementer profile is untouched by the refusal of the other.
-            implementer = evidence["inference"]["implementer"]
-            self.assertEqual("unverified", implementer["validation"]["status"])
-            self.assertIsNone(evidence["worktree"])
+            self.assertFalse((case.state_dir / "runs").exists())
 
 
 if __name__ == "__main__":

@@ -114,7 +114,7 @@ class RunJournalE2ETests(unittest.TestCase):
             evidence = self.evidence(result)
             events = self.journal(result)
             block = evidence["events"]
-            self.assertEqual(18, evidence["schema_version"])
+            self.assertEqual(19, evidence["schema_version"])
             self.assertEqual(
                 {"path", "count", "head_sha256", "file_sha256"}, set(block)
             )

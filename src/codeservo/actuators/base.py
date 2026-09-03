@@ -16,7 +16,7 @@ from typing import Any, Protocol
 
 from ..domain.document import Document
 from ..runtime.sandbox import Isolation, IsolationEvidence
-from .inventory import Backend, Speed
+from .catalogue import Backend
 
 # What a run drives when nothing names a backend, and where it looks first.
 DEFAULT_ACTUATOR = Backend.CLAUDE
@@ -38,30 +38,77 @@ class ObservedProfile(Document):
 
     model: str | None = None
     effort: str | None = None
-    speed: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class Tokens(Document):
+    """What one call consumed, in the five categories both backends count.
+
+    `input` is the uncached input alone, however the backend spells it: one
+    reports a total with the cached and written parts inside it, the other
+    reports the three apart, and each adapter puts every count under the name
+    here. `reasoning` is a detail of `output`, which already counts it. A
+    category the stream did not carry stays empty.
+    """
+
+    input: int | None
+    cached_input: int | None
+    cache_write: int | None
+    output: int | None
+    reasoning: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class Billed(Document):
+    """What a session consumed under one model, as the backend named it.
+
+    A backend that names the model it billed puts it here. One that names
+    none leaves the field empty, and the controller says which model it rated
+    the tokens at and why, rather than the adapter guessing.
+    """
+
+    model: str | None
+    tokens: Tokens
+    reported_cost_usd: float | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class Usage(Document):
+    """Everything a session reported about what it consumed.
+
+    `cache_write_duration` is the duration the backend wrote its cache with,
+    when it names one, because a price table keyed by duration is read through
+    it. A stream that carried no consumption at all leaves `billed` empty.
+    """
+
+    billed: tuple[Billed, ...]
+    cache_write_duration: str | None
 
 
 class ReportedProfile(Protocol):
     """What a backend reported about the call it just made.
 
-    Both roles report the same two things: the configuration the command
-    actually carried, and what the session then said about itself. An adapter
-    records more than the controller reads, so what crosses the boundary is
-    stated as what is read and never as the whole of what was written.
+    Both roles report the same three things: the configuration the command
+    actually carried, what the session then said about itself, and what it
+    consumed. An adapter records more than the controller reads, so what
+    crosses the boundary is stated as what is read and never as the whole of
+    what was written.
     """
 
     @property
     def native(self) -> dict[str, Any]: ...
     @property
     def observed(self) -> ObservedProfile: ...
+    @property
+    def usage(self) -> Usage: ...
 
 
 class Actuation(ReportedProfile, Protocol):
     """What every backend's actuation carries for the control loop.
 
     An adapter records more than this — the command it built, the streams it
-    kept, what the session billed. These are what the controller reads, so
-    they are what a backend is held to whichever tool answered.
+    kept, what the session said of itself. These are what the controller
+    reads, so they are what a backend is held to whichever tool answered.
     """
 
     @property
@@ -86,11 +133,10 @@ class Implement(Protocol):
         worktree: Path,
         prompt: str,
         out_dir: Path,
-        model: str | None,
+        model: str,
+        effort: str,
         timeout_seconds: int,
         isolation: Isolation,
-        effort: str | None,
-        speed: Speed,
     ) -> Actuation: ...
 
 
@@ -104,11 +150,10 @@ class Review(Protocol):
         prompt: str,
         schema_path: Path,
         out_dir: Path,
-        model: str | None,
+        model: str,
+        effort: str,
         timeout_seconds: int,
         isolation: Isolation,
-        effort: str | None,
-        speed: Speed,
     ) -> tuple[dict[str, Any], ReviewMeta]: ...
 
 

@@ -56,31 +56,37 @@ class RunExitStatusTests(unittest.TestCase):
         )
 
 
+# The least a run can be asked for: a task, a model and an effort.
+RUN = ["run", "--task", "TASK.md", "--model", "claude-opus-5", "--effort", "high"]
+
+
 class CliTests(unittest.TestCase):
     def test_run_accepts_state_directory(self) -> None:
         args = build_parser().parse_args(
-            ["run", "--task", "TASK.md", "--state-dir", "state"]
+            [*RUN, "--state-dir", "state"]
         )
 
         self.assertEqual(Path("state"), args.state_dir)
 
     def test_run_selects_the_actuator(self) -> None:
-        args = build_parser().parse_args(
-            ["run", "--task", "TASK.md", "--actuator", "codex"]
-        )
+        args = build_parser().parse_args([*RUN, "--actuator", "codex"])
 
         self.assertEqual("codex", args.actuator)
 
     def test_run_leaves_the_actuator_to_the_environment_default(self) -> None:
-        args = build_parser().parse_args(["run", "--task", "TASK.md"])
+        args = build_parser().parse_args(RUN)
 
         self.assertIsNone(args.actuator)
 
-    def test_run_defaults_to_no_effort_and_the_standard_speed(self) -> None:
-        args = build_parser().parse_args(["run", "--task", "TASK.md"])
+    def test_run_requires_a_model_and_an_effort(self) -> None:
+        for missing in ("--model", "--effort"):
+            with self.subTest(missing=missing):
+                argv = [item for item in RUN if item != missing]
+                argv = [item for item in argv if item not in ("claude-opus-5", "high")]
+                code, reason = refusal(["run", "--task", "TASK.md", *argv[3:]])
 
-        self.assertIsNone(args.effort)
-        self.assertEqual("standard", args.speed)
+                self.assertNotEqual(0, code)
+                self.assertIn(missing, reason)
 
     def test_run_selects_the_inference_profile(self) -> None:
         args = build_parser().parse_args(
@@ -91,81 +97,67 @@ class CliTests(unittest.TestCase):
                 "--actuator",
                 "claude",
                 "--model",
-                "opus",
+                "claude-opus-5",
                 "--effort",
                 "xhigh",
-                "--speed",
-                "fast",
             ]
         )
 
         self.assertEqual("claude", args.actuator)
-        self.assertEqual("opus", args.model)
+        self.assertEqual("claude-opus-5", args.model)
         self.assertEqual("xhigh", args.effort)
-        self.assertEqual("fast", args.speed)
 
-    def test_run_leaves_the_review_profile_to_the_documented_defaults(self) -> None:
-        args = build_parser().parse_args(["run", "--task", "TASK.md"])
+    def test_run_accepts_only_the_four_efforts(self) -> None:
+        for flag in ("--effort", "--review-effort"):
+            with self.subTest(flag=flag):
+                code, reason = refusal(
+                    ["run", "--task", "TASK.md", "--model", "claude-opus-5", flag, "max"]
+                )
 
-        # An absent review backend is resolved from --actuator by the
-        # controller, an absent effort stays null, and the speed is standard.
+                self.assertNotEqual(0, code)
+                self.assertIn(flag, reason)
+
+    def test_run_leaves_the_review_profile_to_the_implementers(self) -> None:
+        args = build_parser().parse_args(RUN)
+
+        # An absent review backend, model and effort are resolved from the
+        # implementer's by the controller, and recorded as resolved.
         self.assertIsNone(args.review_actuator)
         self.assertIsNone(args.review_model)
         self.assertIsNone(args.review_effort)
-        self.assertEqual("standard", args.review_speed)
 
     def test_run_selects_the_review_profile_independently(self) -> None:
         args = build_parser().parse_args(
             [
-                "run",
-                "--task",
-                "TASK.md",
-                "--actuator",
-                "claude",
-                "--model",
-                "opus",
-                "--effort",
-                "high",
+                *RUN,
                 "--review-actuator",
                 "codex",
                 "--review-model",
                 "gpt-5.6-sol",
                 "--review-effort",
                 "medium",
-                "--review-speed",
-                "fast",
             ]
         )
 
-        self.assertEqual("claude", args.actuator)
+        self.assertEqual("claude-opus-5", args.model)
         self.assertEqual("high", args.effort)
-        self.assertEqual("standard", args.speed)
         self.assertEqual("codex", args.review_actuator)
         self.assertEqual("gpt-5.6-sol", args.review_model)
         self.assertEqual("medium", args.review_effort)
-        self.assertEqual("fast", args.review_speed)
 
     def test_run_rejects_a_review_backend_it_cannot_load(self) -> None:
-        code, reason = refusal(
-            ["run", "--task", "TASK.md", "--review-actuator", "gemini"]
-        )
+        code, reason = refusal([*RUN, "--review-actuator", "gemini"])
 
         self.assertNotEqual(0, code)
         self.assertIn("--review-actuator", reason)
 
-    def test_run_accepts_no_review_speed_tier_it_cannot_apply(self) -> None:
-        code, reason = refusal(
-            ["run", "--task", "TASK.md", "--review-speed", "priority"]
-        )
+    def test_run_carries_no_speed_tier(self) -> None:
+        for flag in ("--speed", "--review-speed"):
+            with self.subTest(flag=flag):
+                code, reason = refusal([*RUN, flag, "fast"])
 
-        self.assertNotEqual(0, code)
-        self.assertIn("--review-speed", reason)
-
-    def test_run_accepts_no_speed_tier_it_cannot_apply(self) -> None:
-        code, reason = refusal(["run", "--task", "TASK.md", "--speed", "priority"])
-
-        self.assertNotEqual(0, code)
-        self.assertIn("--speed", reason)
+                self.assertNotEqual(0, code)
+                self.assertIn(flag, reason)
 
 
 class LandCommandTests(unittest.TestCase):
@@ -280,7 +272,6 @@ class ModelsCommandTests(unittest.TestCase):
 
         self.assertIsNone(args.actuator)
         self.assertIsNone(args.model)
-        self.assertIsNone(args.state_dir)
         self.assertFalse(args.json)
 
     def test_models_accepts_both_selectors(self) -> None:
@@ -291,11 +282,13 @@ class ModelsCommandTests(unittest.TestCase):
         self.assertEqual("codex", args.actuator)
         self.assertEqual("gpt-5.6-sol", args.model)
 
-    def test_models_accepts_a_state_directory_and_a_document_form(self) -> None:
-        args = build_parser().parse_args(["models", "--json", "--state-dir", "state"])
+    def test_models_accepts_a_document_form_and_no_state_directory(self) -> None:
+        args = build_parser().parse_args(["models", "--json"])
 
         self.assertTrue(args.json)
-        self.assertEqual(Path("state"), args.state_dir)
+        code, reason = refusal(["models", "--state-dir", "state"])
+        self.assertNotEqual(0, code)
+        self.assertIn("--state-dir", reason)
 
     def test_models_rejects_an_unknown_backend(self) -> None:
         code, reason = refusal(["models", "--actuator", "gemini"])

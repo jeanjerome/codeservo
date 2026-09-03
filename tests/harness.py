@@ -15,11 +15,28 @@ from codeservo.controller import run
 from isolation_harness import controller_test_isolation
 
 TASK_TEXT = "# Task\n\n## Acceptance criteria\n- [AC1] `value()` returns `2`.\n"
-# What the scripted backend reports about itself. Neither model is one a case
-# ever requests, so a record repeating the request is visible as such.
+# What the scripted backend reports about itself. Neither session model is one
+# a case ever requests, so a record repeating the request is visible as such.
+# The implementer bills its tokens under a model the catalogue prices, so a
+# run carries a computed cost; the reviewer bills under one it does not.
 AGENT_MODEL = "harness-agent-model"
 REVIEW_MODEL = "harness-review-model"
-AGENT_SPEED = "standard"
+BILLED_MODEL = "claude-haiku-4-5-20251001"
+# What every case requests unless it says otherwise: a catalogue model of the
+# backend the scripted `claude` stands in for, at the lightest effort.
+REQUESTED_MODEL = "claude-haiku-4-5-20251001"
+REQUESTED_EFFORT = "low"
+# The tokens the scripted implementer bills per actuation. At the catalogue's
+# prices for the billed model they cost 0.0097 USD: 1000 input at 1, 2000 cache
+# reads at 0.1, 500 one-hour writes at 2, 1500 output at 5, per million.
+AGENT_TOKENS = {
+    "inputTokens": 1000,
+    "cacheReadInputTokens": 2000,
+    "cacheCreationInputTokens": 500,
+    "outputTokens": 1500,
+    "thinkingTokens": 100,
+}
+AGENT_COST_USD = 0.0097
 SENSOR_COMMAND = 'test -f "$CODESERVO_SENSOR_PATH/README.md" && grep -q "return 2" app.py'
 COMPILE_COMMAND = f"{sys.executable} -m py_compile app.py"
 
@@ -57,9 +74,21 @@ def emit_agent(message="implemented"):
                 "num_turns": 1,
                 "session_id": "agent",
                 "result": message,
-                "usage": {{"speed": "{speed}", "service_tier": "{speed}"}},
+                "usage": {{
+                    "cache_creation": {{
+                        "ephemeral_1h_input_tokens": 500,
+                        "ephemeral_5m_input_tokens": 0
+                    }}
+                }},
                 "modelUsage": {{
-                    "{agent_model}": {{"outputTokens": 12, "costUSD": 0.0}}
+                    "{billed_model}": {{
+                        "inputTokens": 1000,
+                        "cacheReadInputTokens": 2000,
+                        "cacheCreationInputTokens": 500,
+                        "outputTokens": 1500,
+                        "thinkingTokens": 100,
+                        "costUSD": 0.0097
+                    }}
                 }},
             }}
         )
@@ -78,9 +107,9 @@ def emit_review(payload):
             "session_id": "review",
             "result": json.dumps(payload),
             "structured_output": payload,
-            "usage": {{"speed": "{speed}", "service_tier": "{speed}"}},
+            "usage": {{"cache_creation": {{}}}},
             "modelUsage": {{
-                "{review_model}": {{"outputTokens": 4, "costUSD": 0.0}}
+                "{review_model}": {{"inputTokens": 40, "outputTokens": 4, "costUSD": 0.0}}
             }},
         }},
         sys.stdout,
@@ -118,7 +147,7 @@ def agent_script(
         reviewer=textwrap.indent(textwrap.dedent(reviewer).strip(), "    "),
         agent_model=AGENT_MODEL,
         review_model=REVIEW_MODEL,
-        speed=AGENT_SPEED,
+        billed_model=BILLED_MODEL,
     )
 
 
@@ -217,6 +246,8 @@ class Case:
             "task_path": self.task,
             "state_dir": self.state_dir,
             "actuator": "claude",
+            "model": REQUESTED_MODEL,
+            "effort": REQUESTED_EFFORT,
             "max_iterations": 2,
         }
         arguments.update(overrides)

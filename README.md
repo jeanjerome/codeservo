@@ -305,8 +305,8 @@ is frozen, because nothing would have decided it.
 
 ```bash
 codeservo init [repo]                     # add a starter constitution
-codeservo run --task ./TASK.md            # run one controlled change
-codeservo models                          # report the models a backend advertises locally
+codeservo run --task ./TASK.md --model <model> --effort <level>   # run one controlled change
+codeservo models                          # list the models a run may request, and their list prices
 codeservo verify-run <run-directory>      # verify one run directory
 codeservo land <run-directory>            # land an accepted run on the repository it measured
 ```
@@ -314,7 +314,7 @@ codeservo land <run-directory>            # land an accepted run on the reposito
 ### run
 
 ```bash
-codeservo run --repo /path/to/project --task ./TASK.md
+codeservo run --repo /path/to/project --task ./TASK.md --model claude-sonnet-5 --effort medium
 ```
 
 The exit status is the decision: 0 for `ACCEPTED`, 1 for `REJECTED`, 2 for
@@ -328,20 +328,21 @@ codeservo run \
   --state-dir /path/to/codeservo-state \
   --max-iterations 4 \
   --agent-timeout-seconds 1800 \
-  --actuator claude --model <model> --effort <level> --speed standard|fast \
-  --review-actuator codex --review-model <model> --review-effort <level> --review-speed standard|fast
+  --actuator claude --model <model> --effort low|medium|high|xhigh \
+  --review-actuator codex --review-model <model> --review-effort <level>
 ```
 
-An inference profile is a complete backend, model, effort and speed. The two
-roles are independent control inputs, so a Codex implementation can be decided
-by a Claude review or the reverse; `--review-actuator` defaults to the resolved
-`--actuator`. Both profiles are checked against the locally projected inventory
-of their own backend before the isolated checkout is created. Only an inventory
-that lists the model can contradict the request, and only about an effort or a
-speed it declares itself; a profile it cannot check is recorded `unverified` and
-proceeds, because an inventory is informative and never an authority on what an
-account may use. The record keeps the requested profile beside the observed one
-and never fills the second from the first.
+An inference profile is a backend, a model and an effort, and a run names all
+three. `--model` is the complete identifier of a model the catalogue lists for
+`--actuator`, never an alias such as `opus`, so a CLI update cannot silently
+select another version. `--effort` is one of the four levels, handed to the CLI
+unchanged; whether a model accepts it is the CLI's to decide, and it fails
+explicitly when it does not. The reviewer's profile defaults to the
+implementer's and can differ on every field, so a Codex implementation can be
+decided by a Claude review or the reverse. A model the catalogue does not list,
+or lists for the other backend, is refused by name before the run directory
+exists. The record keeps the requested profile beside the observed one and never
+fills the second from the first.
 
 ### land
 
@@ -368,12 +369,29 @@ writes its name there.
 ### models
 
 ```bash
-codeservo models [--actuator claude|codex] [--model <model>] [--json] [--state-dir <dir>]
+codeservo models [--actuator claude|codex] [--model <model>] [--json]
 ```
 
-Reads the provider caches on this machine and nothing else: no agent starts, no
-cache is refreshed, and an unreadable cache is reported rather than fatal. The
-inventory is a dated, read-only source, not proof that a model is authorized.
+Lists the catalogue the package publishes: every model a run may request, the
+backend that drives it, and the list prices its tokens are rated at, in USD per
+million tokens, dated and sourced. No agent starts and no provider cache is
+read. The catalogue is `templates/models.toml`, copied into the package; a run
+freezes the copy it was rated by beside its task and constitution, and
+`verify-run` holds the record to it.
+
+### What a run consumed, and what it cost
+
+Each actuation records what the backend reported it consumed, in the five
+categories both backends count: uncached input, cache reads, cache writes,
+output, and the reasoning part of the output. The two CLIs spell them
+differently, and each adapter puts every count under the same name. The
+controller rates them at the frozen catalogue's list prices, block by block,
+and the record carries the rated cost beside whatever cost the backend itself
+reported, never merged. Codex names no model, so its tokens are rated at the
+requested one and the record says the attribution is the controller's. A block
+the catalogue cannot rate, a model it does not list or a cache duration it has
+no price for, leaves the cost unknown rather than understated. A list price is
+a measure comparable across backends and runs, not an invoice.
 
 ### verify-run
 

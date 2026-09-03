@@ -18,8 +18,7 @@ from ..runtime.sandbox import (
     isolation_evidence,
     seatbelt_command,
 )
-from .base import ActuatorError, ObservedProfile
-from .inventory import DEFAULT_SPEED, Speed
+from .base import ActuatorError, Billed, ObservedProfile, Tokens, Usage
 
 # `--safe-mode` drops user memory, skills, plugins, hooks, custom agents and
 # settings files, so the actuator only sees the frozen prompt and the worktree.
@@ -33,15 +32,17 @@ HERMETIC_FLAGS = (
 IMPLEMENTER_TOOLS = "Bash,Read,Write,Edit,NotebookEdit"
 REVIEWER_TOOLS = "Bash,Read"
 
-# `--safe-mode` drops every settings source the user owns, so the only document
-# `--settings` can point at is this one, which CodeServo writes itself.
-FAST_MODE_SETTINGS = {"fastMode": True}
-
-# Where the result event of both roles names the speed tier the session ran
-# on. It is the one field of the usage block this adapter reads: what a session
-# consumed is not part of the profile it applied.
+# Where the result event of both roles reports what the session consumed: one
+# block per model it billed, under the model's full identifier, and the cache
+# durations the session wrote with, which the per-model blocks do not split.
 USAGE_FIELD = "usage"
-SPEED_FIELD = "speed"
+MODEL_USAGE_FIELD = "modelUsage"
+CACHE_CREATION_FIELD = "cache_creation"
+CACHE_DURATIONS = {
+    "ephemeral_5m_input_tokens": "5m",
+    "ephemeral_1h_input_tokens": "1h",
+}
+MIXED_DURATIONS = "mixed"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -70,14 +71,6 @@ class Session(Document):
 
 
 @dataclass(frozen=True, kw_only=True)
-class Models(Document):
-    """The model the session resolved to, and everything it billed."""
-
-    session_model: str | None
-    usage: dict[str, dict[str, Any]]
-
-
-@dataclass(frozen=True, kw_only=True)
 class UnsignedActuation(Document):
     """One actuation, before it closes over itself."""
 
@@ -85,7 +78,7 @@ class UnsignedActuation(Document):
     exit_code: int
     duration_ms: int
     session: Session
-    models: Models
+    usage: Usage
     native: dict[str, Any]
     observed: ObservedProfile
     events_path: str
@@ -122,7 +115,7 @@ class UnsignedReviewMeta(Document):
     duration_ms: int
     schema_sha256: str
     session: Session
-    models: Models
+    usage: Usage
     native: dict[str, Any]
     observed: ObservedProfile
     stdout_path: str
@@ -154,10 +147,14 @@ class ClaudeCodeError(ActuatorError):
     pass
 
 
-def _base_command(
-    *, model: str | None, tools: str, effort: str | None = None
-) -> list[str]:
-    command = [
+def _base_command(*, model: str, tools: str, effort: str) -> list[str]:
+    """The command both roles start from, carrying the profile unchanged.
+
+    The model is its complete identifier and the effort one of the four the
+    catalogue names. Whether the model accepts that effort is the CLI's to
+    decide, and it fails explicitly when it does not.
+    """
+    return [
         "claude",
         *HERMETIC_FLAGS,
         # Confinement comes from the controller-owned seatbelt profile, so the
@@ -166,78 +163,33 @@ def _base_command(
         "bypassPermissions",
         "--tools",
         tools,
+        "--model",
+        model,
+        "--effort",
+        effort,
     ]
-    if model:
-        command.extend(["--model", model])
-    if effort:
-        command.extend(["--effort", effort])
-    return command
 
 
-def _profile_command(
-    *,
-    model: str | None,
-    tools: str,
-    effort: str | None,
-    speed: str,
-    settings_dir: Path,
-) -> tuple[list[str], dict]:
-    """A command carrying an inference profile, and the values it carries.
-
-    The fast tier is a settings document rather than a flag, and that document
-    lives only as long as the run, so the returned record keeps its content
-    instead of a path that stops existing.
-    """
-    command = _base_command(model=model, tools=tools, effort=effort)
-    native: dict = {}
-    if effort:
-        native["--effort"] = effort
-    if speed == Speed.FAST:
-        settings_path = settings_dir / "settings.json"
-        settings_path.write_text(json.dumps(FAST_MODE_SETTINGS), encoding="utf-8")
-        command.extend(["--settings", str(settings_path)])
-        native["--settings"] = dict(FAST_MODE_SETTINGS)
-    return command, native
+def _native_profile(model: str, effort: str) -> dict:
+    """The two flags the command carried, and their values."""
+    return {"--model": model, "--effort": effort}
 
 
-def _implementer_command(
-    *,
-    model: str | None,
-    effort: str | None,
-    speed: str,
-    settings_dir: Path,
-) -> tuple[list[str], dict]:
-    command, native = _profile_command(
-        model=model,
-        tools=IMPLEMENTER_TOOLS,
-        effort=effort,
-        speed=speed,
-        settings_dir=settings_dir,
-    )
+def _implementer_command(*, model: str, effort: str) -> tuple[list[str], dict]:
+    command = _base_command(model=model, tools=IMPLEMENTER_TOOLS, effort=effort)
     command.extend(["--output-format", "stream-json", "--verbose"])
-    return command, native
+    return command, _native_profile(model, effort)
 
 
 def _reviewer_command(
-    *,
-    model: str | None,
-    effort: str | None,
-    speed: str,
-    settings_dir: Path,
-    schema_path: Path,
+    *, model: str, effort: str, schema_path: Path
 ) -> tuple[list[str], dict]:
-    """The reviewer command: the same profile options, on read-only tools."""
-    command, native = _profile_command(
-        model=model,
-        tools=REVIEWER_TOOLS,
-        effort=effort,
-        speed=speed,
-        settings_dir=settings_dir,
-    )
+    """The reviewer command: the same profile flags, on read-only tools."""
+    command = _base_command(model=model, tools=REVIEWER_TOOLS, effort=effort)
     command.extend(
         ["--output-format", "json", "--json-schema", _inline_schema(schema_path)]
     )
-    return command, native
+    return command, _native_profile(model, effort)
 
 
 def _inline_schema(schema_path: Path) -> str:
@@ -320,13 +272,8 @@ def _amount(event: dict, field: str) -> float | None:
     return amount if isfinite(amount) else None
 
 
-def _models(events: list[dict]) -> Models:
-    """Report the models a session ran on.
-
-    The command line carries an alias such as `opus`, which moves over time. The
-    session reports the identifier it resolved to, and its usage record names
-    every model that spent tokens, so a run stays comparable to another one.
-    """
+def _session_model(events: list[dict]) -> str | None:
+    """The model the implementer's init event names, when the stream has one."""
     init = next(
         (
             event
@@ -335,18 +282,60 @@ def _models(events: list[dict]) -> Models:
         ),
         None,
     )
-    usage = (_result_event(events) or {}).get("modelUsage")
-    spent: dict[str, dict[str, Any]] = {}
-    if isinstance(usage, dict):
-        for name, record in usage.items():
-            if isinstance(record, dict):
-                spent[name] = {
-                    "output_tokens": _count(record, "outputTokens"),
-                    "cost_usd": _amount(record, "costUSD"),
-                }
-    return Models(
-        session_model=_text(init, "model") if init else None, usage=spent
-    )
+    return _text(init, "model") if init else None
+
+
+def _cache_write_duration(result: dict | None) -> str | None:
+    """The one duration the session wrote its cache with, if it wrote with one.
+
+    The per-model blocks count cache writes without saying how long for; the
+    session block says how many tokens went to each duration. A session that
+    wrote with both leaves the duration mixed, which no single price rates.
+    """
+    usage = (result or {}).get(USAGE_FIELD)
+    creation = usage.get(CACHE_CREATION_FIELD) if isinstance(usage, dict) else None
+    if not isinstance(creation, dict):
+        return None
+    written = [
+        duration
+        for field, duration in CACHE_DURATIONS.items()
+        if (_count(creation, field) or 0) > 0
+    ]
+    if not written:
+        return None
+    return written[0] if len(written) == 1 else MIXED_DURATIONS
+
+
+def _usage(events: list[dict]) -> Usage:
+    """What the session consumed, under each model it billed.
+
+    Claude Code names every model that spent tokens, with the five counts and
+    the list-price cost it computed itself. Its input count is the uncached
+    input alone, and the cache reads and writes stand apart, so each count
+    goes under the same name here. The cost it reports is kept beside the
+    tokens as what the backend said, never as what the controller rates.
+    """
+    result = _result_event(events)
+    reported = (result or {}).get(MODEL_USAGE_FIELD)
+    billed: list[Billed] = []
+    if isinstance(reported, dict):
+        for name, record in reported.items():
+            if not isinstance(record, dict):
+                continue
+            billed.append(
+                Billed(
+                    model=name,
+                    tokens=Tokens(
+                        input=_count(record, "inputTokens"),
+                        cached_input=_count(record, "cacheReadInputTokens"),
+                        cache_write=_count(record, "cacheCreationInputTokens"),
+                        output=_count(record, "outputTokens"),
+                        reasoning=_count(record, "thinkingTokens"),
+                    ),
+                    reported_cost_usd=_amount(record, "costUSD"),
+                )
+            )
+    return Usage(billed=tuple(billed), cache_write_duration=_cache_write_duration(result))
 
 
 def _session(result: dict | None) -> Session:
@@ -365,39 +354,27 @@ def _session(result: dict | None) -> Session:
 def _reported_model(events: list[dict]) -> str | None:
     """The model the session says the work ran on.
 
-    The implementer's stream opens with an init event naming the model its
-    alias resolved to. The reviewer answers in a single result object with no
-    such event, so its model comes from the usage record, which names every
-    model the session billed: one name is a report, several are a choice, and
+    The implementer's stream opens with an init event naming the model it
+    ran on. The reviewer answers in a single result object with no such
+    event, so its model comes from the usage record, which names every model
+    the session billed: one name is a report, several are a choice, and
     choosing between them would be an inference rather than a report.
     """
-    models = _models(events)
-    if models.session_model:
-        return models.session_model
-    billed = list(models.usage)
+    named = _session_model(events)
+    if named:
+        return named
+    billed = [item.model for item in _usage(events).billed if item.model]
     return billed[0] if len(billed) == 1 else None
-
-
-def _reported_speed(events: list[dict]) -> str | None:
-    """The speed tier the result reports, in both roles under the same name."""
-    usage = (_result_event(events) or {}).get(USAGE_FIELD)
-    speed = usage.get(SPEED_FIELD) if isinstance(usage, dict) else None
-    return speed if isinstance(speed, str) and speed else None
 
 
 def _observed(events: list[dict]) -> ObservedProfile:
     """The inference profile the session reported about itself.
 
-    Claude Code names its model and its speed tier, and carries no reasoning
-    effort in any event of either role, so `effort` stays empty. Nothing else
-    is put in its place: the requested value would repeat the request, and
-    `fast_mode_state` reports a speed and not an effort.
+    Claude Code names its model and carries no reasoning effort in any event
+    of either role, so `effort` stays empty. Nothing is put in its place: the
+    requested value would repeat the request.
     """
-    return ObservedProfile(
-        model=_reported_model(events),
-        effort=None,
-        speed=_reported_speed(events),
-    )
+    return ObservedProfile(model=_reported_model(events), effort=None)
 
 
 def describe_isolation(isolation: Isolation) -> IsolationEvidence:
@@ -409,11 +386,10 @@ def run_implementer(
     worktree: Path,
     prompt: str,
     out_dir: Path,
-    model: str | None,
+    model: str,
+    effort: str,
     timeout_seconds: int,
     isolation: Isolation = Isolation(),
-    effort: str | None = None,
-    speed: Speed = DEFAULT_SPEED,
 ) -> ClaudeActuation:
     out_dir.mkdir(parents=True, exist_ok=True)
     events_path = out_dir / "events.jsonl"
@@ -425,9 +401,7 @@ def run_implementer(
         temporary_dir = Path(temp)
         temporary_events = temporary_dir / "events.jsonl"
         temporary_stderr = temporary_dir / "stderr.log"
-        command, native = _implementer_command(
-            model=model, effort=effort, speed=speed, settings_dir=temporary_dir
-        )
+        command, native = _implementer_command(model=model, effort=effort)
 
         timeout_error: subprocess.TimeoutExpired | None = None
         with temporary_events.open("wb") as stdout, temporary_stderr.open(
@@ -462,7 +436,7 @@ def run_implementer(
         exit_code=completed.returncode,
         duration_ms=int((time.monotonic() - started) * 1000),
         session=_session(result),
-        models=_models(events),
+        usage=_usage(events),
         native=native,
         observed=_observed(events),
         events_path=str(events_path),
@@ -486,11 +460,10 @@ def run_reviewer(
     prompt: str,
     schema_path: Path,
     out_dir: Path,
-    model: str | None,
+    model: str,
+    effort: str,
     timeout_seconds: int,
     isolation: Isolation = Isolation(),
-    effort: str | None = None,
-    speed: Speed = DEFAULT_SPEED,
 ) -> tuple[dict[str, Any], ClaudeReviewMeta]:
     out_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = out_dir / "stdout.log"
@@ -509,11 +482,7 @@ def run_reviewer(
         temporary_stdout = temporary_dir / "stdout.log"
         temporary_stderr = temporary_dir / "stderr.log"
         command, native = _reviewer_command(
-            model=model,
-            effort=effort,
-            speed=speed,
-            settings_dir=temporary_dir,
-            schema_path=schema_path,
+            model=model, effort=effort, schema_path=schema_path
         )
         with temporary_stdout.open("wb") as stdout, temporary_stderr.open(
             "wb"
@@ -551,7 +520,7 @@ def run_reviewer(
         duration_ms=int((time.monotonic() - started) * 1000),
         schema_sha256=sha256_file(schema_path),
         session=_session(_result_event(_events(stdout_path))),
-        models=_models(_events(stdout_path)),
+        usage=_usage(_events(stdout_path)),
         native=native,
         observed=_observed(_events(stdout_path)),
         stdout_path=str(stdout_path),
