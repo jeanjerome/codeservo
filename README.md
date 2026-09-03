@@ -533,6 +533,24 @@ verifies.
 
 ## Release notes
 
+### 0.7.2
+
+The execution environment block asserts only what a measurement established. It
+opened every record with a constant saying no execution provider was declared,
+so a run refused while its control inputs are still being verified — refused
+after its record exists and before the execution table is read — closed denying
+a provider beside the digest of a constitution that declares one. The block now
+opens with the provider the constitution declares, and `none` keeps meaning that
+none was declared.
+
+The candidate's `unchanged_at_end` carries no value until a recomputation
+produces one. Whether the workspace still holds what was installed into it is
+what taking the digests a second time answers, and the field was set when the
+installation finished: every run that stopped before the first recomputation —
+a verification run at a zero iteration budget among them — recorded a comparison
+nobody made. The document says so in its type, so the block omits the verdict
+rather than defaulting it.
+
 ### 0.7.1
 
 The Git metadata of a measured tree is protected where Git writes it. The gates
