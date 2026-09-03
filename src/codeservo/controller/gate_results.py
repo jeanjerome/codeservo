@@ -8,7 +8,7 @@ a fault of the sensor, and nothing about it is fed back.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
 
@@ -127,13 +127,37 @@ def gate_clause(result: GateResult) -> str:
     return f"{result.name} (exit code {result.exit_code})"
 
 
-def gate_feedback(results: Sequence[GateResult]) -> str:
+def gate_reasons(
+    phase: GatePhase,
+    results: Sequence[GateResult],
+    criteria: Mapping[str, Sequence[str]],
+) -> list[str]:
+    """Why a phase decided against the candidate: the gates that failed.
+
+    A gate a criterion named is the control that decides it, so a failing one
+    names what it leaves unsatisfied. The record then says which acceptance
+    criterion a run stopped on, and not only which measurement.
+    """
+    reasons: list[str] = []
+    for result in results:
+        if result.passed:
+            continue
+        decided = criteria.get(result.name, ())
+        unsatisfied = f": {', '.join(decided)} not satisfied" if decided else ""
+        reasons.append(f"{phase} gate {result.name} failed{unsatisfied}")
+    return reasons
+
+
+def gate_feedback(
+    results: Sequence[GateResult], criteria: Mapping[str, Sequence[str]]
+) -> str:
     """What a failing phase tells the actuator.
 
     A gate that wrote a valid document is reported through that document
     first, then through the tail of what it printed. A gate answering with its
     exit code alone is reported through its output, unchanged from what it
-    emitted.
+    emitted. A gate an acceptance criterion named is reported with that
+    criterion, because passing it is what the task asked for.
     """
     chunks: list[str] = []
     for result in results:
@@ -144,6 +168,11 @@ def gate_feedback(results: Sequence[GateResult]) -> str:
             f"Command: {result.command}",
             f"Exit code: {result.exit_code}",
         ]
+        decided = criteria.get(result.name, ())
+        if decided:
+            lines.append(
+                "Acceptance criteria this gate decides: " + ", ".join(decided)
+            )
         document = _observed(result)
         if document is not None:
             lines.extend(observation_feedback(document))

@@ -88,8 +88,12 @@ contract.
 
 ### 7. Write the task
 
-Its criteria are what the review answers one by one, so each is a statement
-about observable repository state. Before freezing it, check that it carries:
+Each criterion is a statement about observable repository state, and names the
+control that decides it: `{gate: <name>}` for a gate the constitution declares,
+the acceptance sensor's gate included, and `{review}` — or nothing — for the
+independent reviewer, which answers those one by one. A criterion naming a gate
+no constitution declares ends the run before anything is frozen. Before freezing
+the task, check that it carries:
 
 - **its allowed file set, in the task itself** and not only in the sensor — and
   that the set contains every module its criteria need;
@@ -107,7 +111,11 @@ about observable repository state. Before freezing it, check that it carries:
   criterion alone;
 - **the smallest sufficient mechanism.** A criterion that demands a general
   capability where the problem is fixed and small buys the holes a general
-  mechanism has and a specific one cannot.
+  mechanism has and a specific one cannot;
+- **a verification each criterion can actually reach.** A gate answers what it
+  measures and nothing else, so a criterion the sensor gate does not pin
+  belongs to the review whatever the task would prefer. Naming the gate that
+  cannot see it hands the criterion to a control that will pass it blind.
 
 A task that freezes part of the record has one more rule: a record never asserts
 a property no measurement produced, nor an equivalent of what happened in place
@@ -170,9 +178,11 @@ comparable through those numbers.
 ### 12. Read the review's criteria one by one
 
 The review is a sensor, not the final authority, and its value is where the
-gates are silent. A criterion marked `not_verifiable` says the repository did
-not carry the evidence to decide it, which is a fact about the task as much as
-about the change.
+gates are silent. It answers the criteria the task left to it, and those alone:
+the rest were decided by the gate each named, and what the reviewer volunteers
+about one of those decides nothing. A criterion marked `not_verifiable` says the
+repository did not carry the evidence to decide it, which is a fact about the
+task as much as about the change.
 
 ### 13. Inspect the exact diff
 

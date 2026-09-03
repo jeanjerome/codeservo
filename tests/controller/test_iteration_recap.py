@@ -15,11 +15,15 @@ from codeservo.controller.document import (
 )
 from codeservo.controller.phases.iteration import iteration_recap
 from codeservo.domain.constitution import ResultFormat
+from codeservo.domain.task import Criterion
 from codeservo.sensors.gates import GateResult, UnsignedGateResult
 from codeservo.sensors.observations import Classification
 
 SNAPSHOT = FileRecord(path="input.patch", sha256="0" * 64)
-CRITERIA = {"AC1": "one", "AC2": "two"}
+CRITERIA = {
+    "AC1": Criterion(id="AC1", text="one"),
+    "AC2": Criterion(id="AC2", text="two"),
+}
 BLOCKING = ("blocker", "major")
 OK = ScopeResult(passed=True, summary="scope OK", details={})
 
@@ -187,10 +191,33 @@ class IterationRecapTests(unittest.TestCase):
             (
                 "Iteration 1: scope OK; quick gates: 1 of 1 passed;"
                 " full gates: 1 of 1 passed;"
-                " review: 1 of 2 criteria not satisfied (AC2), 1 blocking finding",
+                " review: 1 of 2 reviewed criteria not satisfied (AC2),"
+                " 1 blocking finding",
             ),
             recap((entry,)),
         )
+
+    def test_the_review_line_counts_only_the_criteria_it_was_asked_about(self) -> None:
+        """A criterion a gate decides is settled by the gate clause beside it."""
+        criteria = {
+            "AC1": Criterion(id="AC1", text="one"),
+            "AC2": Criterion(id="AC2", text="two", gate="lint"),
+        }
+        result = {
+            "criteria": [{"id": "AC1", "status": "not_satisfied", "evidence": "y"}],
+            "findings": [],
+        }
+        entry = self._iteration(
+            1,
+            gates=(self._gate("lint", passed=True),),
+            full_gates=(self._gate("coverage", passed=True),),
+            review=review_block(result),
+        )
+
+        line = iteration_recap((entry,), criteria, BLOCKING)[0]
+
+        self.assertIn("review: 1 of 1 reviewed criteria not satisfied (AC1)", line)
+        self.assertNotIn("AC2", line)
 
     def test_a_review_without_an_answer_says_so(self) -> None:
         entry = self._iteration(

@@ -4,7 +4,7 @@ import json
 from collections.abc import Sequence
 
 from ..domain.constitution import Constitution, Gate
-from ..domain.task import Task
+from ..domain.task import Criterion, Task, reviewed_criteria
 
 
 def _toml_string(value: str) -> str:
@@ -74,8 +74,68 @@ def _actuator_constitution(constitution: Constitution) -> str:
     return "\n".join(lines)
 
 
+def _verified_by(criterion: Criterion) -> str:
+    """The control one criterion names as the one that decides it."""
+    if criterion.gate is None:
+        return "verified by review"
+    return f"verified by gate {criterion.gate}"
+
+
 def _criteria(task: Task) -> str:
-    return "\n".join(f"- {key}: {value}" for key, value in task.criteria.items())
+    """Every criterion, by its id, with what will decide it.
+
+    The implementer is told which control answers each one, because a gate it
+    can run and a reviewer it cannot are not corrected the same way.
+    """
+    return "\n".join(
+        f"- {criterion.id} ({_verified_by(criterion)}): {criterion.text}"
+        for criterion in task.criteria.values()
+    )
+
+
+def _reviewed(task: Task) -> str:
+    """The criteria the reviewer is asked to decide.
+
+    A task whose every criterion names a gate leaves the reviewer none, and
+    the prompt says so rather than presenting an empty list: the reviewer
+    still reports findings, and still returns the array the schema requires.
+    """
+    criteria = reviewed_criteria(task.criteria)
+    if not criteria:
+        return (
+            "None. Every acceptance criterion of this task is decided by a gate."
+            " Return an empty criteria array."
+        )
+    return "\n".join(
+        f"- {criterion.id}: {criterion.text}" for criterion in criteria.values()
+    )
+
+
+def _gated(task: Task) -> str:
+    """The criteria a gate has already decided, and the reviewer must not.
+
+    They are shown because they say what the change was for, and named as
+    settled because the run reached this review only after every gate passed.
+    """
+    gated = [
+        criterion for criterion in task.criteria.values() if criterion.gate is not None
+    ]
+    if not gated:
+        return ""
+    lines = [
+        "",
+        "ACCEPTANCE CRITERIA A GATE DECIDES",
+        "==================================",
+        "The gate named beside each one measured it on this working tree and"
+        " passed. Do not return a criteria entry for any of them. If you find"
+        " something wrong with one, report it as a finding.",
+        *(
+            f"- {criterion.id} (gate {criterion.gate}): {criterion.text}"
+            for criterion in gated
+        ),
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def _feedback_section(feedback: str, history: Sequence[str]) -> str:
@@ -114,7 +174,7 @@ Rules:
 - Do not commit, push, create PRs, or change Git configuration.
 - Prefer the smallest coherent change.
 - The controller will run the authoritative gates. You may run checks yourself, but your claims are not evidence.
-- Every acceptance criterion below is decided by its id, by the controller's gates and by an independent reviewer. Satisfy all of them.
+- Every acceptance criterion below is decided by its id, by the control it names: a gate the controller runs, or an independent reviewer. Satisfy all of them.
 
 ACCEPTANCE CRITERIA
 ===================
@@ -139,12 +199,11 @@ Work directly in the current workspace. When you have made the best correction y
 def reviewer_prompt(
     task: Task, constitution: Constitution, observations_json: str
 ) -> str:
-    criteria = "\n".join(f"- {key}: {value}" for key, value in task.criteria.items())
     return f"""You are an independent REVIEW SENSOR. You are read-only. Do not modify files.
 
 Review the current working tree against the frozen task and constitution. Inspect the actual diff and repository as needed. Do not trust the implementer's claims.
 
-For each acceptance criterion, return exactly one criteria entry using the exact criterion id. Mark it:
+The task states which acceptance criteria you decide. For each one listed under ACCEPTANCE CRITERIA YOU DECIDE, return exactly one criteria entry using the exact criterion id, and return an entry for no other id. Mark it:
 - satisfied: concrete repository evidence demonstrates it.
 - not_satisfied: the implementation contradicts or misses it.
 - not_verifiable: available repository evidence is insufficient.
@@ -166,10 +225,10 @@ BEGIN CONTROLLER OBSERVATIONS JSON
 {observations_json}
 END CONTROLLER OBSERVATIONS JSON
 
-ACCEPTANCE CRITERIA
-===================
-{criteria}
-
+ACCEPTANCE CRITERIA YOU DECIDE
+==============================
+{_reviewed(task)}
+{_gated(task)}
 TASK
 ====
 {task.raw_text}

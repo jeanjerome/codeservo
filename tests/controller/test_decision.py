@@ -6,8 +6,25 @@ from codeservo.controller.decision import (
     review_faults,
     review_feedback,
 )
+from codeservo.domain.task import Criterion
 
 BLOCKING = ("blocker", "major")
+
+
+def _reviewed(*ids: str) -> dict[str, Criterion]:
+    """Criteria the task left to the reviewer, in the order it declared them."""
+    return {
+        criterion_id: Criterion(id=criterion_id, text=criterion_id.lower())
+        for criterion_id in ids
+    }
+
+
+def _gated(gate: str, *ids: str) -> dict[str, Criterion]:
+    """Criteria a gate decides, which the reviewer is never asked about."""
+    return {
+        criterion_id: Criterion(id=criterion_id, text=criterion_id.lower(), gate=gate)
+        for criterion_id in ids
+    }
 
 
 def _reported(review: dict) -> dict:
@@ -26,7 +43,7 @@ class ReviewDecisionTests(unittest.TestCase):
             "criteria": [{"id": "AC1", "status": "satisfied", "evidence": "test"}],
             "findings": [],
         }
-        self.assertEqual(review_decision(review, {"AC1": "x"}, BLOCKING), [])
+        self.assertEqual(review_decision(review, _reviewed("AC1"), BLOCKING), [])
 
     def test_accepts_a_satisfied_review_that_came_from_a_document(self):
         review = _reported(
@@ -35,14 +52,14 @@ class ReviewDecisionTests(unittest.TestCase):
                 "findings": [],
             }
         )
-        self.assertEqual(review_decision(review, {"AC1": "x"}, BLOCKING), [])
+        self.assertEqual(review_decision(review, _reviewed("AC1"), BLOCKING), [])
 
     def test_blocks_missing_criterion_and_major_finding(self):
         review = {
             "criteria": [],
             "findings": [{"severity": "major", "message": "bug"}],
         }
-        reasons = review_decision(review, {"AC1": "x"}, BLOCKING)
+        reasons = review_decision(review, _reviewed("AC1"), BLOCKING)
         self.assertIn("review missing criterion AC1", reasons)
         self.assertIn("major finding: bug", reasons)
 
@@ -61,7 +78,7 @@ class ReviewDecisionTests(unittest.TestCase):
                         "findings": [],
                     }
                 )
-                reasons = review_decision(review, {"AC1": "x"}, BLOCKING)
+                reasons = review_decision(review, _reviewed("AC1"), BLOCKING)
                 self.assertIn(f"criterion AC1 is {status}", reasons)
 
     def test_a_criterion_the_review_omits_is_missing_and_not_unknown(self):
@@ -77,7 +94,7 @@ class ReviewDecisionTests(unittest.TestCase):
                 "findings": [],
             }
         )
-        reasons = review_decision(review, {"AC1": "x", "AC2": "y"}, BLOCKING)
+        reasons = review_decision(review, _reviewed("AC1", "AC2"), BLOCKING)
         self.assertIn("review missing criterion AC1", reasons)
         self.assertNotIn("review returned unknown criterion AC1", reasons)
 
@@ -91,7 +108,7 @@ class ReviewDecisionTests(unittest.TestCase):
                 "findings": [],
             }
         )
-        reasons = review_decision(review, {"AC1": "x"}, BLOCKING)
+        reasons = review_decision(review, _reviewed("AC1"), BLOCKING)
         self.assertEqual(reasons, ["review returned unknown criterion AC9"])
 
     def test_a_criterion_reported_twice_is_named(self):
@@ -104,7 +121,7 @@ class ReviewDecisionTests(unittest.TestCase):
                 "findings": [],
             }
         )
-        reasons = review_decision(review, {"AC1": "x"}, BLOCKING)
+        reasons = review_decision(review, _reviewed("AC1"), BLOCKING)
         self.assertIn("review duplicated criterion AC1", reasons)
 
     def test_a_finding_below_the_blocking_severities_is_not_a_reason(self):
@@ -114,7 +131,7 @@ class ReviewDecisionTests(unittest.TestCase):
                 "findings": [{"severity": "minor", "message": "taste"}],
             }
         )
-        self.assertEqual(review_decision(review, {"AC1": "x"}, BLOCKING), [])
+        self.assertEqual(review_decision(review, _reviewed("AC1"), BLOCKING), [])
 
 
 class ReviewFaultTests(unittest.TestCase):
@@ -125,7 +142,7 @@ class ReviewFaultTests(unittest.TestCase):
             "criteria": [{"id": "AC1", "status": "not_satisfied", "evidence": "x"}],
             "findings": [{"severity": "blocker", "message": "bad"}],
         }
-        self.assertEqual([], review_faults(review, {"AC1": "x"}))
+        self.assertEqual([], review_faults(review, _reviewed("AC1")))
 
     def test_names_a_missing_a_duplicated_and_an_unknown_criterion(self):
         review = _reported(
@@ -144,7 +161,7 @@ class ReviewFaultTests(unittest.TestCase):
                 "review missing criterion AC1",
                 "review returned unknown criterion AC9",
             ],
-            review_faults(review, {"AC1": "x", "AC2": "y"}),
+            review_faults(review, _reviewed("AC1", "AC2")),
         )
 
 
@@ -156,7 +173,7 @@ class ReviewFeedbackTests(unittest.TestCase):
             "criteria": [{"id": "AC1", "status": "satisfied", "evidence": "t"}],
             "findings": [{"severity": "minor", "message": "style"}],
         }
-        self.assertEqual("", review_feedback(review, {"AC1": "x"}, BLOCKING))
+        self.assertEqual("", review_feedback(review, _reviewed("AC1"), BLOCKING))
 
     def test_names_the_criteria_and_the_blocking_findings_with_their_place(self):
         review = _reported(
@@ -181,7 +198,7 @@ class ReviewFeedbackTests(unittest.TestCase):
         )
 
         feedback = review_feedback(
-            review, {"AC1": "a", "AC2": "b", "AC3": "c"}, BLOCKING
+            review, _reviewed("AC1", "AC2", "AC3"), BLOCKING
         )
 
         self.assertEqual(
@@ -200,6 +217,109 @@ class ReviewFeedbackTests(unittest.TestCase):
             feedback,
         )
         self.assertNotIn("style", feedback)
+
+
+class GateVerifiedCriterionTests(unittest.TestCase):
+    """A criterion naming a gate is decided by that gate and not by the review.
+
+    The run reaches the review only once every gate has passed, so a gate
+    criterion is already satisfied when the reviewer is invoked. The rules
+    here neither ask for it nor read what the reviewer volunteered about it.
+    """
+
+    CRITERIA = {**_reviewed("AC1"), **_gated("unit", "AC2")}
+
+    def test_a_review_answering_only_what_it_was_asked_accepts(self):
+        review = _reported(
+            {
+                "criteria": [{"id": "AC1", "status": "satisfied", "evidence": "t"}],
+                "findings": [],
+            }
+        )
+
+        self.assertEqual([], review_decision(review, self.CRITERIA, BLOCKING))
+        self.assertEqual([], review_faults(review, self.CRITERIA))
+
+    def test_a_criterion_a_gate_decides_is_not_missing_from_the_review(self):
+        """Nothing asked the reviewer for it, so its absence is no fault."""
+        review = _reported({"criteria": [], "findings": []})
+
+        faults = review_faults(review, _gated("unit", "AC2"))
+        reasons = review_decision(review, _gated("unit", "AC2"), BLOCKING)
+
+        self.assertEqual([], faults)
+        self.assertEqual([], reasons)
+
+    def test_what_the_review_says_of_a_gate_criterion_decides_nothing(self):
+        """The gate is the authority, and the answer stays in the record."""
+        review = _reported(
+            {
+                "criteria": [
+                    {"id": "AC1", "status": "satisfied", "evidence": "t"},
+                    {"id": "AC2", "status": "not_satisfied", "evidence": "doubt"},
+                ],
+                "findings": [],
+            }
+        )
+
+        self.assertEqual([], review_decision(review, self.CRITERIA, BLOCKING))
+        self.assertEqual([], review_faults(review, self.CRITERIA))
+        self.assertEqual("", review_feedback(review, self.CRITERIA, BLOCKING))
+
+    def test_an_id_the_task_never_declared_is_still_unknown(self):
+        review = _reported(
+            {
+                "criteria": [
+                    {"id": "AC1", "status": "satisfied", "evidence": "t"},
+                    {"id": "AC9", "status": "satisfied", "evidence": "t"},
+                ],
+                "findings": [],
+            }
+        )
+
+        self.assertEqual(
+            ["review returned unknown criterion AC9"],
+            review_faults(review, self.CRITERIA),
+        )
+
+    def test_a_reviewed_criterion_beside_a_gate_one_still_decides(self):
+        review = _reported(
+            {
+                "criteria": [
+                    {"id": "AC1", "status": "not_satisfied", "evidence": "no test"}
+                ],
+                "findings": [],
+            }
+        )
+
+        self.assertEqual(
+            ["criterion AC1 is not_satisfied"],
+            review_decision(review, self.CRITERIA, BLOCKING),
+        )
+        self.assertIn(
+            "- AC1 (not_satisfied): no test",
+            review_feedback(review, self.CRITERIA, BLOCKING),
+        )
+
+    def test_a_blocking_finding_still_decides_when_every_criterion_is_gated(self):
+        """The reviewer keeps its other half: what it found on the tree."""
+        review = _reported(
+            {
+                "criteria": [],
+                "findings": [{"severity": "blocker", "message": "corrupts"}],
+            }
+        )
+        criteria = _gated("unit", "AC1")
+
+        self.assertEqual(
+            ["blocker finding: corrupts"],
+            review_decision(review, criteria, BLOCKING),
+        )
+        self.assertEqual([], review_faults(review, criteria))
+        self.assertIn(
+            "- [blocker] (no path): corrupts",
+            review_feedback(review, criteria, BLOCKING),
+        )
 
 
 if __name__ == "__main__":

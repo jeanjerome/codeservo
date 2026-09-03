@@ -80,7 +80,8 @@ class CorrectionAfterReviewTests(unittest.TestCase):
             self.assertIn(
                 "- Iteration 1: scope OK; quick gates: 2 of 2 passed;"
                 " full gates: 1 of 1 passed;"
-                " review: 1 of 1 criteria not satisfied (AC1), 1 blocking finding",
+                " review: 1 of 1 reviewed criteria not satisfied (AC1),"
+                " 1 blocking finding",
                 prompt,
             )
             # Each review has its own prompt and answer, under its iteration.

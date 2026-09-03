@@ -50,6 +50,24 @@ def declared_environment(constitution: Constitution) -> EnvironmentBlock:
     )
 
 
+def undeclared_gates(task: Task, constitution: Constitution) -> list[str]:
+    """Criteria naming a gate this constitution does not declare.
+
+    A criterion names the control that decides it, and a name no gate answers
+    to would leave it decided by nobody: the reviewer is not asked about it,
+    and no measurement carries it. The two control inputs are held to each
+    other before either is frozen, rather than after a run has spent an
+    actuation on a criterion nothing was going to read.
+    """
+    declared = {gate.name for gate in constitution.gates}
+    return [
+        f"criterion {criterion.id} names gate {criterion.gate},"
+        " which the constitution does not declare"
+        for criterion in task.criteria.values()
+        if criterion.gate is not None and criterion.gate not in declared
+    ]
+
+
 @dataclass(frozen=True)
 class RunRequest:
     """What one invocation asked for, before any of it is resolved."""
@@ -138,6 +156,9 @@ def prepare(request: RunRequest) -> tuple[RunContext, RunRecord]:
     repo = root(request.repo_path)
     task = load_task(request.task_path.resolve())
     constitution = load_constitution(repo)
+    unknown = undeclared_gates(task, constitution)
+    if unknown:
+        raise ControlFailure("; ".join(unknown))
     base_commit = head(repo)
     run_id = new_run_id()
     state_root = resolve_state_dir(repo, request.state_dir)

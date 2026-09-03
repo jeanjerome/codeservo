@@ -11,7 +11,7 @@ from codeservo.domain.constitution import (
     ReviewPolicy,
     ScopePolicy,
 )
-from codeservo.domain.task import Task
+from codeservo.domain.task import Criterion, Task
 
 OBSERVATIONS = {
     "schema_version": 1,
@@ -114,26 +114,29 @@ def _view(constitution: Constitution) -> dict:
     return tomllib.loads(view)
 
 
-def _task() -> Task:
+def _task(*criteria: Criterion) -> Task:
+    """A task declaring the criteria given, or one the reviewer decides."""
+    declared = criteria or (Criterion(id="AC1", text="observable behavior."),)
     return Task(
         path=Path("TASK.md"),
         raw_text="# Task\n\n- [AC1] observable behavior.\n",
-        criteria={"AC1": "observable behavior."},
+        criteria={criterion.id: criterion for criterion in declared},
     )
 
 
 class ImplementerPromptTests(unittest.TestCase):
-    def test_lists_every_acceptance_criterion_by_its_id(self) -> None:
-        task = Task(
-            path=Path("TASK.md"),
-            raw_text="# Task\n\n- [AC1] one.\n- [AC2] two.\n",
-            criteria={"AC1": "one.", "AC2": "two."},
+    def test_lists_every_criterion_by_its_id_with_what_decides_it(self) -> None:
+        task = _task(
+            Criterion(id="AC1", text="one."),
+            Criterion(id="AC2", text="two.", gate="unit"),
         )
 
         prompt = implementer_prompt(task, _constitution(), "")
 
         self.assertIn(
-            "ACCEPTANCE CRITERIA\n===================\n- AC1: one.\n- AC2: two.\n",
+            "ACCEPTANCE CRITERIA\n===================\n"
+            "- AC1 (verified by review): one.\n"
+            "- AC2 (verified by gate unit): two.\n",
             prompt,
         )
         self.assertLess(prompt.index("ACCEPTANCE CRITERIA"), prompt.index("TASK\n===="))
@@ -291,6 +294,56 @@ class ReviewerPromptTests(unittest.TestCase):
             prompt,
         )
         self.assertIn("Do not trust the implementer's claims.", prompt)
+
+    def test_asks_only_about_the_criteria_the_task_left_to_it(self) -> None:
+        task = _task(
+            Criterion(id="AC1", text="one."),
+            Criterion(id="AC2", text="two.", gate="unit"),
+        )
+
+        prompt = reviewer_prompt(task, _constitution(), OBSERVATIONS_JSON)
+
+        self.assertIn(
+            "ACCEPTANCE CRITERIA YOU DECIDE\n"
+            "==============================\n"
+            "- AC1: one.\n",
+            prompt,
+        )
+        self.assertIn(
+            "ACCEPTANCE CRITERIA A GATE DECIDES\n"
+            "==================================\n",
+            prompt,
+        )
+        self.assertIn("- AC2 (gate unit): two.\n", prompt)
+        self.assertIn("Do not return a criteria entry for any of them.", prompt)
+
+    def test_a_task_leaving_every_criterion_to_a_gate_asks_for_an_empty_array(
+        self,
+    ) -> None:
+        task = _task(Criterion(id="AC1", text="one.", gate="unit"))
+
+        prompt = reviewer_prompt(task, _constitution(), OBSERVATIONS_JSON)
+
+        self.assertIn(
+            "ACCEPTANCE CRITERIA YOU DECIDE\n"
+            "==============================\n"
+            "None. Every acceptance criterion of this task is decided by a gate."
+            " Return an empty criteria array.\n",
+            prompt,
+        )
+
+    def test_a_task_naming_no_gate_carries_no_gate_section(self) -> None:
+        prompt = reviewer_prompt(_task(), _constitution(), OBSERVATIONS_JSON)
+
+        self.assertIn(
+            "ACCEPTANCE CRITERIA YOU DECIDE\n"
+            "==============================\n"
+            "- AC1: observable behavior.\n"
+            "\n"
+            "TASK\n",
+            prompt,
+        )
+        self.assertNotIn("A GATE DECIDES", prompt)
 
 
 if __name__ == "__main__":

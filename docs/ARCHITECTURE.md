@@ -28,10 +28,10 @@ The controller:
 1. freezes the task, the constitution, the base Git SHA, and the implementation inference profile;
 2. verifies baseline gates;
 3. creates an isolated shallow Git checkout without a remote;
-4. invokes the configured actuator CLI as the implementation actuator, with a prompt naming every acceptance criterion by its id, the actuator's view of the constitution, one line per iteration so far and the previous iteration's feedback in full;
-5. runs the scope sensor and the quick gates, then, once they pass, the full gates, then, once they pass, hands an independent, read-only semantic reviewer an immutable summary of the gates that passed, carrying no filesystem path and no sensor source, and invokes it;
+4. invokes the configured actuator CLI as the implementation actuator, with a prompt naming every acceptance criterion by its id and by the control that decides it, the actuator's view of the constitution, one line per iteration so far and the previous iteration's feedback in full;
+5. runs the scope sensor and the quick gates, then, once they pass, the full gates, then, once they pass, hands an independent, read-only semantic reviewer an immutable summary of the gates that passed, carrying no filesystem path and no sensor source, and invokes it about the criteria the task did not hand to a gate;
 6. applies the acceptance rules mechanically to what the reviewer returned;
-7. feeds the first measurement that decided against the candidate back to the actuator: for a failing gate, the document the gate wrote when it wrote a valid one (summary, findings with the place each names, metrics), then the tail of what it printed; for the review, the criteria it did not find satisfied and the findings the constitution declares blocking;
+7. feeds the first measurement that decided against the candidate back to the actuator: for a failing gate, the acceptance criteria that gate decides, the document the gate wrote when it wrote a valid one (summary, findings with the place each names, metrics), then the tail of what it printed; for the review, the criteria it did not find satisfied and the findings the constitution declares blocking;
 8. iterates until an iteration is accepted or the budget is exhausted;
 9. persists complete run evidence.
 
@@ -47,6 +47,24 @@ measured, a sensor that could not say what it saw, a reviewer that misreported
 the criteria it was asked to decide. The record keeps every measurement under
 the iteration whose candidate it measured, so the trajectory of a run that was
 reviewed three times holds three reviews.
+
+## What Decides a Criterion
+
+An acceptance criterion names the control that answers it: `{gate: unit}` hands
+it to a gate the constitution declares, `{review}` leaves it to the review
+sensor, and a criterion naming neither is reviewed. The task and the
+constitution are held against each other before either is frozen, so a
+criterion naming a gate no constitution declares ends the run there rather than
+reaching a review that was never asked about it.
+
+A criterion naming a gate is decided by that measurement, and the run reaches
+the review only once every gate has passed. The reviewer is asked for the
+others alone and told which criteria a gate settled; what it volunteers about
+one of those is kept in the record and decides nothing, a gate being
+authoritative and a review contradicting a green one being a disagreement
+between two sensors. A failing gate is fed back and recorded with the criteria
+it leaves unsatisfied, so a decision names the acceptance criterion a run
+stopped on and not only the measurement that stopped it.
 
 ## Inference Profiles and Actuator Confinement
 

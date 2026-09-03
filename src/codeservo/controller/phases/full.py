@@ -11,13 +11,20 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ...domain.constitution import Phase
+from ...domain.task import criteria_by_gate
 from ...sensors.gates import GateResult, run_gates
 from ...sensors.observations import ObservationPathError
 from ..context import RunContext
 from ..environment import changed_environment
 from ..errors import Rejection
 from ..freeze import sensor_tampering
-from ..gate_results import GatePhase, gate_feedback, record_gate_events, sensor_faults
+from ..gate_results import (
+    GatePhase,
+    gate_feedback,
+    gate_reasons,
+    record_gate_events,
+    sensor_faults,
+)
 from ..record import RunRecord
 from ..snapshots import mutated, write_patch_snapshot
 from .converged import Converged
@@ -73,9 +80,10 @@ def measure_full(
     if control_failures:
         raise Rejection(control_failures)
 
-    reasons = [f"full gate {gate.name} failed" for gate in full if not gate.passed]
+    criteria = criteria_by_gate(context.task.criteria)
+    reasons = gate_reasons(GatePhase.FULL, full, criteria)
     return FullOutcome(
         gates=tuple(full),
         reasons=reasons,
-        feedback=gate_feedback(full) if reasons else "",
+        feedback=gate_feedback(full, criteria) if reasons else "",
     )

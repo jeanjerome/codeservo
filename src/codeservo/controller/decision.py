@@ -1,22 +1,29 @@
 """The acceptance rules, applied mechanically to what the reviewer returned.
 
-The reviewer is a sensor. What it says about each criterion of the task, and
-the severity of each finding it raises, are turned into a decision here, by
-rules the constitution fixed before the run started.
+The reviewer is a sensor, and it is asked about the criteria the task left to
+it. What it says about each of those, and the severity of each finding it
+raises, are turned into a decision here, by rules the constitution fixed
+before the run started. A criterion naming a gate is not among them: the gate
+measured it, and a run only reaches the review once every gate has passed.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+from ..domain.task import Criterion, reviewed_criteria
+
 SATISFIED = "satisfied"
 
 
-def review_faults(review: dict, task_criteria: dict[str, str]) -> list[str]:
+def review_faults(review: dict, task_criteria: Mapping[str, Criterion]) -> list[str]:
     """What the reviewer got wrong about the criteria it was asked to decide.
 
-    A criterion reported twice, one the task declares and the review omits,
+    A criterion reported twice, one the reviewer was asked about and omitted,
     or one the task never declared, is a fault of the review sensor and not
     of the candidate: nothing the actuator changes can correct it, so it is
-    never fed back.
+    never fed back. A criterion the task declares and a gate decides is
+    neither asked for nor unknown, so an answer about one is no fault.
     """
     faults: list[str] = []
     seen: set[str] = set()
@@ -27,7 +34,7 @@ def review_faults(review: dict, task_criteria: dict[str, str]) -> list[str]:
         seen.add(criterion_id)
     faults.extend(
         f"review missing criterion {criterion_id}"
-        for criterion_id in task_criteria
+        for criterion_id in reviewed_criteria(task_criteria)
         if criterion_id not in seen
     )
     faults.extend(
@@ -48,22 +55,22 @@ def _place(finding: dict) -> str:
 
 
 def review_feedback(
-    review: dict, task_criteria: dict[str, str], blocking: tuple[str, ...]
+    review: dict, task_criteria: Mapping[str, Criterion], blocking: tuple[str, ...]
 ) -> str:
     """What the reviewer objected to, spelled out for the actuator.
 
     Only what decided against the candidate is fed back: the criteria the
-    reviewer did not find satisfied, with the evidence it gave, and the
-    findings whose severity the constitution declares blocking. A finding
-    below that line does not stand between the candidate and acceptance, so
-    it is not fed back as something to fix.
+    reviewer was asked about and did not find satisfied, with the evidence it
+    gave, and the findings whose severity the constitution declares blocking.
+    A finding below that line does not stand between the candidate and
+    acceptance, so it is not fed back as something to fix.
     """
     reported = {
         str(item.get("id", "")): item for item in review.get("criteria", [])
     }
     unsatisfied = [
         reported[criterion_id]
-        for criterion_id in task_criteria
+        for criterion_id in reviewed_criteria(task_criteria)
         if criterion_id in reported
         and str(reported[criterion_id].get("status", "")) != SATISFIED
     ]
@@ -95,8 +102,15 @@ def review_feedback(
 
 
 def review_decision(
-    review: dict, task_criteria: dict[str, str], blocking: tuple[str, ...]
+    review: dict, task_criteria: Mapping[str, Criterion], blocking: tuple[str, ...]
 ) -> list[str]:
+    """Why the review decided against the candidate, if it did.
+
+    Only the criteria the reviewer was asked about are read here. What it
+    says about a criterion a gate decides is kept in the record and decides
+    nothing: the gate is the authority on it, and a review that contradicts a
+    green gate is a disagreement between two sensors rather than a verdict.
+    """
     reasons: list[str] = []
     seen: dict[str, str] = {}
     for item in review.get("criteria", []):
@@ -106,7 +120,7 @@ def review_decision(
             reasons.append(f"review duplicated criterion {criterion_id}")
         seen[criterion_id] = status
 
-    for criterion_id in task_criteria:
+    for criterion_id in reviewed_criteria(task_criteria):
         reported = seen.get(criterion_id)
         if reported is None:
             reasons.append(f"review missing criterion {criterion_id}")

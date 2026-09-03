@@ -12,7 +12,7 @@ write.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
@@ -21,6 +21,7 @@ from ...actuators import ActuatorError
 from ...actuators.prompts import implementer_prompt
 from ...domain.constitution import Phase
 from ...domain.document import Unset
+from ...domain.task import Criterion, criteria_by_gate, reviewed_criteria
 from ...evidence.digests import sha256_text
 from ...runtime.sandbox import SandboxError
 from ...sensors.gates import GateResult, run_gates
@@ -36,6 +37,7 @@ from ..gate_results import (
     GatePhase,
     gate_clause,
     gate_feedback,
+    gate_reasons,
     record_gate_events,
     sensor_faults,
 )
@@ -108,7 +110,7 @@ def _iterate(
     try:
         _actuate(context, record, iteration_dir, iteration, feedback)
         quick = _measure(context, record, iteration_dir)
-        converged = _quick_verdict(record, iteration_dir, quick)
+        converged = _quick_verdict(context, record, iteration_dir, quick)
         if isinstance(converged, IterationOutcome):
             return converged
         full = measure_full(context, record, converged, iteration_dir)
@@ -138,15 +140,22 @@ def _gates_clauses(phase: str, gates: Sequence[GateResult]) -> list[str]:
 
 
 def _review_clause(
-    review: ReviewBlock, criteria: dict[str, str], blocking: tuple[str, ...]
+    review: ReviewBlock, criteria: Mapping[str, Criterion], blocking: tuple[str, ...]
 ) -> str:
+    """What one review decided, in one clause.
+
+    Only the criteria the reviewer was asked about are counted. A criterion a
+    gate decides is settled by the gate clause of the same line, and counting
+    it here would say the review answered something it was never given.
+    """
     result = review.result
     if isinstance(result, Unset):
         return "review: no answer"
     reported = {str(item.get("id", "")): item for item in result.get("criteria", [])}
+    reviewed = reviewed_criteria(criteria)
     unsatisfied = [
         criterion_id
-        for criterion_id in criteria
+        for criterion_id in reviewed
         if str(reported.get(criterion_id, {}).get("status", "")) != SATISFIED
     ]
     findings = sum(
@@ -157,8 +166,8 @@ def _review_clause(
     parts = []
     if unsatisfied:
         parts.append(
-            f"{len(unsatisfied)} of {len(criteria)} criteria not satisfied"
-            f" ({', '.join(unsatisfied)})"
+            f"{len(unsatisfied)} of {len(reviewed)} reviewed criteria not"
+            f" satisfied ({', '.join(unsatisfied)})"
         )
     parts.append(f"{findings} blocking finding{'' if findings == 1 else 's'}")
     return "review: " + ", ".join(parts)
@@ -166,7 +175,7 @@ def _review_clause(
 
 def iteration_recap(
     iterations: Sequence[Iteration],
-    criteria: dict[str, str],
+    criteria: Mapping[str, Criterion],
     blocking: tuple[str, ...],
 ) -> tuple[str, ...]:
     """One line per iteration so far: what each measurement said of it.
@@ -332,6 +341,7 @@ def _reached(state: FileRecord | Unset) -> FileRecord:
 
 
 def _quick_verdict(
+    context: RunContext,
     record: RunRecord,
     iteration_dir: Path,
     quick: tuple[GateResult, ...],
@@ -344,13 +354,14 @@ def _quick_verdict(
     if scope.passed and all(gate.passed for gate in quick):
         return Converged(quick_gates=quick, state=_reached(entry.observed_state))
 
+    criteria = criteria_by_gate(context.task.criteria)
     reasons = []
     parts = []
     if not scope.passed:
         reasons.append(f"scope: {scope.summary}")
         parts.append("Structural invariant failures:\n" + scope.summary)
-    reasons.extend(f"quick gate {gate.name} failed" for gate in quick if not gate.passed)
-    parts.append(gate_feedback(quick))
+    reasons.extend(gate_reasons(GatePhase.QUICK, quick, criteria))
+    parts.append(gate_feedback(quick, criteria))
     feedback = "\n\n".join(part for part in parts if part).strip()
     return _decided(record, iteration_dir, Stage.QUICK, reasons, feedback)
 

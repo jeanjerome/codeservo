@@ -59,7 +59,7 @@ established, what they did not, and what follows for its design.
   another iteration when they decide against the candidate, until the budget
   is exhausted.
 - No auto-commit, auto-merge, PR creation, queue, daemon, UI, memory, multi-agent planning, or learning.
-- Review is semantic evidence, not an opaque verdict: the reviewer returns criterion statuses and findings; CodeServo computes the decision. Each review sees one iteration's candidate and nothing of the reviews before it.
+- Review is semantic evidence, not an opaque verdict: the reviewer returns criterion statuses and findings; CodeServo computes the decision. Each review sees one iteration's candidate and nothing of the reviews before it, and is asked only about the criteria the task did not hand to a gate.
 
 ## Requirements
 
@@ -246,9 +246,9 @@ verdict would be the thing being measured.
 Add a health endpoint.
 
 ## Acceptance criteria
-- [AC1] `GET /health` returns HTTP 200.
-- [AC2] The response body is `{"status":"ok"}`.
-- [AC3] Existing API tests remain green.
+- [AC1] `GET /health` returns HTTP 200. {gate: api-tests}
+- [AC2] The response body is `{"status":"ok"}`. {review}
+- [AC3] Existing API tests remain green. {gate: unit}
 
 ## Out of scope
 - Authentication changes.
@@ -256,6 +256,12 @@ Add a health endpoint.
 ```
 
 Acceptance criterion ids are mandatory because the reviewer must account for every criterion and the controller, not the reviewer, computes acceptance.
+
+Each criterion also names what decides it. `{gate: <name>}` hands it to a gate
+the constitution declares: the gate measures it, and the reviewer is not asked
+about it. `{review}`, or naming nothing, leaves it to the independent reviewer.
+A criterion naming a gate no constitution declares ends the run before anything
+is frozen, because nothing would have decided it.
 
 ## Commands
 
@@ -480,10 +486,11 @@ A candidate is `ACCEPTED` only when all of the following hold:
 5. Every quick gate passes within the iteration budget.
 6. Every full gate passes.
 7. No frozen sensor changed, and no measurement phase changed the candidate.
-8. The independent review returns exactly every acceptance criterion as `satisfied`.
+8. The independent review returns exactly the acceptance criteria left to it, each as `satisfied`.
 9. The review contains no finding whose severity is configured as blocking.
 
-Anything else is `REJECTED`.
+Anything else is `REJECTED`. A criterion naming a gate is decided by rules 5
+and 6, one left to the review by rule 8, and no criterion is decided twice.
 
 ## Why this shape
 

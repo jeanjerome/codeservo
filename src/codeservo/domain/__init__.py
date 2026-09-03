@@ -16,11 +16,20 @@ from .constitution import (
 )
 from .results import CommandResult, SensorResult
 from .run import RunStatus
-from .task import Task, TaskError, load_task
+from .task import (
+    Criterion,
+    Task,
+    TaskError,
+    Verification,
+    criteria_by_gate,
+    load_task,
+    reviewed_criteria,
+)
 
 __all__ = [
     "CommandResult",
     "Constitution",
+    "Criterion",
     "ExecutionEnvironment",
     "Gate",
     "Phase",
@@ -31,5 +40,8 @@ __all__ = [
     "SensorResult",
     "Task",
     "TaskError",
+    "Verification",
+    "criteria_by_gate",
     "load_task",
+    "reviewed_criteria",
 ]

@@ -8,13 +8,18 @@ from pathlib import Path
 
 from codeservo.controller.gate_results import (
     FINDINGS_FED_BACK,
+    GatePhase,
     gate_clause,
     gate_feedback,
+    gate_reasons,
     sensor_faults,
 )
 from codeservo.domain.constitution import ResultFormat
 from codeservo.sensors.gates import GateResult, UnsignedGateResult
 from codeservo.sensors.observations import Classification
+
+# A task whose criteria name no gate, which is every task that names none.
+NO_CRITERIA: dict[str, tuple[str, ...]] = {}
 
 
 class SensorFaultTests(unittest.TestCase):
@@ -186,7 +191,7 @@ class GateFeedbackTests(unittest.TestCase):
     def test_a_gate_answering_with_its_exit_code_alone_is_told_through_its_output(
         self,
     ) -> None:
-        feedback = gate_feedback([self._gate()])
+        feedback = gate_feedback([self._gate()], NO_CRITERIA)
 
         self.assertEqual(
             "\n".join(
@@ -204,7 +209,7 @@ class GateFeedbackTests(unittest.TestCase):
         )
 
     def test_a_valid_document_comes_before_the_output(self) -> None:
-        feedback = gate_feedback([self._gate(document=DOCUMENT)])
+        feedback = gate_feedback([self._gate(document=DOCUMENT)], NO_CRITERIA)
 
         self.assertEqual(
             "\n".join(
@@ -230,7 +235,7 @@ class GateFeedbackTests(unittest.TestCase):
     def test_a_document_without_findings_or_metrics_says_so(self) -> None:
         document = {**DOCUMENT, "findings": [], "metrics": {}}
 
-        feedback = gate_feedback([self._gate(document=document)])
+        feedback = gate_feedback([self._gate(document=document)], NO_CRITERIA)
 
         self.assertIn("Summary: 2 of 44 tests failed\nFindings: none\nstdout (tail):", feedback)
         self.assertNotIn("Metrics:", feedback)
@@ -241,7 +246,9 @@ class GateFeedbackTests(unittest.TestCase):
             for i in range(FINDINGS_FED_BACK + 5)
         ]
 
-        feedback = gate_feedback([self._gate(document={**DOCUMENT, "findings": many})])
+        feedback = gate_feedback(
+            [self._gate(document={**DOCUMENT, "findings": many})], NO_CRITERIA
+        )
 
         self.assertIn(f"Findings ({FINDINGS_FED_BACK + 5}):", feedback)
         self.assertIn(f"tests/api/test_summary.py:{FINDINGS_FED_BACK}: assert", feedback)
@@ -250,7 +257,8 @@ class GateFeedbackTests(unittest.TestCase):
 
     def test_a_document_that_is_not_valid_is_not_read(self) -> None:
         feedback = gate_feedback(
-            [self._gate(document=DOCUMENT, status=Classification.CONTRADICTED)]
+            [self._gate(document=DOCUMENT, status=Classification.CONTRADICTED)],
+            NO_CRITERIA,
         )
 
         self.assertNotIn("Summary:", feedback)
@@ -272,11 +280,66 @@ class GateFeedbackTests(unittest.TestCase):
 
     def test_a_passing_gate_is_not_mentioned(self) -> None:
         feedback = gate_feedback(
-            [self._gate("lint", passed=True), self._gate("unit", document=DOCUMENT)]
+            [self._gate("lint", passed=True), self._gate("unit", document=DOCUMENT)],
+            NO_CRITERIA,
         )
 
         self.assertNotIn("Gate lint", feedback)
         self.assertTrue(feedback.startswith("Gate unit FAILED"))
+
+    def test_a_failing_gate_names_the_criteria_it_decides(self) -> None:
+        """What the task asked of that gate, before what the tool printed."""
+        feedback = gate_feedback([self._gate()], {"unit": ("AC2", "AC3")})
+
+        self.assertIn(
+            "Exit code: 1\nAcceptance criteria this gate decides: AC2, AC3\n",
+            feedback,
+        )
+
+    def test_a_gate_no_criterion_named_is_reported_as_before(self) -> None:
+        feedback = gate_feedback([self._gate()], {"lint": ("AC2",)})
+
+        self.assertNotIn("Acceptance criteria", feedback)
+
+
+class GateReasonTests(unittest.TestCase):
+    """Why a phase decided against the candidate, in the record's own words."""
+
+    def _gate(self, name: str, *, passed: bool) -> GateResult:
+        return UnsignedGateResult(
+            name=name,
+            command="pytest -q",
+            exit_code=0 if passed else 1,
+            timed_out=False,
+            duration_ms=1,
+            stdout_path=f"{name}.stdout.log",
+            stdout_sha256="",
+            stderr_path=f"{name}.stderr.log",
+            stderr_sha256="",
+            result_format=ResultFormat.EXIT_CODE,
+        ).signed()
+
+    def test_only_the_failing_gates_are_named(self) -> None:
+        gates = [self._gate("lint", passed=True), self._gate("unit", passed=False)]
+
+        self.assertEqual(
+            ["quick gate unit failed"],
+            gate_reasons(GatePhase.QUICK, gates, {}),
+        )
+
+    def test_a_failing_gate_names_the_criteria_it_leaves_unsatisfied(self) -> None:
+        reasons = gate_reasons(
+            GatePhase.FULL, [self._gate("unit", passed=False)], {"unit": ("AC2", "AC3")}
+        )
+
+        self.assertEqual(["full gate unit failed: AC2, AC3 not satisfied"], reasons)
+
+    def test_a_passing_gate_names_nothing_though_a_criterion_named_it(self) -> None:
+        reasons = gate_reasons(
+            GatePhase.QUICK, [self._gate("unit", passed=True)], {"unit": ("AC2",)}
+        )
+
+        self.assertEqual([], reasons)
 
 
 if __name__ == "__main__":

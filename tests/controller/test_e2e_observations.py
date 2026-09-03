@@ -262,7 +262,11 @@ class GateObservationE2ETests(unittest.TestCase):
                 prompt = Path(
                     result["run_dir"], iteration["prompt"]["path"]
                 ).read_text(encoding="utf-8")
-                self.assertIn("ACCEPTANCE CRITERIA\n===================\n- AC1:", prompt)
+                self.assertIn(
+                    "ACCEPTANCE CRITERIA\n===================\n"
+                    "- AC1 (verified by review):",
+                    prompt,
+                )
                 if iteration["iteration"] == 1:
                     self.assertIn("None. This is the first iteration.", prompt)
                 else:

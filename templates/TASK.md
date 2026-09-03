@@ -6,8 +6,12 @@ Describe one small, observable software change.
 
 ## Acceptance criteria
 
-- [AC1] State the first externally verifiable outcome.
-- [AC2] State the second externally verifiable outcome.
+Each criterion names what decides it: `{gate: <name>}` hands it to a gate the
+constitution declares, `{review}` leaves it to the independent reviewer, and a
+criterion naming neither is reviewed.
+
+- [AC1] State an outcome a gate measures. {gate: unit}
+- [AC2] State an outcome only a reader can judge. {review}
 
 ## Out of scope
 
