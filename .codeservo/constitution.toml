@@ -84,13 +84,13 @@ result_format = "codeservo-json"
 # reports what it measured: a shell command keeps its environment, so the
 # adapter reads from it both the sensor to run and the document to write.
 [[gate]]
-name = "environment-block-contract"
+name = "verbatim-contract"
 phase = "quick"
 command = "python3.12 tools/gate.py sensor"
 timeout_seconds = 300
 baseline = false
 result_format = "codeservo-json"
-sensor = "codeservo/024-the-environment-block-asserts-only-what-was-established"
+sensor = "codeservo/025-one-declaration-of-the-verbatim-contract"
 
 [review]
 blocking_severities = ["blocker", "major"]
