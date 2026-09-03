@@ -122,6 +122,8 @@ def install_candidate(
     The candidate is the only tree the controller prepares. The digests are
     taken after the installation, so they describe the workspace every later
     measurement runs against, and are what each recomputation compares to.
+    Whether the workspace held is left unset: nothing has been compared yet,
+    and the verdict is what the first recomputation establishes.
     """
     installation = pixi.install(
         manifest=worktree / execution.manifest, environment=execution.environment
@@ -135,7 +137,6 @@ def install_candidate(
         manifest_sha256=digests.manifest_sha256,
         lock_sha256=digests.lock_sha256,
         config_sha256=digests.config_sha256,
-        unchanged_at_end=True,
     )
     return record, installation.diagnostic
 

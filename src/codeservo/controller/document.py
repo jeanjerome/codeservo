@@ -120,13 +120,19 @@ class CandidateDigests(Document):
 
 @dataclass(frozen=True, kw_only=True)
 class CandidateEnvironment(CandidateDigests):
-    """What installing the declared environment into the candidate did."""
+    """What installing the declared environment into the candidate did.
+
+    The verdict is unset until the digests above are taken a second time:
+    whether the workspace still holds what was installed into it is what a
+    recomputation answers, and a block carrying it before one ran would state
+    a comparison nobody made.
+    """
 
     prefix_path: str
     command: tuple[str, ...]
     exit_code: int
     duration_ms: int
-    unchanged_at_end: bool
+    unchanged_at_end: bool | Unset = UNSET
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -145,9 +151,11 @@ class ResolvedEnvironment(Document):
 class EnvironmentBlock(Document):
     """The execution environment block, filled as the run establishes it.
 
-    A run declaring no provider carries the provider alone and says `none`;
-    nothing else is asserted about an environment nobody declared, which is
-    why every other field starts unset.
+    No field carries a value before the reading that establishes it, and none
+    carries a default standing in for one. The provider is what the
+    constitution declares, or `none` where it declares no execution table;
+    everything else — the candidate's verdict included — stays unset until
+    something has read it, whichever step of the run does the reading.
     """
 
     provider: str

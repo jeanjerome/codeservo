@@ -28,12 +28,26 @@ from .isolation import Confinement, confinement
 from .provenance import runtime_metadata
 from .record import EVIDENCE_SCHEMA_VERSION, RunRecord, utc_now
 
-# A run that declares no execution provider measures through whatever the host
-# offers, and says so. Nothing else is asserted about an environment nobody
-# declared, so every other field of the block stays unset.
-NO_ENVIRONMENT = EnvironmentBlock(provider="none")
+# What a run measures through when its constitution declares no execution
+# provider: whatever the host offers, and the block says so.
+NO_PROVIDER = "none"
 
 DEFAULT_STATE_DIRECTORY = ".codeservo"
+
+
+def declared_environment(constitution: Constitution) -> EnvironmentBlock:
+    """The environment block a run opens its record with.
+
+    The provider is the one the constitution declares, so a run refused
+    before the execution table is read closes on a block agreeing with the
+    constitution the record hashed rather than on a constant denying it.
+    Nothing else is asserted about an environment nothing has measured yet:
+    every other field stays unset until the reading that establishes it.
+    """
+    execution = constitution.execution
+    return EnvironmentBlock(
+        provider=NO_PROVIDER if execution is None else execution.provider
+    )
 
 
 @dataclass(frozen=True)
@@ -202,7 +216,7 @@ def prepare(request: RunRequest) -> tuple[RunContext, RunRecord]:
         ),
         inference=inference,
         sensors=sensor_evidence,
-        environment=NO_ENVIRONMENT,
+        environment=declared_environment(constitution),
         actuator_isolation=implementer.describe_isolation(profiles.actuator),
         gate_isolation=profiles.gate_evidence(),
         status=RunStatus.RUNNING,

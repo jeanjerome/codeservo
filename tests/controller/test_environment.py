@@ -8,17 +8,83 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from codeservo.controller import NO_ENVIRONMENT, ControlFailure
+from codeservo.controller import ControlFailure, declared_environment
 from codeservo.controller.document import CandidateEnvironment, EnvironmentBlock
 from codeservo.controller.environment import (
     candidate_digests,
     changed_environment,
     frozen_environment,
+    install_candidate,
     resolved_environment,
 )
-from codeservo.domain.constitution import ExecutionEnvironment
+from codeservo.domain.constitution import (
+    Constitution,
+    ExecutionEnvironment,
+    ReviewPolicy,
+    ScopePolicy,
+)
 from codeservo.evidence.digests import sha256_file
 from harness import PIXI_PACKAGES, PIXI_TASK, commit_repository, write_provider
+
+
+def declaring(execution: ExecutionEnvironment | None) -> Constitution:
+    """A constitution declaring that execution environment, and no gate."""
+    return Constitution(
+        path=Path("constitution.toml"),
+        raw_text="version = 1\n",
+        scope=ScopePolicy(),
+        gates=(),
+        review=ReviewPolicy(),
+        execution=execution,
+    )
+
+
+def provider_workspace(case: unittest.TestCase) -> Path:
+    """A tree the stand-in provider answers about, with nothing installed."""
+    temp = tempfile.TemporaryDirectory()
+    case.addCleanup(temp.cleanup)
+    root = Path(temp.name)
+    worktree = root / "worktree"
+    bin_dir = root / "bin"
+    worktree.mkdir()
+    bin_dir.mkdir()
+    write_provider(bin_dir, worktree, installed=False)
+    patcher = patch.dict(
+        os.environ,
+        {"PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", "")},
+        clear=False,
+    )
+    patcher.start()
+    case.addCleanup(patcher.stop)
+    return worktree
+
+
+class OpeningBlockTests(unittest.TestCase):
+    """The block a record opens with, before anything has been measured.
+
+    A run refused while its control inputs are verified closes on this block,
+    so what it states about the provider is what the constitution the record
+    hashed declares.
+    """
+
+    def test_a_run_declaring_no_provider_records_none(self) -> None:
+        block = declared_environment(declaring(None))
+
+        self.assertEqual({"provider": "none"}, block.to_document())
+
+    def test_states_the_provider_the_constitution_declares(self) -> None:
+        execution = ExecutionEnvironment(
+            provider="pixi",
+            manifest="pyproject.toml",
+            lock="pixi.lock",
+            environment="default",
+        )
+
+        block = declared_environment(declaring(execution))
+
+        # The provider alone: nothing else about the environment has been
+        # read, so the block asserts nothing else about it.
+        self.assertEqual({"provider": "pixi"}, block.to_document())
 
 
 class ExecutionEnvironmentTests(unittest.TestCase):
@@ -54,9 +120,6 @@ class ExecutionEnvironmentTests(unittest.TestCase):
             lock="pixi.lock",
             environment="default",
         )
-
-    def test_a_run_declaring_no_provider_records_none(self) -> None:
-        self.assertEqual({"provider": "none"}, NO_ENVIRONMENT.to_document())
 
     def test_digests_the_two_files_the_base_commit_holds(self) -> None:
         _, repo, base_commit = self._repo()
@@ -139,6 +202,8 @@ class CandidateEnvironmentTests(unittest.TestCase):
             environment="default",
         )
         digests = candidate_digests(worktree, execution)
+        # As the installation leaves it: the digests, and no verdict about a
+        # workspace nothing has compared yet.
         environment = EnvironmentBlock(
             provider="pixi",
             candidate=CandidateEnvironment(
@@ -146,13 +211,28 @@ class CandidateEnvironmentTests(unittest.TestCase):
                 command=("pixi", "install"),
                 exit_code=0,
                 duration_ms=1,
-                unchanged_at_end=True,
                 manifest_sha256=digests.manifest_sha256,
                 lock_sha256=digests.lock_sha256,
                 config_sha256=digests.config_sha256,
             ),
         )
         return worktree, environment, execution
+
+    def test_the_installation_states_no_verdict_about_the_workspace(self) -> None:
+        worktree = provider_workspace(self)
+        execution = ExecutionEnvironment(
+            provider="pixi",
+            manifest="pyproject.toml",
+            lock="pixi.lock",
+            environment="default",
+        )
+
+        candidate, _ = install_candidate(worktree, execution)
+
+        # Nothing has been compared to the digests just taken, so the record
+        # leaves the verdict out rather than asserting one.
+        self.assertEqual(0, candidate.exit_code)
+        self.assertNotIn("unchanged_at_end", candidate.to_document())
 
     def test_a_workspace_nobody_touched_is_unchanged(self) -> None:
         worktree, environment, execution = self._candidate()
@@ -161,6 +241,9 @@ class CandidateEnvironmentTests(unittest.TestCase):
 
         self.assertEqual([], reasons)
         self.assertIsNone(checked.candidate.config_sha256)
+        # The verdict appears with the comparison that establishes it, and
+        # not before: the block handed over carried none.
+        self.assertNotIn("unchanged_at_end", environment.to_document()["candidate"])
         self.assertTrue(checked.candidate.unchanged_at_end)
 
     def test_names_the_lockfile_a_run_rewrote(self) -> None:
@@ -200,11 +283,9 @@ class CandidateEnvironmentTests(unittest.TestCase):
 
     def test_a_run_declaring_no_provider_has_nothing_to_recompute(self) -> None:
         worktree, _, _ = self._candidate()
+        block = declared_environment(declaring(None))
 
-        self.assertEqual(
-            (NO_ENVIRONMENT, []),
-            changed_environment(NO_ENVIRONMENT, worktree, None),
-        )
+        self.assertEqual((block, []), changed_environment(block, worktree, None))
 
 
 if __name__ == "__main__":

@@ -35,6 +35,44 @@ class RejectionPathTests(unittest.TestCase):
             self.assertEqual([], result["iterations"])
             self.assertNotIn("baseline", result)
 
+    def test_a_run_refused_before_its_environment_is_read_states_the_provider(
+        self,
+    ) -> None:
+        """The record closes on the constitution it hashed, not against it."""
+        with tempfile.TemporaryDirectory() as temp:
+            case = build_case(
+                Path(temp),
+                implementer="implement(ACCEPTABLE)",
+                constitution_text=constitution(execution="default"),
+                provider=True,
+            )
+            (case.repo / "uncommitted.py").write_text("x = 1\n", encoding="utf-8")
+
+            result = case.run()
+
+            self.assert_rejected(result, "source repository is not clean")
+            # Refused before the execution table was read: the block states
+            # the declared provider and nothing the run never measured.
+            self.assertEqual({"provider": "pixi"}, result["environment"])
+
+    def test_a_run_that_ends_before_any_recomputation_states_no_verdict(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            case = build_case(
+                Path(temp),
+                implementer="implement(ACCEPTABLE)",
+                constitution_text=constitution(execution="default"),
+                provider=True,
+            )
+
+            result = case.run(max_iterations=0)
+
+            self.assert_rejected(result, "quick gates did not converge within 0")
+            candidate = result["environment"]["candidate"]
+            # The installation happened; nothing compared its digests to a
+            # second reading, so the block says nothing about what held.
+            self.assertEqual(0, candidate["exit_code"])
+            self.assertNotIn("unchanged_at_end", candidate)
+
     def test_rejects_a_red_baseline(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             case = build_case(
