@@ -272,6 +272,30 @@ command = "true"
         )
         self.assertIsNone(constitution.gates[1].reports)
 
+    def test_reads_the_pattern_of_a_sarif_gate(self) -> None:
+        repo = self._write(
+            self._gates('result_format = "sarif"\nreports = "target/*.sarif"')
+        )
+
+        constitution = load_constitution(repo)
+
+        self.assertEqual(ResultFormat.SARIF, constitution.gates[0].result_format)
+        self.assertEqual("target/*.sarif", constitution.gates[0].reports)
+
+    def test_every_format_that_reads_reports_requires_them(self) -> None:
+        for declared in ResultFormat:
+            with self.subTest(declared):
+                repo = self._write(self._gates(f'result_format = "{declared}"'))
+
+                if not declared.reads_reports:
+                    self.assertIsNone(load_constitution(repo).gates[0].reports)
+                    continue
+                with self.assertRaisesRegex(
+                    ConstitutionError,
+                    f'result_format = "{declared}" requires reports',
+                ):
+                    load_constitution(repo)
+
     def test_a_junit_gate_names_its_reports(self) -> None:
         repo = self._write(self._gates('result_format = "junit-xml"'))
 
@@ -284,7 +308,9 @@ command = "true"
                 repo = self._write(self._gates(declared + 'reports = "reports/*.xml"'))
 
                 with self.assertRaisesRegex(
-                    ConstitutionError, 'reports requires result_format = "junit-xml"'
+                    ConstitutionError,
+                    "reports requires a result_format the controller projects,"
+                    ' one of "junit-xml", "sarif"',
                 ):
                     load_constitution(repo)
 
@@ -308,6 +334,23 @@ command = "true"
 
         with self.assertRaisesRegex(ConstitutionError, "reports must be a string"):
             load_constitution(repo)
+
+    def test_a_ratchet_holds_the_metrics_of_an_analysis_document(self) -> None:
+        repo = self._write(
+            self._gates(
+                'result_format = "sarif"\n'
+                'reports = "target/*.sarif"\n'
+                'ratchet = { errors = "<=", warnings = "<=" }'
+            )
+        )
+
+        self.assertEqual(
+            (("errors", "<="), ("warnings", "<=")),
+            tuple(
+                (ratchet.metric, ratchet.direction)
+                for ratchet in load_constitution(repo).gates[0].ratchets
+            ),
+        )
 
     def test_a_ratchet_holds_the_metrics_of_a_projected_document(self) -> None:
         repo = self._write(

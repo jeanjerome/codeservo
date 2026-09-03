@@ -1,0 +1,19 @@
+version = 1
+
+[scope]
+protected = [".codeservo/**", "tools/**"]
+max_changed_files = 12
+max_diff_lines = 400
+
+[[gate]]
+name = "lint"
+phase = "quick"
+command = "ruff check --output-format sarif . > target/lint.sarif"
+timeout_seconds = 120
+baseline = true
+result_format = "sarif"
+reports = "target/*.sarif"
+ratchet = { errors = "<=", warnings = "<=", results = "<=" }
+
+[review]
+blocking_severities = ["blocker", "major"]

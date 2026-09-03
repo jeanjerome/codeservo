@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -37,6 +38,22 @@ EXECUTION = ExecutionEnvironment(
     environment="default",
 )
 PROVIDER = Pixi()
+
+# One result, shaped the way ruff writes one: an absolute file URI is what it
+# names, and the reader reads it against the tree the gate measured.
+FOUND = {
+    "ruleId": "F401",
+    "level": "error",
+    "message": {"text": "`os` imported but unused"},
+    "locations": [
+        {
+            "physicalLocation": {
+                "artifactLocation": {"uri": "app.py"},
+                "region": {"startLine": 2},
+            }
+        }
+    ],
+}
 
 
 class GateCommandTests(unittest.TestCase):
@@ -827,7 +844,7 @@ class JunitReportGateTests(unittest.TestCase):
             self.assertTrue(result.passed)
             self.assertEqual("absent", result.observation_status)
             self.assertEqual(
-                "the gate passed and wrote no test report matching reports/TEST-*.xml",
+                "the gate passed and wrote no report matching reports/TEST-*.xml",
                 result.observation_error,
             )
             self.assertIsNone(result.observation_path)
@@ -880,7 +897,7 @@ class JunitReportGateTests(unittest.TestCase):
 
             self.assertEqual("absent", result.observation_status)
             self.assertEqual(
-                "the gate passed and wrote no test report matching reports/TEST-*.xml;"
+                "the gate passed and wrote no report matching reports/TEST-*.xml;"
                 " 1 matched and predate this measurement",
                 result.observation_error,
             )
@@ -909,6 +926,131 @@ class JunitReportGateTests(unittest.TestCase):
                 if key != "result_sha256"
             }
             self.assertEqual(sha256_record(carried), result.result_sha256)
+
+
+class SarifReportGateTests(unittest.TestCase):
+    """A gate whose tool writes SARIF where it always does, in the tree."""
+
+    @staticmethod
+    def _log(*results: dict, **run) -> str:
+        driver = {"name": "ruff", "version": "0.12.12"}
+        return json.dumps(
+            {
+                "version": "2.1.0",
+                "runs": [{"tool": {"driver": driver}, "results": list(results), **run}],
+            }
+        )
+
+    def _gate(self) -> Gate:
+        return Gate(
+            name="lint",
+            phase="quick",
+            command=self._writing(self._log(FOUND)),
+            result_format=ResultFormat.SARIF,
+            reports="reports/*.sarif",
+        )
+
+    @staticmethod
+    def _writing(log: str, *, exit_code: int = 1) -> str:
+        # Single-quoted for the shell: a SARIF log carries no single quote.
+        return (
+            f"mkdir -p reports && printf %s '{log}' > reports/lint.sarif;"
+            f" exit {exit_code}"
+        )
+
+    def _run(self, root: Path, gate: Gate) -> GateResult:
+        (root / "tree").mkdir(exist_ok=True)
+        [result] = run_gates(
+            repo=root / "tree",
+            gates=(gate,),
+            out_dir=root / "run" / "quick",
+            run_dir=root / "run",
+        )
+        return result
+
+    def test_projects_the_analysis_the_gate_wrote_onto_the_document(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            result = self._run(root, self._gate())
+
+            self.assertFalse(result.passed)
+            self.assertEqual(ResultFormat.SARIF, result.result_format)
+            self.assertEqual("valid", result.observation_status)
+            kept = Path(result.observation_path)
+            self.assertEqual(root / "run" / "quick" / "lint.observation.json", kept)
+            self.assertEqual(sha256_file(kept), result.observation_sha256)
+            document = json.loads(kept.read_text())
+            self.assertEqual("lint", document["sensor"])
+            self.assertEqual("failed", document["status"])
+            self.assertEqual(
+                "1 results, 1 errors, 0 warnings, 0 notes from ruff 0.12.12"
+                " in 1 report",
+                document["summary"],
+            )
+            self.assertEqual(
+                {
+                    "results": 1,
+                    "errors": 1,
+                    "warnings": 0,
+                    "notes": 0,
+                    "suppressed": 0,
+                },
+                document["metrics"],
+            )
+            self.assertEqual(
+                [
+                    {
+                        "id": "F401:app.py",
+                        "severity": "major",
+                        "path": "app.py",
+                        "line": 2,
+                        "message": "error: `os` imported but unused",
+                    }
+                ],
+                document["findings"],
+            )
+            # The report stays where the tool wrote it: nothing is removed.
+            self.assertTrue((root / "tree" / "reports" / "lint.sarif").is_file())
+
+    def test_a_tool_that_did_not_finish_is_a_fault_of_the_measurement(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            unfinished = self._log(invocations=[{"executionSuccessful": False}])
+
+            result = self._run(
+                root,
+                replace(self._gate(), command=self._writing(unfinished, exit_code=0)),
+            )
+
+            # The gate exited zero over a report saying nothing was measured.
+            self.assertTrue(result.passed)
+            self.assertEqual("invalid", result.observation_status)
+            self.assertIn("did not complete", result.observation_error)
+            self.assertIsNone(result.observation_path)
+
+    def test_a_report_the_reader_cannot_make_sense_of_is_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            result = self._run(
+                root, replace(self._gate(), command=self._writing("{not json"))
+            )
+
+            self.assertEqual("invalid", result.observation_status)
+            self.assertIn("reports/lint.sarif is not JSON", result.observation_error)
+
+    def test_a_passing_gate_that_wrote_no_report_measured_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            result = self._run(root, replace(self._gate(), command="true"))
+
+            self.assertEqual("absent", result.observation_status)
+            self.assertEqual(
+                "the gate passed and wrote no report matching reports/*.sarif",
+                result.observation_error,
+            )
 
 
 if __name__ == "__main__":

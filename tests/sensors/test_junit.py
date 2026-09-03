@@ -1,12 +1,9 @@
 """Reading JUnit XML reports, and projecting them onto the observation."""
 
 import json
-import os
-import tempfile
 import unittest
-from pathlib import Path
 
-from codeservo.sensors import junit
+from codeservo.sensors import junit, reports
 from codeservo.sensors.observations import Observation, Status, classify
 
 SUREFIRE = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -145,84 +142,6 @@ class ParseTests(unittest.TestCase):
                 with self.assertRaisesRegex(junit.ReportFault, wrong):
                     junit.parse_report(raw, "r.xml")
 
-    def test_refuses_a_report_no_reporter_would_write(self) -> None:
-        raw = b"<testsuite>" + b" " * (junit.REPORT_SIZE_LIMIT + 1) + b"</testsuite>"
-
-        with self.assertRaisesRegex(junit.ReportFault, "larger than"):
-            junit.parse_report(raw, "r.xml")
-
-
-class ListingTests(unittest.TestCase):
-    """Which reports this measurement wrote, read from the tree without a clock."""
-
-    def _tree(self, root: Path) -> Path:
-        tree = root / "tree"
-        (tree / "a" / "target" / "surefire-reports").mkdir(parents=True)
-        (tree / "b" / "target" / "surefire-reports").mkdir(parents=True)
-        return tree
-
-    def test_lists_every_matching_file_relative_to_the_tree(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            tree = self._tree(Path(temp))
-            (tree / "a/target/surefire-reports/TEST-one.xml").write_text("<testsuite/>")
-            (tree / "b/target/surefire-reports/TEST-two.xml").write_text("<testsuite/>")
-            (tree / "b/target/surefire-reports/two.txt").write_text("text")
-
-            listing = junit.list_reports(tree, "**/target/surefire-reports/TEST-*.xml")
-
-            self.assertEqual(
-                [
-                    "a/target/surefire-reports/TEST-one.xml",
-                    "b/target/surefire-reports/TEST-two.xml",
-                ],
-                sorted(listing),
-            )
-            for size, _ in listing.values():
-                self.assertEqual(len("<testsuite/>"), size)
-
-    def test_a_link_leaving_the_tree_is_not_under_it(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            tree = self._tree(root)
-            outside = root / "elsewhere" / "TEST-out.xml"
-            outside.parent.mkdir()
-            outside.write_text("<testsuite/>")
-            os.symlink(outside, tree / "a/target/surefire-reports/TEST-linked.xml")
-
-            self.assertEqual({}, junit.list_reports(tree, "**/TEST-*.xml"))
-
-    def test_written_means_new_or_rewritten_since_the_listing(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            tree = self._tree(Path(temp))
-            kept = tree / "a/target/surefire-reports/TEST-kept.xml"
-            rewritten = tree / "a/target/surefire-reports/TEST-rewritten.xml"
-            kept.write_text("<testsuite/>")
-            rewritten.write_text("<testsuite/>")
-            os.utime(rewritten, ns=(1_000_000_000, 1_000_000_000))
-            before = junit.list_reports(tree, "**/TEST-*.xml")
-            # The gate runs: one report rewritten byte for byte, one added,
-            # one left alone.
-            rewritten.write_text("<testsuite/>")
-            (tree / "b/target/surefire-reports/TEST-new.xml").write_text("<testsuite/>")
-
-            written, left = junit.written_reports(tree, "**/TEST-*.xml", before)
-
-            self.assertEqual(
-                [
-                    "a/target/surefire-reports/TEST-rewritten.xml",
-                    "b/target/surefire-reports/TEST-new.xml",
-                ],
-                written,
-            )
-            self.assertEqual(["a/target/surefire-reports/TEST-kept.xml"], left)
-
-    def test_a_pattern_matching_nothing_lists_nothing(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            tree = self._tree(Path(temp))
-
-            self.assertEqual(({}), junit.list_reports(tree, "nowhere/*.xml"))
-            self.assertEqual(([], []), junit.written_reports(tree, "nowhere/*.xml", {}))
-
 
 class ProjectionTests(unittest.TestCase):
     """The reports as the document every reader of an observation expects."""
@@ -323,7 +242,7 @@ class ProjectionTests(unittest.TestCase):
     def test_renders_a_document_the_contract_accepts(self) -> None:
         for passed in (True, False):
             with self.subTest(passed=passed):
-                raw = junit.render(self._project(SUREFIRE, passed=passed))
+                raw = reports.render(self._project(SUREFIRE, passed=passed))
 
                 self.assertEqual(("valid", None), classify(raw, passed=passed))
                 document = json.loads(raw)

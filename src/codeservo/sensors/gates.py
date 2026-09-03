@@ -17,13 +17,22 @@ from ..evidence.digests import sha256_file, sha256_record
 from ..runtime.process import run_command
 from ..runtime.sandbox import Isolation
 from ..workspace.provider import Provider
-from . import junit, observations
+from . import junit, observations, reports, sarif
 from .observations import ObservationPathError
 
 # What a gate writes inside the location the controller owns, and what the
 # record keeps beside that gate's logs.
 OBSERVATION_FILENAME = "observation.json"
 OBSERVATION_SUFFIX = ".observation.json"
+
+# The reader of every format the controller projects a document from, one
+# entry each. The runner knows nothing else about any of them: it lists the
+# files, hands the reader the ones this measurement wrote, and keeps what
+# comes back the way it keeps a document a gate wrote itself.
+PROJECTIONS = {
+    ResultFormat.JUNIT_XML: junit.projection,
+    ResultFormat.SARIF: sarif.projection,
+}
 
 
 @dataclass(frozen=True)
@@ -207,9 +216,9 @@ def run_gates(
         # A gate whose tool writes its reports in the tree is told nothing:
         # what the tree holds before it runs is listed, so that only what it
         # wrote is read afterwards.
-        before: junit.Listing | None = None
-        if gate.result_format == ResultFormat.JUNIT_XML and gate.reports is not None:
-            before = junit.list_reports(repo, gate.reports)
+        before: reports.Listing | None = None
+        if gate.result_format.reads_reports and gate.reports is not None:
+            before = reports.list_reports(repo, gate.reports)
         result = run_command(
             name=gate.name,
             command=gate_command(
@@ -244,7 +253,7 @@ def _measured(
     out_dir: Path,
     *,
     tree: Path | None = None,
-    before: junit.Listing | None = None,
+    before: reports.Listing | None = None,
 ) -> UnsignedGateResult:
     """One gate's measurement, with the document it wrote if it declared one."""
     measured = UnsignedGateResult(
@@ -260,7 +269,7 @@ def _measured(
         result_format=gate.result_format,
     )
     if before is not None and tree is not None and gate.reports is not None:
-        return _projected(measured, result, gate.reports, tree, before, out_dir)
+        return _projected(measured, result, gate, tree, before, out_dir)
     if location is None:
         return measured
 
@@ -287,32 +296,23 @@ def _measured(
 def _projected(
     measured: UnsignedGateResult,
     result: CommandResult,
-    pattern: str,
+    gate: Gate,
     tree: Path,
-    before: junit.Listing,
+    before: reports.Listing,
     out_dir: Path,
 ) -> UnsignedGateResult:
     """The reports the gate wrote, projected onto the document the record keeps.
 
     The projection is held to the same contract as a document a gate writes
     itself, and kept the same way, beside that gate's logs. A report the
-    reader cannot make sense of is a fault of the measurement. A gate that
-    passed and wrote no report measured nothing anyone can see, and says so;
-    one that failed and wrote none failed before any test ran, and the
-    document says that instead.
+    reader of that format cannot make sense of is a fault of the measurement.
+    A gate that passed and wrote no report measured nothing anyone can see,
+    and says so; one that failed and wrote none failed before its tool
+    reported anything, and the document says that instead.
     """
-    written, left = junit.written_reports(tree, pattern, before)
-    try:
-        reports = [junit.read_report(tree, relative) for relative in written]
-    except junit.ReportFault as fault:
-        return replace(
-            measured,
-            observation_status=observations.Classification.INVALID,
-            observation_error=str(fault),
-            observation_path=None,
-            observation_sha256=None,
-        )
-    if not reports and result.passed:
+    pattern = gate.reports or ""
+    written, left = reports.written_reports(tree, pattern, before)
+    if not written and result.passed:
         untouched = (
             f"; {len(left)} matched and predate this measurement" if left else ""
         )
@@ -320,20 +320,29 @@ def _projected(
             measured,
             observation_status=observations.Classification.ABSENT,
             observation_error=(
-                f"the gate passed and wrote no test report matching {pattern}{untouched}"
+                f"the gate passed and wrote no report matching {pattern}{untouched}"
             ),
             observation_path=None,
             observation_sha256=None,
         )
-    raw = junit.render(
-        junit.project(
-            reports,
+    try:
+        document = PROJECTIONS[gate.result_format](
+            tree,
+            written,
             sensor=measured.name,
             passed=result.passed,
             pattern=pattern,
             left=len(left),
         )
-    )
+    except reports.ReportFault as fault:
+        return replace(
+            measured,
+            observation_status=observations.Classification.INVALID,
+            observation_error=str(fault),
+            observation_path=None,
+            observation_sha256=None,
+        )
+    raw = reports.render(document)
     kept = out_dir / f"{measured.name}{OBSERVATION_SUFFIX}"
     kept.write_bytes(raw)
     status, error = observations.classify(raw, passed=result.passed)

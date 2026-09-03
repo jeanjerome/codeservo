@@ -17,18 +17,29 @@ class ResultFormat(StrEnum):
 
     `EXIT_CODE` is the verdict alone. `CODESERVO_JSON` adds a document saying
     what the gate saw, written by the gate where the controller told it to.
-    `JUNIT_XML` adds the same document, projected by the controller from the
-    test reports the gate's tool wrote where it always writes them.
+    The others add the same document, projected by the controller from the
+    reports the gate's tool wrote where it always writes them: `JUNIT_XML`
+    from test reports, `SARIF` from analysis results.
     """
 
     EXIT_CODE = "exit-code"
     CODESERVO_JSON = "codeservo-json"
     JUNIT_XML = "junit-xml"
+    SARIF = "sarif"
 
     @property
     def writes_document(self) -> bool:
         """Whether a gate of this format leaves a document beside its verdict."""
         return self is not ResultFormat.EXIT_CODE
+
+    @property
+    def reads_reports(self) -> bool:
+        """Whether the controller projects the gate's document from its reports.
+
+        A format that reads reports needs to be told where they are, and one
+        that does not has nothing to be told.
+        """
+        return self in (ResultFormat.JUNIT_XML, ResultFormat.SARIF)
 
 
 @dataclass(frozen=True)

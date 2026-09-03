@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import tomllib
+from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -204,8 +205,8 @@ def _ratchets(
     table = _table(item["ratchet"], what)
     if not result_format.writes_document:
         raise ConstitutionError(
-            f"{what} requires a result_format that writes a document,"
-            f' "{ResultFormat.CODESERVO_JSON}" or "{ResultFormat.JUNIT_XML}"'
+            f"{what} requires a result_format that writes a document, one of"
+            f" {_formats(lambda f: f.writes_document)}"
         )
     if not baseline:
         raise ConstitutionError(
@@ -228,25 +229,32 @@ def _ratchets(
     return tuple(ratchets)
 
 
+def _formats(wanted: Callable[[ResultFormat], bool]) -> str:
+    """The result formats one rule applies to, named as a declaration spells them."""
+    return ", ".join(f'"{declared}"' for declared in ResultFormat if wanted(declared))
+
+
 def _reports(item: dict, name: str, result_format: ResultFormat) -> str | None:
-    """Where a `junit-xml` gate's tool writes its reports, and nothing otherwise.
+    """Where a gate's own tool writes its reports, and nothing otherwise.
 
     The pattern is read against the tree the gate measures, the source
     repository during the baseline and the checkout afterwards, so it is
-    relative and stays under that tree. A gate of another format has no
-    reports to name, and a `junit-xml` gate naming none would measure nothing.
+    relative and stays under that tree. A gate whose document the controller
+    does not project has no reports to name, and one whose document it
+    projects from reports it cannot find would measure nothing.
     """
     what = f"gate {name}: reports"
     if "reports" not in item:
-        if result_format == ResultFormat.JUNIT_XML:
+        if result_format.reads_reports:
             raise ConstitutionError(
-                f'gate {name}: result_format = "{ResultFormat.JUNIT_XML}" requires'
+                f'gate {name}: result_format = "{result_format}" requires'
                 " reports, the pattern of the files its tool writes"
             )
         return None
-    if result_format != ResultFormat.JUNIT_XML:
+    if not result_format.reads_reports:
         raise ConstitutionError(
-            f'{what} requires result_format = "{ResultFormat.JUNIT_XML}"'
+            f"{what} requires a result_format the controller projects, one of"
+            f" {_formats(lambda f: f.reads_reports)}"
         )
     pattern = _text(item["reports"], what).strip()
     if not pattern:

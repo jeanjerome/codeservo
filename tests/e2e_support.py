@@ -5,6 +5,7 @@ adapter reads back, so a case exercises the controller and never the
 network.
 """
 
+import base64
 import json
 
 from harness import SENSOR_COMMAND
@@ -379,4 +380,62 @@ def writes_junit_report(
         + report
         + '\\"'
         + f" > {into}; exit {exit_code}"
+    )
+
+
+def sarif_report(
+    *, errors: int = 1, warnings: int = 0, tool: str = "ruff", path: str = "app.py"
+) -> str:
+    """One SARIF log of the shape ruff writes, with the results a test wants."""
+    results = [
+        {
+            "ruleId": f"E{index}",
+            "level": "error",
+            "message": {"text": f"error {index} in {path}"},
+            "locations": [
+                {
+                    "physicalLocation": {
+                        "artifactLocation": {"uri": path},
+                        "region": {"startLine": index + 1},
+                    }
+                }
+            ],
+        }
+        for index in range(errors)
+    ]
+    results += [
+        {
+            "ruleId": f"W{index}",
+            "level": "warning",
+            "message": {"text": f"warning {index}"},
+        }
+        for index in range(warnings)
+    ]
+    return json.dumps(
+        {
+            "version": "2.1.0",
+            "runs": [
+                {
+                    "tool": {"driver": {"name": tool, "version": "0.12.12"}},
+                    "results": results,
+                }
+            ],
+        }
+    )
+
+
+def writes_report(
+    report: str, *, into: str = "reports/lint.sarif", exit_code: int = 0
+) -> str:
+    """A gate command writing one report where its tool would, in the tree.
+
+    The text goes through base64, whose alphabet a TOML string and a shell
+    word both carry unchanged: a JSON document quoted for both at once is a
+    fixture nobody can read.
+    """
+    encoded = base64.b64encode(report.encode("utf-8")).decode("ascii")
+    directory = into.rsplit("/", 1)[0] if "/" in into else "."
+    return (
+        f"mkdir -p {directory} && printf %s {encoded} | base64 -d > {into};"
+        f" exit {exit_code}"
     )

@@ -128,7 +128,7 @@ class JunitGateE2ETests(unittest.TestCase):
             self.assertEqual("REJECTED", result["status"])
             self.assertEqual(
                 [
-                    "sensor error: gate syntax: the gate passed and wrote no test"
+                    "sensor error: gate syntax: the gate passed and wrote no"
                     f" report matching {REPORTS}"
                 ],
                 result["decision"]["reasons"],

@@ -244,9 +244,10 @@ location, not one that knows where the location came from.
 
 ### Gates whose tool already reports
 
-A suite that writes JUnit XML needs no adapter. The gate declares
-`result_format = "junit-xml"` and, in `reports`, where its tool writes the
-reports, as a pattern relative to the tree the gate measures:
+A tool that already writes JUnit XML or SARIF needs no adapter. The gate
+declares `result_format = "junit-xml"` for test results or `"sarif"` for
+analysis results and, in `reports`, where its tool writes them, as a pattern
+relative to the tree the gate measures:
 
 ```toml
 [[gate]]
@@ -261,16 +262,23 @@ reports = "**/target/surefire-reports/TEST-*.xml"
 
 The gate is told nothing. The controller lists the files the pattern matches
 before the gate runs and again after it, reads the ones this measurement wrote
-— new, or rewritten since — and projects them onto the same six-field document:
-the counts of tests, failures, errors, skipped and seconds as metrics, one
-finding per failed or errored case naming the case and the one line its tool
-said, and the status the exit code reached. A report the gate left as it found
-it is not read, and the summary says how many were left. The projection is kept
-beside the gate's logs like a document the gate wrote itself, and a ratchet
-reads its metrics. A gate that passed and wrote no report measured nothing
-anyone can see, and that is a fault of the sensor; one that failed and wrote
-none failed before any test ran, and its document says so. Nothing is deleted
-from the tree to make any of this true.
+— new, or rewritten since — and projects them onto the same six-field document.
+A test report becomes the counts of tests, failures, errors, skipped and
+seconds, with one finding per failed or errored case. An analysis report
+becomes the counts of results, errors, warnings, notes and suppressed, with one
+finding per result the tool reported and did not suppress. Both carry the
+status the exit code reached, name where each finding points, and keep the one
+line the tool said about it.
+
+A report the gate left as it found it is not read, and the summary says how
+many were left. The projection is kept beside the gate's logs like a document
+the gate wrote itself, and a ratchet reads its metrics. A gate that passed and
+wrote no report measured nothing anyone can see, and that is a fault of the
+sensor; one that failed and wrote none failed before its tool reported
+anything, and its document says so. A SARIF log whose own `invocations` say the
+tool did not complete is a fault too, because an unfinished analysis reports
+the same nothing as a clean tree. Nothing is deleted from the tree to make any
+of this true.
 
 A document that is absent, malformed, or that contradicts the exit code is a
 fault of the sensor and not a failure of the candidate: the run ends there, on

@@ -37,13 +37,14 @@ digests, its verdict derived from the exit code rather than chosen. What a
 measurement may say: `observations.py` owns the contract of the second answer —
 the six fields, the two vocabularies, the validation that names the field at
 fault, and the classification of a document against the exit code — and it
-interprets no tool; `junit.py` is one producer of that contract, reading the
-reports a tool already writes and projecting them onto it. A document therefore
-reaches the record by two channels in one shape, written by the gate's own
-adapter or projected here from what its tool wrote, and every reader
-downstream — the feedback, the ratchets, the bundle the reviewer is handed, the
-record itself — knows the shape alone. A further format is a module beside
-`junit.py` and moves none of them.
+interprets no tool; `reports.py` owns the mechanism that finds the report
+files a measurement wrote, and one module per format reads them and projects
+them onto that contract, `junit.py` for test results and `sarif.py` for
+analysis results. A document therefore reaches the record by two channels in
+one shape, written by the gate's own adapter or projected here from what its
+tool wrote, and every reader downstream — the feedback, the ratchets, the
+bundle the reviewer is handed, the record itself — knows the shape alone. A
+third format is a module beside those two and moves none of them.
 
 `actuators` and `workspace` have the same shape twice, a port and its adapters:
 `base.py` is the backend port and `claude_code.py` and `codex.py` answer it,
@@ -174,23 +175,38 @@ which the provider passes through. Both are the controller's business: the
 target repository writes an adapter that takes a location, not one that knows
 where the location came from.
 
-A gate may instead declare `result_format = "junit-xml"` and name, in `reports`,
-the pattern under which its tool writes JUnit XML reports, relative to the tree
-it measures. The gate is handed no location. `sensors/junit.py` lists the
-matching files before the gate runs and after it, reads those this measurement
-wrote — new, or whose size or write time moved — and projects them onto the same
-six-field document, which is then held to the same contract and kept the same
-way, so every reader of an observation, feedback, ratchets and review, is
-unchanged. A report the gate left as it found it is not this measurement's and
-is not read; nothing is deleted from the tree to make that so. The status of the
-projection is the verdict the exit code reached, because the controller wrote it
-and contradicts nothing it decided; a report the reader cannot make sense of is
-`invalid`, and a gate that passed and wrote no report is `absent`, both faults of
-the sensor. The shape read is the one every reporter writes, a `testsuite` of
-`testcase` elements alone or under `testsuites`, and a `file` and `line` a case
-names are kept when they point inside the tree. No tool's name enters the
-controller: the pattern names the location, and the location is the target
-repository's.
+A gate may instead declare a format the controller projects, `junit-xml` for
+test results or `sarif` for analysis results, and name in `reports` the pattern
+under which its tool writes them, relative to the tree it measures. The gate is
+handed no location. `sensors/reports.py` lists the matching files before the
+gate runs and after it, and hands the module of that format the ones this
+measurement wrote — new, or whose size or write time moved — which projects them
+onto the same six-field document; it is then held to the same contract and kept
+the same way, so every reader of an observation, feedback, ratchets and review,
+is unchanged. A report the gate left as it found it is not this measurement's
+and is not read; nothing is deleted from the tree to make that so. The status of
+a projection is the verdict the exit code reached, because the controller wrote
+it and contradicts nothing it decided; a report the reader cannot make sense of
+is `invalid`, and a gate that passed and wrote no report is `absent`, both
+faults of the sensor. No tool's name enters the controller: the pattern names
+the location, and the location is the target repository's.
+
+Each format is read as its own specification defines it, and what a real
+producer writes was measured rather than assumed. `junit-xml` is a `testsuite`
+of `testcase` elements, alone or under `testsuites`, as Surefire, Gradle,
+pytest and Jest all write it; a `file` and `line` a case names are kept when
+they point inside the tree. `sarif` is read at version 2.1.0, and another
+version is refused rather than guessed at: a result takes its level from
+itself, then from its rule's default configuration, then from the default the
+specification defines; a result reporting something other than a failure is not
+counted, and one the tool suppressed is counted apart from the findings, so a
+candidate hiding a result cannot hide the count of what it hid. Arrays deciding
+how many results there are must hold results, because reading past one that
+does not would report a count no measurement produced. The reading that matters
+most is neither: a tool that died halfway writes the same empty result set as a
+clean tree, and `invocations[].executionSuccessful` is the only thing that
+separates them, so a run saying its tool did not complete is a fault of the
+measurement and never a green.
 
 ## Ratchets
 
