@@ -37,6 +37,15 @@ VERIFY_EXIT_STATUS = {
 USAGE_ERROR = 2
 UNREADABLE_RUN = 3
 
+# What one controlled change reports through the exit status. An escalated run
+# and a usage error share a status, and honestly so: in both nothing was
+# decided, and a person reads what the controller printed.
+RUN_EXIT_STATUS = {
+    RunStatus.ACCEPTED: 0,
+    RunStatus.REJECTED: 1,
+    RunStatus.ESCALATED: 2,
+}
+
 
 def init_repo(repo: Path) -> int:
     target = repo / ".codeservo" / "constitution.toml"
@@ -123,4 +132,4 @@ def control_change(args) -> int:
         raise SystemExit(USAGE_ERROR) from exc
 
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result["status"] == RunStatus.ACCEPTED else 1
+    return RUN_EXIT_STATUS[RunStatus(result["status"])]

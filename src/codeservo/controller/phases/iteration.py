@@ -33,7 +33,7 @@ from ..context import RunContext
 from ..decision import SATISFIED
 from ..document import Feedback, FileRecord, Iteration, ReviewBlock, ScopeResult
 from ..environment import changed_environment
-from ..errors import ControlFailure, Rejection
+from ..errors import ControlFailure, Escalation, Rejection
 from ..freeze import sensor_tampering
 from ..gate_results import (
     GatePhase,
@@ -68,11 +68,17 @@ class Stage(StrEnum):
 
 @dataclass(frozen=True)
 class IterationOutcome:
-    """What one iteration reached: acceptance, or why not and what to feed back."""
+    """What one iteration reached: acceptance, or why not and what to feed back.
+
+    `stage` names the measurement that decided against the candidate, and is
+    what tells an exhausted budget apart: one spent on a gate is a rejection,
+    one spent on the review alone is a person's to settle.
+    """
 
     accepted: bool
     reasons: list[str]
     feedback: str
+    stage: Stage | None = None
 
 
 ACCEPTED = IterationOutcome(accepted=True, reasons=[], feedback="")
@@ -83,7 +89,11 @@ def converge(context: RunContext, record: RunRecord) -> None:
 
     A budget that runs out is not a failure of the candidate: what the last
     iteration decided against it is named beside the exhaustion, so the
-    decision says where the loop stopped.
+    decision says where the loop stopped. Where it stopped decides how the
+    run ends. A last iteration a gate, a ratchet or the scope refused is
+    rejected. One that every deterministic control let through and the review
+    alone objected to is escalated: the review is a sensor and not the final
+    authority, and a person is.
     """
     outcome = IterationOutcome(accepted=False, reasons=[], feedback="")
     for iteration in range(1, context.request.max_iterations + 1):
@@ -94,12 +104,13 @@ def converge(context: RunContext, record: RunRecord) -> None:
     record.record(
         "budget.exhausted", {"max_iterations": context.request.max_iterations}
     )
-    raise Rejection(
-        [
-            f"did not converge within {context.request.max_iterations} iterations",
-            *outcome.reasons,
-        ]
-    )
+    reasons = [
+        f"did not converge within {context.request.max_iterations} iterations",
+        *outcome.reasons,
+    ]
+    if outcome.stage == Stage.REVIEW:
+        raise Escalation(reasons)
+    raise Rejection(reasons)
 
 
 def _iterate(
@@ -132,7 +143,11 @@ def _iterate(
             return _decided(
                 record, iteration_dir, Stage.REVIEW, review.reasons, review.feedback
             )
+        # Nothing is fed back from here: what follows is either acceptance or
+        # a question no control answers, and the actuator corrects neither.
         record.attempt = replace(record.attempted(), controller_feedback=None)
+        if review.escalations:
+            raise Escalation(review.escalations)
         return ACCEPTED
     finally:
         record.keep()
@@ -425,4 +440,6 @@ def _decided(
             "sha256": emitted.sha256,
         },
     )
-    return IterationOutcome(accepted=False, reasons=reasons, feedback=feedback)
+    return IterationOutcome(
+        accepted=False, reasons=reasons, feedback=feedback, stage=stage
+    )

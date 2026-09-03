@@ -12,12 +12,16 @@ from enum import StrEnum
 
 
 class RunStatus(StrEnum):
-    """The three states a record reports.
+    """The four states a record reports.
 
     A run is `RUNNING` from the moment its directory exists until the
-    decision closes the journal.
+    decision closes the journal. It closes `ACCEPTED` when every control let
+    the candidate through, `REJECTED` when a deterministic control refused it
+    or could not measure it, and `ESCALATED` when every deterministic control
+    let it through and what remains is a person's to decide.
     """
 
     RUNNING = "RUNNING"
     ACCEPTED = "ACCEPTED"
     REJECTED = "REJECTED"
+    ESCALATED = "ESCALATED"

@@ -216,7 +216,8 @@ class RejectionPathTests(unittest.TestCase):
 
             self.assert_rejected(result, "invalid reviewer output")
 
-    def test_rejects_a_blocking_review_finding(self) -> None:
+    def test_a_blocking_finding_the_budget_cannot_clear_is_escalated(self) -> None:
+        """Every gate stayed green and the review alone held the line."""
         with tempfile.TemporaryDirectory() as temp:
             case = build_case(
                 Path(temp),
@@ -242,9 +243,16 @@ class RejectionPathTests(unittest.TestCase):
             result = case.run()
 
             # A blocking finding is fed back for a correction, and a reviewer
-            # that keeps raising it exhausts the budget on it.
-            self.assert_rejected(result, "major finding: value() ignores its caller")
-            self.assert_rejected(result, "did not converge within 2 iterations")
+            # that keeps raising it exhausts the budget on it. No deterministic
+            # control refused the candidate, so the decision is a person's.
+            self.assertEqual("ESCALATED", result["status"])
+            self.assertEqual(
+                [
+                    "did not converge within 2 iterations",
+                    "major finding: value() ignores its caller",
+                ],
+                result["decision"]["reasons"],
+            )
             self.assertEqual(2, len(result["iterations"]))
             for iteration in result["iterations"]:
                 self.assertTrue(all(gate["passed"] for gate in iteration["full_gates"]))

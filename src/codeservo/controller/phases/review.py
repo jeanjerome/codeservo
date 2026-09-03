@@ -24,7 +24,12 @@ from ...runtime.process import tail
 from ...runtime.sandbox import SandboxError
 from ...sensors.gates import GateResult
 from ..context import RunContext
-from ..decision import review_decision, review_faults, review_feedback
+from ..decision import (
+    review_decision,
+    review_escalations,
+    review_faults,
+    review_feedback,
+)
 from ..document import FileRecord, ReviewBlock
 from ..errors import ControlFailure, Rejection
 from ..inference import record_actuation
@@ -91,10 +96,18 @@ def review_observations(
 
 @dataclass(frozen=True)
 class ReviewOutcome:
-    """What the review decided against, if anything, and what to feed back."""
+    """What the review decided against, what to feed back, and what it left open.
+
+    `reasons` are what the candidate is corrected for, and `feedback` says the
+    same to the actuator. `escalations` are what no control could settle; they
+    matter only once nothing remains to correct, because a candidate still to
+    be corrected is measured again, and a review that could not verify a
+    criterion may verify it on the next attempt.
+    """
 
     reasons: list[str]
     feedback: str
+    escalations: list[str]
 
 
 def review_candidate(
@@ -195,6 +208,7 @@ def review_candidate(
     return ReviewOutcome(
         reasons=reasons,
         feedback=review_feedback(review, criteria, blocking) if reasons else "",
+        escalations=review_escalations(review, criteria),
     )
 
 

@@ -25,20 +25,23 @@ flowchart TD
     quick -- pass --> full{"full gates"}
     full -- pass --> review{"independent read-only review sensor<br/>+ mechanical decision"}
     review -- every criterion satisfied,<br/>no blocking finding --> accepted(["ACCEPTED"])
+    review -- a criterion nobody can verify,<br/>or a gate contradicted --> escalated(["ESCALATED"])
     quick -- fail --> feedback["controller feedback:<br/>observations, findings, review objections"]
     full -- fail --> feedback
     review -- criterion not satisfied<br/>or blocking finding --> feedback
     feedback --> budget{"iteration budget"}
     budget -- remaining --> implementer
-    budget -- exhausted --> rejected(["REJECTED"])
+    budget -- exhausted on a gate --> rejected(["REJECTED"])
+    budget -- exhausted on the review --> escalated
     quick -- control error --> rejected
     full -- control error --> rejected
     review -- reviewer fault --> rejected
     accepted --> record["events.jsonl<br/>evidence.json<br/>change.patch<br/>gate observations"]
     rejected --> record
+    escalated --> record
 ```
 
-The implementer never gets to mark itself done. `ACCEPTED` is computed by CodeServo from explicit evidence.
+The implementer never gets to mark itself done. `ACCEPTED` is computed by CodeServo from explicit evidence, and so are the two other outcomes: `REJECTED` when a deterministic control refused the candidate or could not measure it, `ESCALATED` when every deterministic control let it through and what remains is a person's to decide.
 
 One iteration is one actuation followed by three measurements in order of
 cost: the scope sensor and the quick gates, the full gates, then the review.
@@ -313,6 +316,10 @@ codeservo verify-run <run-directory>      # verify one run directory
 codeservo run --repo /path/to/project --task ./TASK.md
 ```
 
+The exit status is the decision: 0 for `ACCEPTED`, 1 for `REJECTED`, 2 for
+`ESCALATED`. A usage error also exits 2, and honestly so: nothing was decided
+there either, and a person reads what was printed.
+
 ```bash
 codeservo run \
   --repo /path/to/project \
@@ -524,8 +531,17 @@ A candidate is `ACCEPTED` only when all of the following hold:
 8. The independent review returns exactly the acceptance criteria left to it, each as `satisfied`.
 9. The review contains no finding whose severity is configured as blocking.
 
-Anything else is `REJECTED`. A criterion naming a gate is decided by rules 5
-and 6, one left to the review by rule 8, and no criterion is decided twice.
+A criterion naming a gate is decided by rules 5 and 6, one left to the review
+by rule 8, and no criterion is decided twice.
+
+A candidate is `ESCALATED` when rules 1 to 7 hold and the review alone leaves
+it undecided: a criterion left to the review that the reviewer could not
+verify, with nothing else to correct; a criterion a gate passed that the
+reviewer reports as not satisfied; or an iteration budget spent on review
+objections alone, every gate and ratchet green. Nothing is fed back in those
+cases, because nothing there is the candidate's to correct.
+
+Anything else is `REJECTED`.
 
 ## Why this shape
 

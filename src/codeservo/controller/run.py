@@ -13,7 +13,7 @@ from ..actuators.inventory import DEFAULT_SPEED, Speed
 from ..domain.run import RunStatus
 from ..workspace.git import is_clean
 from .context import RunContext, RunRequest, prepare
-from .errors import Rejection
+from .errors import Escalation, Rejection
 from .inference import contradicted_profiles
 from .phases import (
     converge,
@@ -71,6 +71,8 @@ def run(
         converge(context, record)
     except Rejection as rejection:
         return _close(context, record, RunStatus.REJECTED, rejection.reasons)
+    except Escalation as escalation:
+        return _close(context, record, RunStatus.ESCALATED, escalation.reasons)
     return _close(context, record, RunStatus.ACCEPTED, [])
 
 

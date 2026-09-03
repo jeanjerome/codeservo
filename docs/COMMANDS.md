@@ -96,9 +96,10 @@ PYTHONPATH="$PWD/src" python3.12 -m unittest discover -s tests -v
 ## Record Parity
 
 A structural change must leave `evidence.json` alone, and that is checked
-rather than asserted. `tools/record_parity.py` drives six trajectories — an
+rather than asserted. `tools/record_parity.py` drives seven trajectories — an
 accepted run, one converging on the second attempt, an exhausted budget, a
-review that rejects twice, one corrected after a review, and one measuring
+review that objects until the budget is spent, one corrected after a review,
+one escalated on a criterion the reviewer could not verify, and one measuring
 through a provider — and captures the
 shape of each record, its event sequence, the artefacts the run directory
 holds and the `verify-run` verdict, with everything the clock, the host or a

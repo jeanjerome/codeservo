@@ -9,6 +9,7 @@ from contextlib import redirect_stderr
 from pathlib import Path
 
 from codeservo.cli import build_parser
+from codeservo.cli.commands import RUN_EXIT_STATUS
 from codeservo.evidence.journal import JOURNAL_NAME
 from run_fixtures import RUN_ID, build_run, read_record, rewrite_record
 
@@ -43,6 +44,16 @@ def verify_run_command(run_dir: Path, *arguments: str) -> subprocess.CompletedPr
         check=False,
         env=environment,
     )
+
+
+class RunExitStatusTests(unittest.TestCase):
+    """The decision of one controlled change, as a shell reads it."""
+
+    def test_each_outcome_reports_its_own_status(self) -> None:
+        self.assertEqual(
+            {"ACCEPTED": 0, "REJECTED": 1, "ESCALATED": 2},
+            {str(status): code for status, code in RUN_EXIT_STATUS.items()},
+        )
 
 
 class CliTests(unittest.TestCase):

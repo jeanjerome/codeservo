@@ -39,6 +39,19 @@ class ValidRunTests(unittest.TestCase):
             self.assertEqual([], report["failures"])
             self.assertEqual([], report["missing"])
 
+    def test_an_escalated_run_verifies_like_any_closed_one(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = build_run(
+                Path(temp),
+                status="ESCALATED",
+                reasons=("criterion AC1 is not_verifiable",),
+            )
+
+            report = verify_run(run_dir)
+
+            self.assertEqual("VALID", report["status"])
+            self.assertEqual("ESCALATED", read_record(run_dir)["status"])
+
     def test_the_report_carries_the_six_recorded_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             run_dir = build_run(Path(temp))

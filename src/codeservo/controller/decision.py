@@ -14,6 +14,10 @@ from collections.abc import Mapping
 from ..domain.task import Criterion, reviewed_criteria
 
 SATISFIED = "satisfied"
+NOT_SATISFIED = "not_satisfied"
+# The reviewer read the repository and found no evidence either way. That is
+# not something the candidate is corrected for: nobody decided.
+NOT_VERIFIABLE = "not_verifiable"
 
 
 def review_faults(review: dict, task_criteria: Mapping[str, Criterion]) -> list[str]:
@@ -106,10 +110,12 @@ def review_decision(
 ) -> list[str]:
     """Why the review decided against the candidate, if it did.
 
-    Only the criteria the reviewer was asked about are read here. What it
-    says about a criterion a gate decides is kept in the record and decides
-    nothing: the gate is the authority on it, and a review that contradicts a
-    green gate is a disagreement between two sensors rather than a verdict.
+    Only the criteria the reviewer was asked about are read here, and only
+    what the candidate can be corrected for is a reason: a criterion it did
+    not satisfy, and a finding the constitution declares blocking. A criterion
+    the reviewer could not verify is nobody's verdict, and what it says about
+    a criterion a gate decides is the gate's to settle; both are read by
+    `review_escalations` instead.
     """
     reasons: list[str] = []
     seen: dict[str, str] = {}
@@ -124,7 +130,7 @@ def review_decision(
         reported = seen.get(criterion_id)
         if reported is None:
             reasons.append(f"review missing criterion {criterion_id}")
-        elif reported != SATISFIED:
+        elif reported not in (SATISFIED, NOT_VERIFIABLE):
             reasons.append(f"criterion {criterion_id} is {reported}")
 
     extras = sorted(set(seen) - set(task_criteria))
@@ -137,3 +143,30 @@ def review_decision(
             message = str(finding.get("message", "blocking review finding"))
             reasons.append(f"{severity} finding: {message}")
     return reasons
+
+
+def review_escalations(review: dict, task_criteria: Mapping[str, Criterion]) -> list[str]:
+    """What the review leaves to a person, because no control can settle it.
+
+    A criterion the reviewer was asked about and could not verify is one no
+    gate decides and no reviewer could: the task named a verification nobody
+    can perform. A criterion a gate decided that the reviewer reports as not
+    satisfied is two sensors disagreeing, the deterministic one having said
+    yes. Neither is fed back, because neither is the candidate's to correct;
+    both are stated so the record says why the run did not decide.
+    """
+    reported = {
+        str(item.get("id", "")): str(item.get("status", ""))
+        for item in review.get("criteria", [])
+    }
+    escalations = [
+        f"criterion {criterion_id} is {NOT_VERIFIABLE}"
+        for criterion_id in reviewed_criteria(task_criteria)
+        if reported.get(criterion_id) == NOT_VERIFIABLE
+    ]
+    escalations.extend(
+        f"review contradicts gate {criterion.gate} on criterion {criterion_id}"
+        for criterion_id, criterion in task_criteria.items()
+        if criterion.gate is not None and reported.get(criterion_id) == NOT_SATISFIED
+    )
+    return escalations

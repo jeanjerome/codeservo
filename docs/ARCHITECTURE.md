@@ -32,7 +32,7 @@ The controller:
 5. runs the scope sensor and the quick gates, then, once they pass, the full gates, holding each gate that declares a ratchet to the document it wrote at the baseline, then, once they pass, hands an independent, read-only semantic reviewer an immutable summary of the gates that passed, carrying no filesystem path and no sensor source, and invokes it about the criteria the task did not hand to a gate;
 6. applies the acceptance rules mechanically to what the reviewer returned;
 7. feeds the first measurement that decided against the candidate back to the actuator: for a failing gate, the acceptance criteria that gate decides, the document the gate wrote when it wrote a valid one (summary, findings with the place each names, metrics), then the tail of what it printed; for a ratchet a passing gate broke, the metric, both values and the direction; for the review, the criteria it did not find satisfied and the findings the constitution declares blocking;
-8. iterates until an iteration is accepted or the budget is exhausted;
+8. iterates until an iteration is accepted, the budget is exhausted, or the review leaves open what no control can settle;
 9. persists complete run evidence.
 
 Gates are authoritative. Semantic review is a sensor, not the final authority. Controller-owned evidence must remain outside the actuator's write scope and must reconstruct the complete control trajectory.
@@ -47,6 +47,23 @@ measured, a sensor that could not say what it saw, a reviewer that misreported
 the criteria it was asked to decide. The record keeps every measurement under
 the iteration whose candidate it measured, so the trajectory of a run that was
 reviewed three times holds three reviews.
+
+A run closes on one of three outcomes, and which one follows from what decided
+against the candidate last. `ACCEPTED` needs every control. `REJECTED` is a
+deterministic control's word: the scope, a gate, a ratchet, a frozen sensor
+that moved, a sensor or a reviewer that could not say what it saw, or a budget
+whose last iteration one of those refused. `ESCALATED` is the outcome when
+every deterministic control let the candidate through and the review alone
+left it undecided: a criterion the task left to the review that the reviewer
+could not verify, with nothing else to correct; a criterion a gate passed that
+the reviewer reports as not satisfied; or a budget spent on review objections
+alone. The review is a sensor and not the final authority, so what it alone
+holds against a candidate is a person's to settle rather than a rejection, and
+what nobody could verify is a fact about the task before it is one about the
+change. Nothing is fed back on the way to an escalation: none of it is the
+candidate's to correct. A criterion the reviewer could not verify beside one it
+found unsatisfied is fed back with it, because a candidate still to be
+corrected is measured again.
 
 ## What Decides a Criterion
 

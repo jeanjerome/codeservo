@@ -1,6 +1,6 @@
 """Capture what a run record looks like, so a refactor can be held to it.
 
-A structural change must leave `evidence.json` alone. This drives six
+A structural change must leave `evidence.json` alone. This drives seven
 trajectories through the control loop with a scripted backend and captures,
 for each one, the shape of the record, the sequence of events, the artefacts
 the run directory holds and the verdict `verify-run` reaches.
@@ -83,6 +83,12 @@ emit_review({
     ],
 })
 """
+UNVERIFIABLE_REVIEW = """
+emit_review({
+    "criteria": [{"id": "AC1", "status": "not_verifiable", "evidence": "none"}],
+    "findings": [],
+})
+"""
 COUNTING = """
 count = worktree / "attempts.txt"
 attempts = int(count.read_text()) + 1 if count.exists() else 1
@@ -109,6 +115,7 @@ TRAJECTORIES = (
     ("never-converges", {"implementer": NEVER}),
     ("review-rejects", {"implementer": ACCEPTS, "reviewer": REJECTING_REVIEW}),
     ("review-corrects", {"implementer": COUNTING, "reviewer": OBJECTS_ONCE}),
+    ("review-escalates", {"implementer": ACCEPTS, "reviewer": UNVERIFIABLE_REVIEW}),
     (
         "provider",
         {
@@ -160,15 +167,28 @@ def capture(destination: Path) -> int:
 
 
 def compare(before: Path, after: Path) -> int:
-    left = json.loads(before.read_text(encoding="utf-8"))
-    right = json.loads(after.read_text(encoding="utf-8"))
+    """Say what moved between two captures, trajectory by trajectory.
+
+    Trajectories are paired by name and never by position, so one added to
+    the list is reported as added rather than compared with whichever one now
+    stands where it stood.
+    """
+    left = {item["case"]: item for item in json.loads(before.read_text("utf-8"))}
+    right = {item["case"]: item for item in json.loads(after.read_text("utf-8"))}
     if left == right:
         print("the record is unchanged across every captured trajectory")
         return 0
-    for one, other in zip(left, right, strict=True):
+    for name in sorted(left.keys() - right.keys()):
+        print(f"{name}: removed")
+    for name in sorted(right.keys() - left.keys()):
+        print(f"{name}: added")
+    for name, one in left.items():
+        other = right.get(name)
+        if other is None:
+            continue
         moved = [key for key in one if one[key] != other.get(key)]
         if moved:
-            print(f"{one['case']}: {', '.join(moved)}")
+            print(f"{name}: {', '.join(moved)}")
     return 1
 
 

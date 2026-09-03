@@ -140,7 +140,7 @@ class AcceptedRunTests(unittest.TestCase):
             self.assertEqual("", remotes.stdout.strip())
             self.assertNotEqual(0, historical_object.returncode)
             evidence = json.loads(Path(result["run_dir"], "evidence.json").read_text())
-            self.assertEqual(17, evidence["schema_version"])
+            self.assertEqual(18, evidence["schema_version"])
             # A constitution declaring no provider keeps shell gates.
             self.assertEqual({"provider": "none"}, evidence["environment"])
             self.assertEqual(".", evidence["run_dir"])

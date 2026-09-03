@@ -3,6 +3,7 @@ import unittest
 
 from codeservo.controller.decision import (
     review_decision,
+    review_escalations,
     review_faults,
     review_feedback,
 )
@@ -250,8 +251,12 @@ class GateVerifiedCriterionTests(unittest.TestCase):
         self.assertEqual([], faults)
         self.assertEqual([], reasons)
 
-    def test_what_the_review_says_of_a_gate_criterion_decides_nothing(self):
-        """The gate is the authority, and the answer stays in the record."""
+    def test_a_review_contradicting_the_gate_corrects_nothing_and_escalates(self):
+        """Two sensors disagree, the deterministic one having said yes.
+
+        Nothing the actuator changes settles that, so it is no reason and no
+        feedback; it is stated for the person the run is left to.
+        """
         review = _reported(
             {
                 "criteria": [
@@ -265,6 +270,25 @@ class GateVerifiedCriterionTests(unittest.TestCase):
         self.assertEqual([], review_decision(review, self.CRITERIA, BLOCKING))
         self.assertEqual([], review_faults(review, self.CRITERIA))
         self.assertEqual("", review_feedback(review, self.CRITERIA, BLOCKING))
+        self.assertEqual(
+            ["review contradicts gate unit on criterion AC2"],
+            review_escalations(review, self.CRITERIA),
+        )
+
+    def test_a_gate_criterion_the_reviewer_could_not_verify_is_nothing(self):
+        """The reviewer was not asked; the gate decided; nobody disagrees."""
+        review = _reported(
+            {
+                "criteria": [
+                    {"id": "AC1", "status": "satisfied", "evidence": "t"},
+                    {"id": "AC2", "status": "not_verifiable", "evidence": ""},
+                ],
+                "findings": [],
+            }
+        )
+
+        self.assertEqual([], review_decision(review, self.CRITERIA, BLOCKING))
+        self.assertEqual([], review_escalations(review, self.CRITERIA))
 
     def test_an_id_the_task_never_declared_is_still_unknown(self):
         review = _reported(
@@ -319,6 +343,89 @@ class GateVerifiedCriterionTests(unittest.TestCase):
         self.assertIn(
             "- [blocker] (no path): corrupts",
             review_feedback(review, criteria, BLOCKING),
+        )
+
+
+class ReviewEscalationTests(unittest.TestCase):
+    """What a review leaves to a person, because no control can settle it."""
+
+    def test_a_criterion_nobody_could_verify_is_no_reason_but_an_escalation(self):
+        review = _reported(
+            {
+                "criteria": [
+                    {"id": "AC1", "status": "not_verifiable", "evidence": "no test"}
+                ],
+                "findings": [],
+            }
+        )
+
+        self.assertEqual([], review_decision(review, _reviewed("AC1"), BLOCKING))
+        self.assertEqual([], review_faults(review, _reviewed("AC1")))
+        self.assertEqual(
+            ["criterion AC1 is not_verifiable"],
+            review_escalations(review, _reviewed("AC1")),
+        )
+
+    def test_it_is_still_fed_back_beside_what_the_candidate_is_corrected_for(self):
+        """A candidate still to be corrected is measured again afterwards."""
+        review = _reported(
+            {
+                "criteria": [
+                    {"id": "AC1", "status": "not_satisfied", "evidence": "wrong"},
+                    {"id": "AC2", "status": "not_verifiable", "evidence": "no test"},
+                ],
+                "findings": [],
+            }
+        )
+        criteria = _reviewed("AC1", "AC2")
+
+        self.assertEqual(
+            ["criterion AC1 is not_satisfied"],
+            review_decision(review, criteria, BLOCKING),
+        )
+        self.assertEqual(
+            "\n".join(
+                [
+                    "Review did not accept the candidate.",
+                    "Criteria not satisfied:",
+                    "- AC1 (not_satisfied): wrong",
+                    "- AC2 (not_verifiable): no test",
+                ]
+            ),
+            review_feedback(review, criteria, BLOCKING),
+        )
+        self.assertEqual(
+            ["criterion AC2 is not_verifiable"], review_escalations(review, criteria)
+        )
+
+    def test_an_agreeing_review_leaves_nothing_open(self):
+        review = _reported(
+            {
+                "criteria": [{"id": "AC1", "status": "satisfied", "evidence": "t"}],
+                "findings": [{"severity": "minor", "message": "style"}],
+            }
+        )
+
+        self.assertEqual([], review_escalations(review, _reviewed("AC1")))
+
+    def test_the_unverifiable_come_before_the_contradicted(self):
+        review = _reported(
+            {
+                "criteria": [
+                    {"id": "AC1", "status": "not_satisfied", "evidence": "doubt"},
+                    {"id": "AC2", "status": "not_verifiable", "evidence": ""},
+                ],
+                "findings": [],
+            }
+        )
+        criteria = {**_gated("unit", "AC1"), **_reviewed("AC2")}
+
+        self.assertEqual(
+            [
+                "criterion AC2 is not_verifiable",
+                "review contradicts gate unit on criterion AC1",
+            ],
+            review_escalations(review, criteria),
         )
 
 

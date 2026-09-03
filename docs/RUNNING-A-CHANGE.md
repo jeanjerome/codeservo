@@ -154,8 +154,12 @@ to the source in between is measured by neither.
 ### 9. Read the decision before the patch
 
 `status` and `decision.reasons` say what the controller concluded and why. A
-rejection names which control refused — scope, a gate, the frozen sensor, the
-review, or an exhausted budget — and that is what to read next.
+rejection names which deterministic control refused — scope, a gate, a ratchet,
+the frozen sensor, a broken sensor, or a budget spent on one of them — and that
+is what to read next. An escalation names what no control could settle: a
+criterion the reviewer could not verify, a review contradicting a gate that
+passed, or a budget spent on review objections alone. The candidate was not
+refused by anything deterministic, and the decision is yours.
 
 ### 10. Verify the run directory
 
@@ -203,6 +207,16 @@ It carries the frozen task, the frozen constitution, the frozen sensor, every
 gate's logs and documents, the actuation, the review and the chained journal. A
 commit whose run directory was thrown away is a commit nobody can date against
 the contract it satisfied.
+
+## When a run is escalated
+
+Read the reasons as questions about the control inputs before reading the
+diff. A criterion nobody could verify is a criterion the task should hand to a
+gate, or state so that a reader can decide it; a review contradicting a green
+gate is either a gate that measures less than the criterion asks or a reviewer
+that read the tree wrong, and the review's evidence in the record says which.
+A budget spent on review objections alone is the review holding the line the
+gates could not, and the objections are in each iteration's feedback.
 
 ## When a run is rejected
 
