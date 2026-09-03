@@ -1053,5 +1053,85 @@ class SarifReportGateTests(unittest.TestCase):
             )
 
 
+class LcovReportGateTests(unittest.TestCase):
+    """A gate whose coverage tool writes a tracefile where it always does."""
+
+    TRACEFILE = "SF:app.py\nDA:1,1\nDA:2,0\nend_of_record"
+
+    def _gate(self, command: str) -> Gate:
+        return Gate(
+            name="coverage",
+            phase="full",
+            command=command,
+            result_format=ResultFormat.LCOV,
+            reports="coverage/*.info",
+        )
+
+    @staticmethod
+    def _writing(tracefile: str, *, exit_code: int = 0) -> str:
+        return (
+            "mkdir -p coverage && printf '%s\\n' "
+            + " ".join(f"'{line}'" for line in tracefile.splitlines())
+            + f" > coverage/lcov.info; exit {exit_code}"
+        )
+
+    def _run(self, root: Path, gate: Gate) -> GateResult:
+        (root / "tree").mkdir(exist_ok=True)
+        [result] = run_gates(
+            repo=root / "tree",
+            gates=(gate,),
+            out_dir=root / "run" / "full",
+            run_dir=root / "run",
+        )
+        return result
+
+    def test_projects_the_tracefile_the_gate_wrote_onto_the_document(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            result = self._run(root, self._gate(self._writing(self.TRACEFILE)))
+
+            self.assertTrue(result.passed)
+            self.assertEqual(ResultFormat.LCOV, result.result_format)
+            self.assertEqual("valid", result.observation_status)
+            kept = Path(result.observation_path)
+            self.assertEqual(root / "run" / "full" / "coverage.observation.json", kept)
+            self.assertEqual(sha256_file(kept), result.observation_sha256)
+            document = json.loads(kept.read_text())
+            self.assertEqual("coverage", document["sensor"])
+            self.assertEqual("passed", document["status"])
+            self.assertEqual(
+                "50.00 percent of 2 lines over 1 file in 1 report", document["summary"]
+            )
+            self.assertEqual(50.0, document["metrics"]["line_coverage"])
+            self.assertEqual(1, document["metrics"]["lines_missing"])
+            self.assertEqual([], document["findings"])
+            self.assertTrue((root / "tree" / "coverage" / "lcov.info").is_file())
+
+    def test_a_tracefile_the_tool_did_not_finish_is_a_fault(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            truncated = "SF:app.py\nDA:1,1"
+
+            result = self._run(root, self._gate(self._writing(truncated)))
+
+            self.assertTrue(result.passed)
+            self.assertEqual("invalid", result.observation_status)
+            self.assertIn("did not finish writing it", result.observation_error)
+            self.assertIsNone(result.observation_path)
+
+    def test_a_passing_gate_that_wrote_no_tracefile_measured_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            result = self._run(root, self._gate("true"))
+
+            self.assertEqual("absent", result.observation_status)
+            self.assertEqual(
+                "the gate passed and wrote no report matching coverage/*.info",
+                result.observation_error,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

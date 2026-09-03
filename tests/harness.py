@@ -297,8 +297,11 @@ def build_case(
         "Controller-owned test sensor.\n", encoding="utf-8"
     )
 
+    # A gate whose tool writes its report into the tree it measures needs
+    # that location ignored, or the baseline reads the report as the gate
+    # having mutated the source repository.
     (repo / ".gitignore").write_text(
-        "__pycache__/\n*.pyc\nreports/\n", encoding="utf-8"
+        "__pycache__/\n*.pyc\nreports/\ncoverage/\n", encoding="utf-8"
     )
     (repo / "app.py").write_text("def value():\n    return 0\n", encoding="utf-8")
     if provider and provider_name == "mise":

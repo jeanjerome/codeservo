@@ -17,7 +17,7 @@ from ..evidence.digests import sha256_file, sha256_record
 from ..runtime.process import run_command
 from ..runtime.sandbox import Isolation
 from ..workspace.provider import Provider
-from . import junit, observations, reports, sarif
+from . import junit, lcov, observations, reports, sarif
 from .observations import ObservationPathError
 
 # What a gate writes inside the location the controller owns, and what the
@@ -32,6 +32,7 @@ OBSERVATION_SUFFIX = ".observation.json"
 PROJECTIONS = {
     ResultFormat.JUNIT_XML: junit.projection,
     ResultFormat.SARIF: sarif.projection,
+    ResultFormat.LCOV: lcov.projection,
 }
 
 

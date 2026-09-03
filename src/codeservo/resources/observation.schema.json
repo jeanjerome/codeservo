@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "CodeServo gate observation",
-  "description": "The structured document a gate declaring result_format = \"codeservo-json\" writes where the controller told it to: a shell gate is given the location in $CODESERVO_OBSERVATION_PATH, a provider task as its one argument. The exit code remains the verdict; this document says what was measured. A gate declaring a format the controller projects, result_format = \"junit-xml\" or \"sarif\", writes nothing here: the controller reads the reports its tool wrote and projects them onto this same shape.",
+  "description": "The structured document a gate declaring result_format = \"codeservo-json\" writes where the controller told it to: a shell gate is given the location in $CODESERVO_OBSERVATION_PATH, a provider task as its one argument. The exit code remains the verdict; this document says what was measured. A gate declaring a format the controller projects, result_format = \"junit-xml\", \"sarif\" or \"lcov\", writes nothing here: the controller reads the reports its tool wrote and projects them onto this same shape.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "sensor", "status", "summary", "findings", "metrics"],

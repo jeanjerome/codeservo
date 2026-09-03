@@ -439,3 +439,10 @@ def writes_report(
         f"mkdir -p {directory} && printf %s {encoded} | base64 -d > {into};"
         f" exit {exit_code}"
     )
+
+
+def lcov_report(*, covered: int = 2, missing: int = 0, path: str = "app.py") -> str:
+    """One LCOV tracefile of the shape coverage.py writes."""
+    lines = [f"DA:{index + 1},1" for index in range(covered)]
+    lines += [f"DA:{covered + index + 1},0" for index in range(missing)]
+    return "\n".join([f"SF:{path}", *lines, "end_of_record"]) + "\n"

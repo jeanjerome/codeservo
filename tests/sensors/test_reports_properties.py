@@ -14,7 +14,7 @@ from pathlib import Path
 from hypothesis import given
 from hypothesis import strategies as st
 
-from codeservo.sensors import junit, sarif
+from codeservo.sensors import junit, lcov, sarif
 from codeservo.sensors.observations import Classification, classify
 from codeservo.sensors.reports import ReportFault, render
 from properties import json_documents, json_objects
@@ -191,6 +191,64 @@ class JunitReadingProperties(unittest.TestCase):
             (Classification.VALID, None), classify(render(projected), passed=passed)
         )
         self.assertEqual(len(cases), projected.metrics["tests"])
+
+
+class LcovReadingProperties(unittest.TestCase):
+    """The same two answers, for the reader of a coverage tracefile."""
+
+    LINES = st.lists(
+        st.tuples(
+            st.integers(min_value=1, max_value=40),
+            st.integers(min_value=0, max_value=9),
+        ),
+        max_size=6,
+    )
+
+    @given(raw=st.binary(max_size=64))
+    def test_any_bytes_are_read_or_refused_by_name(self, raw) -> None:
+        try:
+            lcov.parse_report(raw, "t.info", tree=TREE)
+        except ReportFault as fault:
+            self.assertIn("t.info", str(fault))
+
+    @given(text=st.text(max_size=64))
+    def test_any_text_is_read_or_refused_by_name(self, text) -> None:
+        try:
+            lcov.parse_report(text.encode("utf-8"), "t.info", tree=TREE)
+        except ReportFault as fault:
+            self.assertIn("t.info", str(fault))
+
+    @given(
+        records=st.lists(
+            st.tuples(st.text(alphabet="ab/.", min_size=1, max_size=6), LINES),
+            min_size=1,
+            max_size=3,
+        ),
+        passed=st.booleans(),
+    )
+    def test_whatever_is_read_projects_onto_the_contract(self, records, passed) -> None:
+        text = ""
+        for name, lines in records:
+            text += f"SF:{name}\n"
+            text += "".join(f"DA:{line},{count}\n" for line, count in lines)
+            text += "end_of_record\n"
+
+        report = lcov.parse_report(text.encode("utf-8"), "t.info", tree=TREE)
+        projected = lcov.project(
+            [report], sensor="coverage", passed=passed, pattern="*.info", left=0
+        )
+
+        self.assertEqual(
+            (Classification.VALID, None), classify(render(projected), passed=passed)
+        )
+        metrics = projected.metrics
+        # One file is one file however many records named it, and a line is
+        # covered or missing and never both.
+        self.assertEqual(len({name for name, _ in records}), metrics["files"])
+        self.assertEqual(
+            metrics["lines"], metrics["lines_covered"] + metrics["lines_missing"]
+        )
+        self.assertEqual("line_coverage" in metrics, metrics["lines"] > 0)
 
 
 if __name__ == "__main__":

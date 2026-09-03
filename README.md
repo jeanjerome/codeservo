@@ -244,10 +244,10 @@ location, not one that knows where the location came from.
 
 ### Gates whose tool already reports
 
-A tool that already writes JUnit XML or SARIF needs no adapter. The gate
-declares `result_format = "junit-xml"` for test results or `"sarif"` for
-analysis results and, in `reports`, where its tool writes them, as a pattern
-relative to the tree the gate measures:
+A tool that already writes JUnit XML, SARIF or LCOV needs no adapter. The gate
+declares `result_format = "junit-xml"` for test results, `"sarif"` for analysis
+results or `"lcov"` for coverage tracefiles and, in `reports`, where its tool
+writes them, as a pattern relative to the tree the gate measures:
 
 ```toml
 [[gate]]
@@ -266,19 +266,25 @@ before the gate runs and again after it, reads the ones this measurement wrote
 A test report becomes the counts of tests, failures, errors, skipped and
 seconds, with one finding per failed or errored case. An analysis report
 becomes the counts of results, errors, warnings, notes and suppressed, with one
-finding per result the tool reported and did not suppress. Both carry the
-status the exit code reached, name where each finding points, and keep the one
-line the tool said about it.
+finding per result the tool reported and did not suppress. A coverage tracefile
+becomes the counts of lines, branches and functions found and covered, the
+share of each, and one finding per file no test reached at all. All three carry
+the status the exit code reached and name where each finding points.
+
+The tool writes where it always writes, which is inside the tree it measures,
+so **the target repository has to ignore that location**. A baseline gate that
+leaves a tracked file behind has changed the tree it was only measuring, and
+the run says so rather than reading the report.
 
 A report the gate left as it found it is not read, and the summary says how
 many were left. The projection is kept beside the gate's logs like a document
 the gate wrote itself, and a ratchet reads its metrics. A gate that passed and
 wrote no report measured nothing anyone can see, and that is a fault of the
 sensor; one that failed and wrote none failed before its tool reported
-anything, and its document says so. A SARIF log whose own `invocations` say the
-tool did not complete is a fault too, because an unfinished analysis reports
-the same nothing as a clean tree. Nothing is deleted from the tree to make any
-of this true.
+anything, and its document says so. A report whose own content says its tool did not finish is
+a fault too: a SARIF log whose `invocations` say so, and an LCOV tracefile
+stopping inside a record, both report the same nothing as a clean measurement.
+Nothing is deleted from the tree to make any of this true.
 
 A document that is absent, malformed, or that contradicts the exit code is a
 fault of the sensor and not a failure of the candidate: the run ends there, on

@@ -1,0 +1,19 @@
+version = 1
+
+[scope]
+protected = [".codeservo/**", "tools/**"]
+max_changed_files = 12
+max_diff_lines = 400
+
+[[gate]]
+name = "coverage"
+phase = "full"
+command = "coverage run -m pytest && coverage lcov -o coverage/lcov.info"
+timeout_seconds = 600
+baseline = true
+result_format = "lcov"
+reports = "coverage/*.info"
+ratchet = { line_coverage = ">=", lines_missing = "<=", branches = ">=" }
+
+[review]
+blocking_severities = ["blocker", "major"]

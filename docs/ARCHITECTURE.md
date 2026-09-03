@@ -39,12 +39,13 @@ the six fields, the two vocabularies, the validation that names the field at
 fault, and the classification of a document against the exit code — and it
 interprets no tool; `reports.py` owns the mechanism that finds the report
 files a measurement wrote, and one module per format reads them and projects
-them onto that contract, `junit.py` for test results and `sarif.py` for
-analysis results. A document therefore reaches the record by two channels in
-one shape, written by the gate's own adapter or projected here from what its
-tool wrote, and every reader downstream — the feedback, the ratchets, the
-bundle the reviewer is handed, the record itself — knows the shape alone. A
-third format is a module beside those two and moves none of them.
+them onto that contract, `junit.py` for test results, `sarif.py` for analysis
+results and `lcov.py` for coverage tracefiles. A document therefore reaches the
+record by two channels in one shape, written by the gate's own adapter or
+projected here from what its tool wrote, and every reader downstream — the
+feedback, the ratchets, the bundle the reviewer is handed, the record itself —
+knows the shape alone. A fourth format is a module beside those three and moves
+none of them.
 
 `actuators` and `workspace` have the same shape twice, a port and its adapters:
 `base.py` is the backend port and `claude_code.py` and `codex.py` answer it,
@@ -176,8 +177,9 @@ target repository writes an adapter that takes a location, not one that knows
 where the location came from.
 
 A gate may instead declare a format the controller projects, `junit-xml` for
-test results or `sarif` for analysis results, and name in `reports` the pattern
-under which its tool writes them, relative to the tree it measures. The gate is
+test results, `sarif` for analysis results or `lcov` for coverage tracefiles,
+and name in `reports` the pattern under which its tool writes them, relative to
+the tree it measures. The gate is
 handed no location. `sensors/reports.py` lists the matching files before the
 gate runs and after it, and hands the module of that format the ones this
 measurement wrote — new, or whose size or write time moved — which projects them
@@ -189,7 +191,16 @@ a projection is the verdict the exit code reached, because the controller wrote
 it and contradicts nothing it decided; a report the reader cannot make sense of
 is `invalid`, and a gate that passed and wrote no report is `absent`, both
 faults of the sensor. No tool's name enters the controller: the pattern names
-the location, and the location is the target repository's.
+the location, and the location is the target repository's, which must also
+ignore it in Git — a baseline gate leaving a tracked report behind has changed
+the tree it was only measuring, and the run ends there.
+
+A ratchet is what turns these counts into a control. It reads the metrics of
+the document the gate wrote at the baseline and of the one it wrote about the
+candidate, so `line_coverage = ">="` over an LCOV gate holds coverage without
+the target repository writing anything, and `branches = ">="` beside it refuses
+a candidate that stopped instrumenting them. That is why a family the tool did
+not measure is still counted, at zero, rather than left out of the document.
 
 Each format is read as its own specification defines it, and what a real
 producer writes was measured rather than assumed. `junit-xml` is a `testsuite`
@@ -202,11 +213,20 @@ specification defines; a result reporting something other than a failure is not
 counted, and one the tool suppressed is counted apart from the findings, so a
 candidate hiding a result cannot hide the count of what it hid. Arrays deciding
 how many results there are must hold results, because reading past one that
-does not would report a count no measurement produced. The reading that matters
-most is neither: a tool that died halfway writes the same empty result set as a
-clean tree, and `invocations[].executionSuccessful` is the only thing that
-separates them, so a run saying its tool did not complete is a fault of the
-measurement and never a green.
+does not would report a count no measurement produced. `lcov` is the tracefile
+of `SF:` records `lcov` defined, as coverage.py, Jest, c8, nyc and gcovr all
+write it; the counts are the `DA:`, `BRDA:` and `FN`/`FNDA:` records and never
+the summary lines a producer may write beside them, which were measured to
+reproduce those records exactly. What one file is named twice is counted once,
+because LCOV merges by summing what each record says of a line, a branch or a
+function, so two records or two tracefiles covering one file are one file.
+
+Each of the three has one reading that matters more than its counts, and it is
+always the same question: did the tool finish? A tool that died halfway writes
+the same empty result set as a clean tree. SARIF says so in
+`invocations[].executionSuccessful`, an LCOV tracefile says it by ending inside
+a record, and a report saying either is a fault of the measurement and never a
+green.
 
 ## Ratchets
 

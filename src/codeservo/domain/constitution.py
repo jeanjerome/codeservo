@@ -19,13 +19,15 @@ class ResultFormat(StrEnum):
     what the gate saw, written by the gate where the controller told it to.
     The others add the same document, projected by the controller from the
     reports the gate's tool wrote where it always writes them: `JUNIT_XML`
-    from test reports, `SARIF` from analysis results.
+    from test reports, `SARIF` from analysis results, `LCOV` from coverage
+    tracefiles.
     """
 
     EXIT_CODE = "exit-code"
     CODESERVO_JSON = "codeservo-json"
     JUNIT_XML = "junit-xml"
     SARIF = "sarif"
+    LCOV = "lcov"
 
     @property
     def writes_document(self) -> bool:
@@ -39,7 +41,11 @@ class ResultFormat(StrEnum):
         A format that reads reports needs to be told where they are, and one
         that does not has nothing to be told.
         """
-        return self in (ResultFormat.JUNIT_XML, ResultFormat.SARIF)
+        return self in (
+            ResultFormat.JUNIT_XML,
+            ResultFormat.SARIF,
+            ResultFormat.LCOV,
+        )
 
 
 @dataclass(frozen=True)
