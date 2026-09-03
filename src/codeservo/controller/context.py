@@ -20,6 +20,7 @@ from ..evidence.digests import sha256_text
 from ..evidence.journal import JOURNAL_NAME, Journal
 from ..policies.constitution import load_constitution
 from ..workspace.git import common_git_dir, head, root
+from ..workspace.provider import Provider, load_provider
 from .document import Decision, EnvironmentBlock, Evidence, FrozenSensor
 from .errors import ControlFailure
 from .freeze import freeze_sensors
@@ -94,6 +95,7 @@ class RunContext:
     task: Task
     constitution: Constitution
     catalogue: Catalogue
+    provider: Provider | None
     base_commit: str
     run_id: str
     state_root: Path
@@ -185,6 +187,13 @@ def prepare(request: RunRequest) -> tuple[RunContext, RunRecord]:
     base_commit = head(repo)
     run_id = new_run_id()
     state_root = resolve_state_dir(repo, request.state_dir)
+    # The provider a constitution declares is loaded by name, and handed the
+    # directory the controller owns for it, before anything is frozen to it.
+    provider = (
+        load_provider(constitution.execution.provider, state_root)
+        if constitution.execution is not None
+        else None
+    )
     run_dir = state_root / "runs" / repo.name / run_id
     worktree = state_root / "worktrees" / repo.name / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -226,6 +235,7 @@ def prepare(request: RunRequest) -> tuple[RunContext, RunRecord]:
         state_root=state_root,
         git_dir=common_git_dir(repo),
         execution=constitution.execution,
+        provider=provider,
     )
 
     context = RunContext(
@@ -234,6 +244,7 @@ def prepare(request: RunRequest) -> tuple[RunContext, RunRecord]:
         task=task,
         constitution=constitution,
         catalogue=catalogue,
+        provider=provider,
         base_commit=base_commit,
         run_id=run_id,
         state_root=state_root,

@@ -24,7 +24,10 @@ from codeservo.domain.constitution import (
     ScopePolicy,
 )
 from codeservo.evidence.digests import sha256_file
+from codeservo.workspace.pixi import Pixi
 from harness import PIXI_PACKAGES, PIXI_TASK, commit_repository, write_provider
+
+PROVIDER = Pixi()
 
 
 def declaring(execution: ExecutionEnvironment | None) -> Constitution:
@@ -156,7 +159,7 @@ class ExecutionEnvironmentTests(unittest.TestCase):
         run_dir = root / "run"
 
         resolved, prefix = resolved_environment(
-            repo, run_dir, self._execution(), (PIXI_TASK,)
+            repo, run_dir, self._execution(), (PIXI_TASK,), PROVIDER
         )
 
         # The directory the provider reports is returned, never recorded.
@@ -175,7 +178,7 @@ class ExecutionEnvironmentTests(unittest.TestCase):
         root, repo, _ = self._repo()
 
         resolved, _ = resolved_environment(
-            repo, root / "run", self._execution(), (PIXI_TASK,)
+            repo, root / "run", self._execution(), (PIXI_TASK,), PROVIDER
         )
 
         document = resolved.to_document()
@@ -201,7 +204,7 @@ class CandidateEnvironmentTests(unittest.TestCase):
             lock="pixi.lock",
             environment="default",
         )
-        digests = candidate_digests(worktree, execution)
+        digests = candidate_digests(worktree, execution, PROVIDER)
         # As the installation leaves it: the digests, and no verdict about a
         # workspace nothing has compared yet.
         environment = EnvironmentBlock(
@@ -227,7 +230,7 @@ class CandidateEnvironmentTests(unittest.TestCase):
             environment="default",
         )
 
-        candidate, _ = install_candidate(worktree, execution)
+        candidate, _ = install_candidate(worktree, execution, PROVIDER)
 
         # Nothing has been compared to the digests just taken, so the record
         # leaves the verdict out rather than asserting one.
@@ -237,7 +240,9 @@ class CandidateEnvironmentTests(unittest.TestCase):
     def test_a_workspace_nobody_touched_is_unchanged(self) -> None:
         worktree, environment, execution = self._candidate()
 
-        checked, reasons = changed_environment(environment, worktree, execution)
+        checked, reasons = changed_environment(
+            environment, worktree, execution, PROVIDER
+        )
 
         self.assertEqual([], reasons)
         self.assertIsNone(checked.candidate.config_sha256)
@@ -248,9 +253,13 @@ class CandidateEnvironmentTests(unittest.TestCase):
 
     def test_names_the_lockfile_a_run_rewrote(self) -> None:
         worktree, environment, execution = self._candidate()
-        (worktree / "pixi.lock").write_text("version: 6\n# resolved\n", encoding="utf-8")
+        (worktree / "pixi.lock").write_text(
+            "version: 6\n# resolved\n", encoding="utf-8"
+        )
 
-        checked, reasons = changed_environment(environment, worktree, execution)
+        checked, reasons = changed_environment(
+            environment, worktree, execution, PROVIDER
+        )
 
         self.assertEqual(
             ["execution environment: pixi.lock changed during the run"], reasons
@@ -263,7 +272,9 @@ class CandidateEnvironmentTests(unittest.TestCase):
         configuration.parent.mkdir(parents=True)
         configuration.write_text("detached-environments = true\n", encoding="utf-8")
 
-        checked, reasons = changed_environment(environment, worktree, execution)
+        checked, reasons = changed_environment(
+            environment, worktree, execution, PROVIDER
+        )
 
         self.assertEqual(
             ["execution environment: .pixi/config.toml changed during the run"],
@@ -275,7 +286,7 @@ class CandidateEnvironmentTests(unittest.TestCase):
         worktree, environment, execution = self._candidate()
         (worktree / "pyproject.toml").unlink()
 
-        _, reasons = changed_environment(environment, worktree, execution)
+        _, reasons = changed_environment(environment, worktree, execution, PROVIDER)
 
         self.assertEqual(
             ["execution environment: pyproject.toml changed during the run"], reasons
@@ -285,7 +296,7 @@ class CandidateEnvironmentTests(unittest.TestCase):
         worktree, _, _ = self._candidate()
         block = declared_environment(declaring(None))
 
-        self.assertEqual((block, []), changed_environment(block, worktree, None))
+        self.assertEqual((block, []), changed_environment(block, worktree, None, None))
 
 
 if __name__ == "__main__":

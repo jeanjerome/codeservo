@@ -16,7 +16,7 @@ from pathlib import Path
 from ..domain.constitution import ExecutionEnvironment
 from ..domain.document import Unset
 from ..evidence.digests import sha256_file, write_json
-from ..workspace import pixi
+from ..workspace.provider import Provider
 from .document import (
     CandidateDigests,
     CandidateEnvironment,
@@ -66,6 +66,7 @@ def resolved_environment(
     run_dir: Path,
     execution: ExecutionEnvironment,
     tasks: tuple[str, ...],
+    provider: Provider,
 ) -> tuple[ResolvedEnvironment, str]:
     """What the lockfile resolves to, and the tasks the environment declares.
 
@@ -74,7 +75,7 @@ def resolved_environment(
     directory the provider reports for this tree is returned next to it and
     never recorded: it is the operator's location, not a fact about the run.
     """
-    resolved = pixi.freeze(
+    resolved = provider.freeze(
         manifest=repo / execution.manifest,
         lock_path=execution.lock,
         environment=execution.environment,
@@ -99,7 +100,7 @@ def optional_sha256(path: Path) -> str | None:
 
 
 def candidate_digests(
-    worktree: Path, execution: ExecutionEnvironment
+    worktree: Path, execution: ExecutionEnvironment, provider: Provider
 ) -> CandidateDigests:
     """The three provider files of the candidate, as they are right now.
 
@@ -110,25 +111,28 @@ def candidate_digests(
     return CandidateDigests(
         manifest_sha256=optional_sha256(manifest),
         lock_sha256=optional_sha256(worktree / execution.lock),
-        config_sha256=optional_sha256(pixi.config_path(manifest)),
+        config_sha256=optional_sha256(provider.config_path(manifest)),
     )
 
 
 def install_candidate(
-    worktree: Path, execution: ExecutionEnvironment
+    worktree: Path, execution: ExecutionEnvironment, provider: Provider
 ) -> tuple[CandidateEnvironment, str]:
-    """Install the declared environment into the isolated checkout.
+    """Install the declared environment, and digest the tree's provider files.
 
-    The candidate is the only tree the controller prepares. The digests are
-    taken after the installation, so they describe the workspace every later
-    measurement runs against, and are what each recomputation compares to.
-    Whether the workspace held is left unset: nothing has been compared yet,
-    and the verdict is what the first recomputation establishes.
+    A provider installing into the tree is handed the candidate, the only tree
+    the controller prepares. One keeping its tools in the controller's own
+    directory is handed the source tree, whose files the candidate then
+    carries unchanged. The digests are taken after the installation, so they
+    describe what every later measurement runs against, and are what each
+    recomputation compares to. Whether the workspace held is left unset:
+    nothing has been compared yet, and the verdict is what the first
+    recomputation establishes.
     """
-    installation = pixi.install(
+    installation = provider.install(
         manifest=worktree / execution.manifest, environment=execution.environment
     )
-    digests = candidate_digests(worktree, execution)
+    digests = candidate_digests(worktree, execution, provider)
     record = CandidateEnvironment(
         prefix_path=installation.prefix_path,
         command=tuple(installation.command),
@@ -145,6 +149,7 @@ def changed_environment(
     environment: EnvironmentBlock,
     worktree: Path,
     execution: ExecutionEnvironment | None,
+    provider: Provider | None,
 ) -> tuple[EnvironmentBlock, list[str]]:
     """Provider files of the candidate that moved since it was prepared.
 
@@ -157,14 +162,14 @@ def changed_environment(
     candidate's environment held is a measurement and the record carries it.
     """
     candidate = environment.candidate
-    if execution is None or isinstance(candidate, Unset):
+    if execution is None or provider is None or isinstance(candidate, Unset):
         return environment, []
     named = {
         "manifest_sha256": execution.manifest,
         "lock_sha256": execution.lock,
-        "config_sha256": pixi.config_path(Path(execution.manifest)).as_posix(),
+        "config_sha256": provider.config_path(Path(execution.manifest)).as_posix(),
     }
-    current = candidate_digests(worktree, execution)
+    current = candidate_digests(worktree, execution, provider)
     reasons = [
         f"execution environment: {named[declared.name]} changed during the run"
         for declared in fields(CandidateDigests)

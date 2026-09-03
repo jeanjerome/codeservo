@@ -15,6 +15,7 @@ from codeservo.sensors.observations import (
     OBSERVATION_PATH_VARIABLE,
     ObservationPathError,
 )
+from codeservo.workspace.pixi import Pixi
 from harness import PIXI_TASK, commit_repository, write_provider
 from isolation_harness import (
     already_confined,
@@ -33,6 +34,7 @@ EXECUTION = ExecutionEnvironment(
     lock="pixi.lock",
     environment="default",
 )
+PROVIDER = Pixi()
 
 
 class GateCommandTests(unittest.TestCase):
@@ -42,7 +44,10 @@ class GateCommandTests(unittest.TestCase):
         gate = Gate(name="unit", phase="quick", command="make test")
 
         self.assertEqual(
-            "make test", gate_command(gate, tree=Path("/tree"), execution=EXECUTION)
+            "make test",
+            gate_command(
+                gate, tree=Path("/tree"), execution=EXECUTION, provider=PROVIDER
+            ),
         )
         self.assertEqual(
             "make test", gate_command(gate, tree=Path("/tree"), execution=None)
@@ -51,8 +56,12 @@ class GateCommandTests(unittest.TestCase):
     def test_a_task_gate_names_the_manifest_of_the_tree_it_measures(self) -> None:
         gate = Gate(name="unit", phase="quick", task="test-unit")
 
-        source = gate_command(gate, tree=Path("/source"), execution=EXECUTION)
-        checkout = gate_command(gate, tree=Path("/checkout"), execution=EXECUTION)
+        source = gate_command(
+            gate, tree=Path("/source"), execution=EXECUTION, provider=PROVIDER
+        )
+        checkout = gate_command(
+            gate, tree=Path("/checkout"), execution=EXECUTION, provider=PROVIDER
+        )
 
         self.assertIn("--manifest-path '/source/pyproject.toml'", source)
         self.assertIn("--manifest-path '/checkout/pyproject.toml'", checkout)
@@ -62,7 +71,9 @@ class GateCommandTests(unittest.TestCase):
     def test_the_constitution_supplies_the_task_and_nothing_around_it(self) -> None:
         gate = Gate(name="unit", phase="quick", task="test-unit")
 
-        command = gate_command(gate, tree=Path("/tree"), execution=EXECUTION)
+        command = gate_command(
+            gate, tree=Path("/tree"), execution=EXECUTION, provider=PROVIDER
+        )
 
         self.assertEqual(
             "pixi run --as-is --clean-env --no-config"
@@ -86,6 +97,7 @@ class GateCommandTests(unittest.TestCase):
             gate,
             tree=Path("/tree"),
             execution=EXECUTION,
+            provider=PROVIDER,
             observation=Path("/owned/observation.json"),
         )
 
@@ -96,7 +108,9 @@ class GateCommandTests(unittest.TestCase):
     ) -> None:
         gate = Gate(name="unit", phase="quick", task="test-unit")
 
-        command = gate_command(gate, tree=Path("/tree"), execution=EXECUTION)
+        command = gate_command(
+            gate, tree=Path("/tree"), execution=EXECUTION, provider=PROVIDER
+        )
 
         self.assertTrue(command.endswith("'test-unit'"))
 
@@ -128,9 +142,7 @@ class GateEnvironmentTests(unittest.TestCase):
                 ),
             )
 
-            with patch.dict(
-                os.environ, {"CODESERVO_SENSOR_PATH": "inherited-leak"}
-            ):
+            with patch.dict(os.environ, {"CODESERVO_SENSOR_PATH": "inherited-leak"}):
                 results = run_gates(
                     repo=root,
                     gates=gates,
@@ -146,8 +158,7 @@ class GateEnvironmentTests(unittest.TestCase):
             sensor = root / "frozen-sensor"
             sensor.mkdir()
             forbidden = (
-                'test xtruetruetrue'
-                ' = "x$PIXI_OFFLINE$PIXI_NO_INSTALL$PIXI_FROZEN"'
+                'test xtruetruetrue = "x$PIXI_OFFLINE$PIXI_NO_INSTALL$PIXI_FROZEN"'
             )
             gates = (
                 Gate(name="ordinary", phase="quick", command=forbidden),
@@ -166,6 +177,7 @@ class GateEnvironmentTests(unittest.TestCase):
                 out_dir=root / "logs",
                 sensor_paths={"acceptance": sensor},
                 execution=EXECUTION,
+                provider=PROVIDER,
             )
 
             self.assertTrue(all(result.passed for result in results))
@@ -207,6 +219,7 @@ class GateEnvironmentTests(unittest.TestCase):
                     gates=gates,
                     out_dir=root / "logs",
                     execution=EXECUTION,
+                    provider=PROVIDER,
                 )
 
             task, shell = results
@@ -282,7 +295,7 @@ class GateObservationTests(unittest.TestCase):
             f' && case "${OBSERVATION_PATH_VARIABLE}" in /*) ;; *) exit 1;; esac'
             f' && test ! -e "${OBSERVATION_PATH_VARIABLE}"'
             f' && test -d "$(dirname "${OBSERVATION_PATH_VARIABLE}")"'
-            f' && {writes(json.dumps({**DOCUMENT, "status": "passed"}))}'
+            f" && {writes(json.dumps({**DOCUMENT, 'status': 'passed'}))}"
         )
 
         record = self._run(probe)
@@ -370,7 +383,7 @@ class GateObservationTests(unittest.TestCase):
 
     def test_removes_the_location_once_the_result_is_recorded(self) -> None:
         record = self._run(
-            f'{writes(json.dumps(DOCUMENT))};'
+            f"{writes(json.dumps(DOCUMENT))};"
             f' dirname "${OBSERVATION_PATH_VARIABLE}" > written-location; exit 1'
         )
 
@@ -434,17 +447,12 @@ class GateExitCodeModeTests(unittest.TestCase):
                 Gate(
                     name="declares-the-format",
                     phase="quick",
-                    command=(
-                        f'test "${OBSERVATION_PATH_VARIABLE}" !='
-                        f' "{inherited}"'
-                    ),
+                    command=(f'test "${OBSERVATION_PATH_VARIABLE}" != "{inherited}"'),
                     result_format=ResultFormat.CODESERVO_JSON,
                 ),
             )
 
-            with patch.dict(
-                os.environ, {OBSERVATION_PATH_VARIABLE: str(inherited)}
-            ):
+            with patch.dict(os.environ, {OBSERVATION_PATH_VARIABLE: str(inherited)}):
                 results = run_gates(
                     repo=root,
                     gates=gates,
@@ -566,7 +574,8 @@ class GateConfinementTests(unittest.TestCase):
                 self.assertIn("deny file-write*", profile)
                 self.assertIn(str(run_dir.resolve()), profile)
                 self.assertEqual(
-                    "assert True\n", (sensor / "contract.py").read_text(encoding="utf-8")
+                    "assert True\n",
+                    (sensor / "contract.py").read_text(encoding="utf-8"),
                 )
                 return
 
@@ -668,12 +677,8 @@ class GateConfinementTests(unittest.TestCase):
             )
 
             reading, records, writes = results
-            self.assertTrue(
-                reading.passed, Path(reading.stderr_path).read_text()
-            )
-            self.assertIn(
-                "untracked.py", Path(reading.stdout_path).read_text()
-            )
+            self.assertTrue(reading.passed, Path(reading.stderr_path).read_text())
+            self.assertIn("untracked.py", Path(reading.stdout_path).read_text())
             self.assertFalse(records.passed)
             self.assertFalse(writes.passed)
             self.assertFalse((metadata / "tampered.txt").exists())
@@ -711,6 +716,7 @@ class GateConfinementTests(unittest.TestCase):
                     out_dir=root / "logs",
                     isolation=isolation,
                     execution=EXECUTION,
+                    provider=PROVIDER,
                 )
 
             task, writes = results

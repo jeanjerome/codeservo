@@ -48,19 +48,19 @@ class ConstitutionTests(unittest.TestCase):
 
     def test_requires_quick_and_full_gates(self) -> None:
         repo = self._write(
-            '''
+            """
 [[gate]]
 name = "only"
 phase = "quick"
 command = "true"
-'''
+"""
         )
         with self.assertRaisesRegex(ConstitutionError, "full gate"):
             load_constitution(repo)
 
     def test_accepts_quick_and_full_gates(self) -> None:
         repo = self._write(
-            '''
+            """
 [[gate]]
 name = "quick"
 phase = "quick"
@@ -70,7 +70,7 @@ command = "true"
 name = "full"
 phase = "full"
 command = "true"
-'''
+"""
         )
         constitution = load_constitution(repo)
         self.assertEqual(1, len(constitution.gates_for("quick")))
@@ -78,7 +78,7 @@ command = "true"
 
     def test_requires_external_sensor_for_nonbaseline_gate(self) -> None:
         repo = self._write(
-            '''
+            """
 [[gate]]
 name = "acceptance"
 phase = "quick"
@@ -89,7 +89,7 @@ baseline = false
 name = "full"
 phase = "full"
 command = "true"
-'''
+"""
         )
 
         with self.assertRaisesRegex(ConstitutionError, "external sensor"):
@@ -97,7 +97,7 @@ command = "true"
 
     def test_external_sensor_cannot_run_during_baseline(self) -> None:
         repo = self._write(
-            '''
+            """
 [[gate]]
 name = "acceptance"
 phase = "quick"
@@ -108,7 +108,7 @@ sensor = "example/acceptance"
 name = "full"
 phase = "full"
 command = "true"
-'''
+"""
         )
 
         with self.assertRaisesRegex(ConstitutionError, "requires baseline=false"):
@@ -116,7 +116,7 @@ command = "true"
 
     def test_rejects_gate_name_that_can_escape_log_directory(self) -> None:
         repo = self._write(
-            '''
+            """
 [[gate]]
 name = "../acceptance"
 phase = "quick"
@@ -126,7 +126,7 @@ command = "true"
 name = "full"
 phase = "full"
 command = "true"
-'''
+"""
         )
 
         with self.assertRaisesRegex(ConstitutionError, "invalid gate name"):
@@ -157,7 +157,7 @@ class GateResultFormatTests(unittest.TestCase):
 
     def test_accepts_the_two_declared_values(self) -> None:
         repo = self._write(
-            '''
+            """
 [[gate]]
 name = "quick"
 phase = "quick"
@@ -169,7 +169,7 @@ name = "full"
 phase = "full"
 command = "true"
 result_format = "exit-code"
-'''
+"""
         )
 
         constitution = load_constitution(repo)
@@ -182,7 +182,7 @@ result_format = "exit-code"
     def test_the_key_is_independent_of_every_other_one(self) -> None:
         repo = self._write(
             EXECUTION
-            + '''
+            + """
 [[gate]]
 name = "quick-task"
 phase = "quick"
@@ -202,7 +202,7 @@ name = "full"
 phase = "full"
 command = "true"
 result_format = "codeservo-json"
-'''
+"""
         )
 
         constitution = load_constitution(repo)
@@ -219,7 +219,7 @@ result_format = "codeservo-json"
 
     def test_rejects_any_other_value_naming_it(self) -> None:
         repo = self._write(
-            '''
+            """
 [[gate]]
 name = "quick"
 phase = "quick"
@@ -230,7 +230,7 @@ result_format = "junit-xml"
 name = "full"
 phase = "full"
 command = "true"
-'''
+"""
         )
 
         with self.assertRaisesRegex(ConstitutionError, "junit-xml"):
@@ -302,7 +302,7 @@ command = "true"
     def test_requires_a_baseline_measurement(self) -> None:
         repo = self._write(
             self._gates(
-                'baseline = false\n'
+                "baseline = false\n"
                 'sensor = "example/acceptance"\n'
                 'result_format = "codeservo-json"\n'
                 'ratchet = { missing = "<=" }'
@@ -374,9 +374,7 @@ class ExecutionEnvironmentTests(unittest.TestCase):
         self.assertEqual("default", execution.environment)
 
     def test_locates_the_lockfile_beside_the_manifest(self) -> None:
-        repo = self._write(
-            EXECUTION.replace("pyproject.toml", "sub/pixi.toml") + GATES
-        )
+        repo = self._write(EXECUTION.replace("pyproject.toml", "sub/pixi.toml") + GATES)
         (repo / "sub").mkdir()
         (repo / "sub" / "pixi.toml").write_text("", encoding="utf-8")
         (repo / "sub" / "pixi.lock").write_text("version: 6\n", encoding="utf-8")
@@ -399,7 +397,36 @@ class ExecutionEnvironmentTests(unittest.TestCase):
             EXECUTION.replace('"pixi"', '"conda"') + GATES, workspace=True
         )
 
-        with self.assertRaisesRegex(ConstitutionError, "provider must be pixi"):
+        with self.assertRaisesRegex(
+            ConstitutionError, "provider must be one of pixi, mise, not 'conda'"
+        ):
+            load_constitution(repo)
+
+    def test_resolves_a_mise_manifest_and_its_lockfile(self) -> None:
+        repo = self._write(
+            EXECUTION.replace('"pixi"', '"mise"').replace("pyproject.toml", "mise.toml")
+            + GATES
+        )
+        (repo / "mise.toml").write_text('[tools]\njava = "21"\n', encoding="utf-8")
+        (repo / "mise.lock").write_text("[tools]\n", encoding="utf-8")
+
+        execution = load_constitution(repo).execution
+
+        self.assertEqual("mise", execution.provider)
+        self.assertEqual("mise.toml", execution.manifest)
+        self.assertEqual("mise.lock", execution.lock)
+
+    def test_a_mise_manifest_requires_its_own_lockfile(self) -> None:
+        repo = self._write(
+            EXECUTION.replace('"pixi"', '"mise"').replace("pyproject.toml", "mise.toml")
+            + GATES
+        )
+        (repo / "mise.toml").write_text('[tools]\njava = "21"\n', encoding="utf-8")
+        (repo / "pixi.lock").write_text("version: 6\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(
+            ConstitutionError, "provider mise requires mise.lock"
+        ):
             load_constitution(repo)
 
     def test_rejects_an_absolute_manifest(self) -> None:
@@ -450,7 +477,7 @@ class GateMeasurementTests(unittest.TestCase):
     def test_accepts_a_task_gate_beside_a_shell_gate(self) -> None:
         repo = self._write(
             EXECUTION
-            + '''
+            + """
 [[gate]]
 name = "unit"
 phase = "quick"
@@ -460,7 +487,7 @@ task = "test-unit"
 name = "full"
 phase = "full"
 command = "true"
-''',
+""",
             workspace=True,
         )
 
@@ -472,7 +499,7 @@ command = "true"
     def test_rejects_a_gate_declaring_both_a_command_and_a_task(self) -> None:
         repo = self._write(
             EXECUTION
-            + '''
+            + """
 [[gate]]
 name = "unit"
 phase = "quick"
@@ -483,7 +510,7 @@ task = "test-unit"
 name = "full"
 phase = "full"
 command = "true"
-''',
+""",
             workspace=True,
         )
 
@@ -492,7 +519,7 @@ command = "true"
 
     def test_rejects_a_gate_declaring_neither(self) -> None:
         repo = self._write(
-            '''
+            """
 [[gate]]
 name = "unit"
 phase = "quick"
@@ -501,7 +528,7 @@ phase = "quick"
 name = "full"
 phase = "full"
 command = "true"
-'''
+"""
         )
 
         with self.assertRaisesRegex(ConstitutionError, "gate unit: declares neither"):
@@ -509,7 +536,7 @@ command = "true"
 
     def test_rejects_a_task_gate_without_a_declared_provider(self) -> None:
         repo = self._write(
-            '''
+            """
 [[gate]]
 name = "unit"
 phase = "quick"
@@ -519,7 +546,7 @@ task = "test-unit"
 name = "full"
 phase = "full"
 command = "true"
-'''
+"""
         )
 
         with self.assertRaisesRegex(
@@ -530,7 +557,7 @@ command = "true"
     def test_rejects_a_task_name_outside_the_character_class(self) -> None:
         repo = self._write(
             EXECUTION
-            + '''
+            + """
 [[gate]]
 name = "unit"
 phase = "quick"
@@ -540,7 +567,7 @@ task = "../test-unit"
 name = "full"
 phase = "full"
 command = "true"
-''',
+""",
             workspace=True,
         )
 

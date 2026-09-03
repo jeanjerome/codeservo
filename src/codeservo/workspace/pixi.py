@@ -33,6 +33,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from .provider import Environment, Installation, ProviderError, quote
+
 PROVIDER = "pixi"
 LOCKFILE = "pixi.lock"
 
@@ -66,21 +68,6 @@ _DESCRIPTION_TIMEOUT_SECONDS = 60
 _INSTALL_TIMEOUT_SECONDS = 1800
 
 
-class ProviderError(RuntimeError):
-    """A provider fact that ends a run before anything is measured."""
-
-
-@dataclass(frozen=True)
-class Environment:
-    """What the provider resolved for one declared environment."""
-
-    version: str
-    platform: str
-    tasks: tuple[str, ...]
-    packages: list
-    prefix: str
-
-
 @dataclass(frozen=True)
 class Description:
     """What the provider says about itself and about one declared environment.
@@ -94,28 +81,6 @@ class Description:
     platform: str
     tasks: tuple[str, ...]
     prefix: str
-
-
-@dataclass(frozen=True)
-class Installation:
-    """One environment installed into the tree that will be measured."""
-
-    prefix_path: str
-    command: tuple[str, ...]
-    exit_code: int
-    duration_ms: int
-    diagnostic: str
-
-
-def _quote(value: str) -> str:
-    """Quote one value the constitution supplied.
-
-    Gate commands reach a shell. Task, environment and manifest are validated
-    when the constitution is parsed, so nothing needing an escape survives
-    that far; quoting here means the property holds by construction rather
-    than by that validation staying correct.
-    """
-    return "'" + value.replace("'", "'\\''") + "'"
 
 
 def inventory_command(manifest: Path) -> list[str]:
@@ -223,11 +188,11 @@ def task_command(
             "--clean-env",
             "--no-config",
             "--manifest-path",
-            _quote(str(manifest)),
+            quote(str(manifest)),
             "--environment",
-            _quote(environment),
-            _quote(task),
-            *(_quote(argument) for argument in arguments),
+            quote(environment),
+            quote(task),
+            *(quote(argument) for argument in arguments),
         ]
     )
 
@@ -310,8 +275,7 @@ def read_description(
     is closing a run with a decision.
     """
     refusal = (
-        f"execution environment: {PROVIDER} described no environment"
-        f" of {manifest_name}"
+        f"execution environment: {PROVIDER} described no environment of {manifest_name}"
     )
     try:
         document = json.loads(stdout)
@@ -330,8 +294,7 @@ def read_description(
     }
     if environment not in declared:
         raise ProviderError(
-            f"execution environment: {PROVIDER} declares no environment"
-            f" {environment}"
+            f"execution environment: {PROVIDER} declares no environment {environment}"
         )
 
     selected = declared[environment]
@@ -430,3 +393,56 @@ def freeze(
         packages=packages,
         prefix=described.prefix,
     )
+
+
+class Pixi:
+    """The pixi provider, behind the port every provider answers.
+
+    The module functions above are what the provider does; this object is how
+    the controller holds it to the six operations without naming pixi.
+    """
+
+    name = PROVIDER
+    lockfile = LOCKFILE
+    # The environment lives under `.pixi` inside the tree it is measured in,
+    # so the candidate is installed after the checkout and the source must
+    # already carry its own.
+    shared_installs = False
+
+    def freeze(
+        self,
+        *,
+        manifest: Path,
+        lock_path: str,
+        environment: str,
+        tasks: Iterable[str],
+    ) -> Environment:
+        return freeze(
+            manifest=manifest, lock_path=lock_path, environment=environment, tasks=tasks
+        )
+
+    def install(self, *, manifest: Path, environment: str) -> Installation:
+        return install(manifest=manifest, environment=environment)
+
+    def task_command(
+        self,
+        *,
+        manifest: Path,
+        environment: str,
+        task: str,
+        arguments: Iterable[str] = (),
+    ) -> str:
+        return task_command(
+            manifest=manifest, environment=environment, task=task, arguments=arguments
+        )
+
+    def measurement_environment(self, manifest: Path) -> dict[str, str]:  # noqa: ARG002
+        # The variables forbid resolving and installing whichever tree is
+        # measured: the argument is what the port passes, and pixi reads none of it.
+        return measurement_environment()
+
+    def provider_directory(self, manifest: Path) -> Path:
+        return provider_directory(manifest)
+
+    def config_path(self, manifest: Path) -> Path:
+        return config_path(manifest)

@@ -37,10 +37,12 @@ AGENT_TOKENS = {
     "thinkingTokens": 100,
 }
 AGENT_COST_USD = 0.0097
-SENSOR_COMMAND = 'test -f "$CODESERVO_SENSOR_PATH/README.md" && grep -q "return 2" app.py'
+SENSOR_COMMAND = (
+    'test -f "$CODESERVO_SENSOR_PATH/README.md" && grep -q "return 2" app.py'
+)
 COMPILE_COMMAND = f"{sys.executable} -m py_compile app.py"
 
-_AGENT_TEMPLATE = '''#!/usr/bin/env python3
+_AGENT_TEMPLATE = """#!/usr/bin/env python3
 import json
 import os
 import pathlib
@@ -136,12 +138,10 @@ if flag("--output-format") == "json":
 {reviewer}
 else:
 {implementer}
-'''
+"""
 
 
-def agent_script(
-    *, implementer: str, reviewer: str = "emit_review(SATISFIED)"
-) -> str:
+def agent_script(*, implementer: str, reviewer: str = "emit_review(SATISFIED)") -> str:
     return _AGENT_TEMPLATE.format(
         implementer=textwrap.indent(textwrap.dedent(implementer).strip(), "    "),
         reviewer=textwrap.indent(textwrap.dedent(reviewer).strip(), "    "),
@@ -165,6 +165,8 @@ def constitution(
     quick_ratchet: str | None = None,
     full_result_format: str | None = None,
     full_ratchet: str | None = None,
+    provider_name: str = "pixi",
+    sensor_task: str | None = None,
 ) -> str:
     """The constitution a case runs under.
 
@@ -181,10 +183,11 @@ max_changed_files = {max_changed_files}
 max_diff_lines = 100
 """
     if execution is not None:
+        manifest = "pyproject.toml" if provider_name == "pixi" else "mise.toml"
         text += f"""
 [execution]
-provider = "pixi"
-manifest = "pyproject.toml"
+provider = "{provider_name}"
+manifest = "{manifest}"
 environment = "{execution}"
 """
     quick = (
@@ -214,7 +217,16 @@ phase = "full"
 {full}
 baseline = true
 """
-    if sensor_command is not None:
+    if sensor_task is not None:
+        text += f"""
+[[gate]]
+name = "task-outcome"
+phase = "{sensor_phase}"
+task = "{sensor_task}"
+baseline = false
+sensor = "test/task-outcome"
+"""
+    elif sensor_command is not None:
         text += f"""
 [[gate]]
 name = "task-outcome"
@@ -266,6 +278,7 @@ def build_case(
     provider: bool = False,
     stale_lock: bool = False,
     source_environment: bool = True,
+    provider_name: str = "pixi",
 ) -> Case:
     repo = root / "repo"
     state_dir = root / "state"
@@ -280,7 +293,9 @@ def build_case(
 
     (repo / ".gitignore").write_text("__pycache__/\n*.pyc\n", encoding="utf-8")
     (repo / "app.py").write_text("def value():\n    return 0\n", encoding="utf-8")
-    if provider:
+    if provider and provider_name == "mise":
+        write_mise_provider(bin_dir, repo, stale_lock=stale_lock)
+    elif provider:
         write_provider(
             bin_dir, repo, stale_lock=stale_lock, installed=source_environment
         )
@@ -337,7 +352,8 @@ PIXI_OPERATOR_PATHS = {
     "global_info": {"bin_dir": "/operator/bin"},
 }
 
-_PIXI_SCRIPT = '''"""A stand-in for pixi, answering from the manifest it names."""
+_PIXI_SCRIPT = (
+    '''"""A stand-in for pixi, answering from the manifest it names."""
 import json
 import os
 import subprocess
@@ -345,8 +361,12 @@ import sys
 import tomllib
 from pathlib import Path
 
-PACKAGES = ''' + repr(PIXI_PACKAGES) + '''
-OPERATOR = ''' + repr(PIXI_OPERATOR_PATHS) + '''
+PACKAGES = '''
+    + repr(PIXI_PACKAGES)
+    + """
+OPERATOR = """
+    + repr(PIXI_OPERATOR_PATHS)
+    + """
 
 args = sys.argv[1:]
 subcommand = args[0] if args else ""
@@ -474,7 +494,8 @@ if subcommand == "run":
 
 sys.stderr.write("unexpected subcommand " + subcommand + "\\n")
 raise SystemExit(95)
-'''
+"""
+)
 
 
 def pixi_manifest() -> str:
@@ -521,3 +542,232 @@ def write_provider(
     provider = bin_dir / "pixi"
     provider.write_text(f"#!{sys.executable}\n" + _PIXI_SCRIPT, encoding="utf-8")
     provider.chmod(provider.stat().st_mode | stat.S_IXUSR)
+
+
+# --- A stand-in for mise -------------------------------------------------------
+#
+# It answers the five commands the controller runs from the manifest beside the
+# directory it is given, keeps its tools under the data directory it is handed,
+# refuses to install anything the lockfile does not pin, and refuses the one
+# command that rewrites the lockfile.
+
+MISE_TASK = "check-syntax"
+MISE_SENSOR_TASK = "sensor-check"
+MISE_TOOL = "fake-tool"
+MISE_TOOL_VERSION = "1.2.3"
+MISE_VARIABLES = (
+    "MISE_OFFLINE",
+    "MISE_LOCKED",
+    "MISE_YES",
+    "MISE_DATA_DIR",
+    "MISE_AUTO_INSTALL",
+    "MISE_EXEC_AUTO_INSTALL",
+    "MISE_NOT_FOUND_AUTO_INSTALL",
+    "MISE_TASK_RUN_AUTO_INSTALL",
+    "MISE_TRUSTED_CONFIG_PATHS",
+    "MISE_OVERRIDE_CONFIG_FILENAMES",
+    "MISE_CEILING_PATHS",
+    "MISE_GLOBAL_CONFIG_FILE",
+    "MISE_SYSTEM_CONFIG_FILE",
+)
+
+_MISE_SCRIPT = (
+    '''"""A stand-in for mise, answering from the manifest in the directory it is given."""
+import json
+import os
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+VARIABLES = '''
+    + repr(MISE_VARIABLES)
+    + """
+
+args = sys.argv[1:]
+subcommand = args[0] if args else ""
+
+log = os.environ.get("CODESERVO_TEST_MISE_LOG")
+if log:
+    seen = {name: os.environ[name] for name in VARIABLES if name in os.environ}
+    with open(log, "a", encoding="utf-8") as stream:
+        stream.write(json.dumps({"args": args, "env": seen}) + "\\n")
+
+
+def flag(name, default=""):
+    return args[args.index(name) + 1] if name in args else default
+
+
+def require(*options):
+    missing = [option for option in options if option not in args]
+    if missing:
+        sys.stderr.write("missing options: " + " ".join(missing) + "\\n")
+        raise SystemExit(96)
+
+
+directory = Path(flag("-C", os.getcwd()))
+manifest = directory / os.environ.get("MISE_OVERRIDE_CONFIG_FILENAMES", "mise.toml")
+data_dir = Path(os.environ["MISE_DATA_DIR"]) if "MISE_DATA_DIR" in os.environ else None
+
+
+def config():
+    return tomllib.loads(manifest.read_text(encoding="utf-8"))
+
+
+def locked():
+    lock = manifest.with_name("mise.lock")
+    return tomllib.loads(lock.read_text(encoding="utf-8")).get("tools", {})
+
+
+def locked_version(tool, specifier):
+    for entry in locked().get(tool, []):
+        if specifier in entry.get("specifiers", []):
+            return entry["version"]
+    return None
+
+
+def install_path(tool, version):
+    return data_dir / "installs" / tool / version
+
+
+def every_tool():
+    for tool, specifier in config().get("tools", {}).items():
+        yield tool, specifier, locked_version(tool, specifier)
+
+
+if subcommand == "lock":
+    sys.stderr.write("mise lock rewrites the lockfile and must never run\\n")
+    raise SystemExit(97)
+
+if data_dir is None:
+    sys.stderr.write("the stand-in keeps its tools under MISE_DATA_DIR only\\n")
+    raise SystemExit(94)
+
+if subcommand == "version":
+    require("--json")
+    json.dump(
+        {"version": "2026.9.1-test test-os-test-arch", "os": "test-os", "arch": "test-arch"},
+        sys.stdout,
+    )
+    raise SystemExit(0)
+
+if subcommand == "tasks":
+    require("ls", "--json")
+    tasks = config().get("tasks", {})
+    json.dump(
+        [
+            {
+                "name": name,
+                "run": [spec if isinstance(spec, str) else spec["run"]],
+                "source": str(manifest),
+            }
+            for name, spec in tasks.items()
+        ],
+        sys.stdout,
+    )
+    raise SystemExit(0)
+
+if subcommand == "ls":
+    require("--json", "--current")
+    listed = {}
+    for tool, specifier, version in every_tool():
+        if version is None:
+            sys.stderr.write(
+                f"mise WARN  Failed to resolve tool version list for {tool}:"
+                f" {tool}@{specifier} is not in the lockfile\\n"
+            )
+            continue
+        listed[tool] = [
+            {
+                "version": version,
+                "requested_version": specifier,
+                "install_path": str(install_path(tool, version)),
+                "installed": install_path(tool, version).is_dir(),
+                "active": True,
+            }
+        ]
+    json.dump(listed, sys.stdout)
+    raise SystemExit(0)
+
+if subcommand == "install":
+    if os.environ.get("MISE_LOCKED") != "1":
+        sys.stderr.write("an install without MISE_LOCKED would resolve\\n")
+        raise SystemExit(98)
+    if "--dry-run-code" in args:
+        missing = [t for t, s, v in every_tool() if v is None or not install_path(t, v).is_dir()]
+        raise SystemExit(1 if missing else 0)
+    if os.environ.get("CODESERVO_TEST_MISE_INSTALL_FAILS"):
+        sys.stderr.write("mise ERROR failed to install\\n")
+        raise SystemExit(1)
+    for tool, specifier, version in every_tool():
+        if version is None:
+            sys.stderr.write(f"mise ERROR {tool}@{specifier} is not in the lockfile\\n")
+            raise SystemExit(1)
+        install_path(tool, version).mkdir(parents=True, exist_ok=True)
+    print("mise installed")
+    raise SystemExit(0)
+
+if subcommand == "run":
+    require("-q", "-C")
+    rest = [item for item in args[1:] if item not in ("-q",)]
+    rest = rest[rest.index("-C") + 2 :]
+    task = rest[0]
+    extra = rest[2:] if len(rest) > 1 and rest[1] == "--" else rest[1:]
+    for tool, specifier, version in every_tool():
+        if version is None or not install_path(tool, version).is_dir():
+            # A missing tool fails loudly: auto-installation is off.
+            sys.stderr.write(f"mise ERROR {tool} is not installed\\n")
+            raise SystemExit(127)
+    spec = config().get("tasks", {}).get(task)
+    if spec is None:
+        sys.stderr.write(f"mise ERROR no task {task}\\n")
+        raise SystemExit(1)
+    command = spec if isinstance(spec, str) else spec["run"]
+    sys.stdout.flush()
+    raise SystemExit(
+        subprocess.run(
+            " ".join([command, *extra]), shell=True, cwd=directory
+        ).returncode
+    )
+
+sys.stderr.write("unexpected subcommand " + subcommand + "\\n")
+raise SystemExit(95)
+"""
+)
+
+
+def mise_manifest() -> str:
+    """A manifest pinning one tool and declaring the tasks the cases run."""
+    return f"""[tools]
+{MISE_TOOL} = "{MISE_TOOL_VERSION[:1]}"
+
+[settings]
+lockfile = true
+
+[tasks.{MISE_TASK}]
+run = "{sys.executable} -m py_compile app.py"
+
+[tasks.{MISE_SENSOR_TASK}]
+run = 'test -f "$CODESERVO_SENSOR_PATH/README.md" && grep -q "return 2" app.py'
+"""
+
+
+def mise_lock(*, stale: bool = False) -> str:
+    """The lockfile pinning the tool, or one pinning it for another specifier."""
+    specifier = "9" if stale else MISE_TOOL_VERSION[:1]
+    return f"""lockfile_version = 1
+
+[[tools.{MISE_TOOL}]]
+version = "{MISE_TOOL_VERSION}"
+backend = "core:{MISE_TOOL}"
+specifiers = ["{specifier}"]
+"""
+
+
+def write_mise_provider(bin_dir: Path, repo: Path, *, stale_lock: bool = False) -> None:
+    """Install the stand-in mise and the manifest it answers about."""
+    (repo / "mise.toml").write_text(mise_manifest(), encoding="utf-8")
+    (repo / "mise.lock").write_text(mise_lock(stale=stale_lock), encoding="utf-8")
+    executable = bin_dir / "mise"
+    executable.write_text(f"#!{sys.executable}\n" + _MISE_SCRIPT, encoding="utf-8")
+    executable.chmod(executable.stat().st_mode | stat.S_IXUSR)

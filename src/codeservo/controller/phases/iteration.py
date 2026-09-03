@@ -337,6 +337,7 @@ def _measure(
             isolation=context.confinement.candidate_gates,
             execution=context.execution,
             run_dir=context.run_dir,
+            provider=context.provider,
         )
     except ObservationPathError as exc:
         raise Rejection(str(exc)) from exc
@@ -361,7 +362,7 @@ def _measure(
 
     control_failures = sensor_tampering(context.sensor_paths, context.sensor_evidence)
     environment, changed = changed_environment(
-        record.document.environment, context.worktree, context.execution
+        record.document.environment, context.worktree, context.execution, context.provider
     )
     record.document = replace(record.document, environment=environment)
     control_failures += changed

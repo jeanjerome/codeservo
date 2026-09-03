@@ -6,12 +6,14 @@ from pathlib import Path
 from codeservo.controller.isolation import confinement, protected_paths
 from codeservo.domain.constitution import ExecutionEnvironment
 from codeservo.runtime.sandbox import seatbelt_profile
+from codeservo.workspace.pixi import Pixi
 
 # A source repository checked out as a linked worktree: `/source/.git` is a
 # file holding a pointer, and Git writes the metadata under the main
 # repository. The per-worktree directory lies inside the common one, so the
 # common one is the whole of what a measurement must not write.
 COMMON_GIT_DIR = Path("/main/.git")
+PROVIDER = Pixi()
 
 
 class ProtectedPathTests(unittest.TestCase):
@@ -28,7 +30,7 @@ class ProtectedPathTests(unittest.TestCase):
     def test_protects_the_git_metadata_and_the_provider_directory(self) -> None:
         self.assertEqual(
             (Path("/tree/.git"), Path("/tree/.pixi")),
-            protected_paths(Path("/tree"), self._execution()),
+            protected_paths(Path("/tree"), self._execution(), provider=PROVIDER),
         )
 
     def test_a_nested_manifest_names_its_own_workspace_directory(self) -> None:
@@ -36,15 +38,17 @@ class ProtectedPathTests(unittest.TestCase):
 
         self.assertEqual(
             (Path("/tree/.git"), Path("/tree/sub/.pixi")),
-            protected_paths(Path("/tree"), execution),
+            protected_paths(Path("/tree"), execution, provider=PROVIDER),
         )
 
     def test_a_run_declaring_no_provider_protects_the_metadata_only(self) -> None:
         self.assertEqual((Path("/tree/.git"),), protected_paths(Path("/tree"), None))
 
     def test_each_tree_names_its_own_paths_and_never_the_other(self) -> None:
-        source = protected_paths(Path("/source"), self._execution())
-        candidate = protected_paths(Path("/candidate"), self._execution())
+        source = protected_paths(Path("/source"), self._execution(), provider=PROVIDER)
+        candidate = protected_paths(
+            Path("/candidate"), self._execution(), provider=PROVIDER
+        )
 
         self.assertTrue(all(path.is_relative_to("/source") for path in source))
         self.assertTrue(all(path.is_relative_to("/candidate") for path in candidate))
@@ -55,7 +59,9 @@ class ProtectedPathTests(unittest.TestCase):
         """A tree whose metadata is not `<tree>/.git` protects the directory."""
         self.assertEqual(
             (COMMON_GIT_DIR, Path("/source/.pixi")),
-            protected_paths(Path("/source"), self._execution(), COMMON_GIT_DIR),
+            protected_paths(
+                Path("/source"), self._execution(), COMMON_GIT_DIR, PROVIDER
+            ),
         )
 
     def test_the_pointer_file_is_not_named_in_place_of_the_metadata(self) -> None:
@@ -90,6 +96,7 @@ class ConfinementTests(unittest.TestCase):
             state_root=self.STATE_ROOT,
             git_dir=git_dir,
             execution=execution,
+            provider=PROVIDER,
         )
 
     def test_an_ordinary_checkout_protects_its_own_metadata(self) -> None:
@@ -171,7 +178,9 @@ class ConfinementTests(unittest.TestCase):
 
         source = profiles.source_gates.read_only[1:]
         candidate = profiles.candidate_gates.read_only[1:]
-        self.assertFalse([path for path in source if path.is_relative_to(self.WORKTREE)])
+        self.assertFalse(
+            [path for path in source if path.is_relative_to(self.WORKTREE)]
+        )
         self.assertFalse([path for path in candidate if path.is_relative_to(self.REPO)])
 
     def test_a_run_declaring_no_provider_names_no_provider_directory(self) -> None:

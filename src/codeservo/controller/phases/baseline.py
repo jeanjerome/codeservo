@@ -27,6 +27,7 @@ def measure_baseline(context: RunContext, record: RunRecord) -> None:
             isolation=context.confinement.source_gates,
             execution=context.execution,
             run_dir=context.run_dir,
+            provider=context.provider,
         )
     except ObservationPathError as exc:
         raise Rejection(str(exc)) from exc

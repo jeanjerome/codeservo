@@ -17,7 +17,7 @@ from ..domain.constitution import (
     ReviewPolicy,
     ScopePolicy,
 )
-from ..workspace import pixi
+from ..workspace.provider import lockfile_of, provider_names
 
 NAME_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._-]*"
 
@@ -109,9 +109,10 @@ def _execution(repo: Path, data: dict) -> ExecutionEnvironment:
     here rather than discovered when a gate runs.
     """
     provider = data.get("provider")
-    if provider != pixi.PROVIDER:
+    if not isinstance(provider, str) or provider not in provider_names():
+        known = ", ".join(provider_names())
         raise ConstitutionError(
-            f"execution: provider must be {pixi.PROVIDER}, not {provider!r}"
+            f"execution: provider must be one of {known}, not {provider!r}"
         )
 
     declared = _string(data, "manifest", "execution").strip()
@@ -129,7 +130,7 @@ def _execution(repo: Path, data: dict) -> ExecutionEnvironment:
         )
     if not manifest.is_file():
         raise ConstitutionError(f"execution: missing manifest {declared}")
-    lock = manifest.parent / pixi.LOCKFILE
+    lock = manifest.parent / lockfile_of(provider)
     if not lock.is_file():
         raise ConstitutionError(
             f"execution: provider {provider} requires"

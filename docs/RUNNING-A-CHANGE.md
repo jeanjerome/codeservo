@@ -25,15 +25,20 @@ That commit is the run's base. A sensor gate carries `baseline = false` and a
 `<state-dir>/sensors/`, freezes a copy into the run directory, and hands the
 gate its location.
 
-Which kind of gate can receive that location is not a preference:
+Which kind of gate can receive that location depends on the provider, not on
+a preference:
 
 - a gate that names a **shell command** keeps its environment, so it reads both
   the frozen sensor's location and the document location from it;
-- a gate that names a **provider task** starts with an environment the provider
+- a gate that names a **pixi task** starts with an environment the provider
   cleans, so no variable survives into it. It is handed the document location as
-  the task's one argument, and it cannot be given a sensor location at all.
+  the task's one argument, and it cannot be given a sensor location at all;
+- a gate that names a **mise task** inherits the environment it is started from,
+  so it reads the sensor's location like a shell command does, and is handed the
+  document location as its argument like any task.
 
-A sensor gate therefore names a command.
+Under pixi a sensor gate therefore names a command; under mise it may name a
+task.
 
 ### 3. Write the external sensor
 

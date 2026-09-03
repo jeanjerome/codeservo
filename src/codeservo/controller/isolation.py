@@ -13,7 +13,7 @@ from pathlib import Path
 
 from ..domain.constitution import ExecutionEnvironment
 from ..runtime.sandbox import Isolation, isolation_evidence
-from ..workspace import pixi
+from ..workspace.provider import Provider
 from .document import GateIsolation
 
 MECHANISM = "macos-sandbox-exec"
@@ -23,6 +23,7 @@ def protected_paths(
     tree: Path,
     execution: ExecutionEnvironment | None,
     git_dir: Path | None = None,
+    provider: Provider | None = None,
 ) -> tuple[Path, ...]:
     """What a process may read but never write in the tree it works on.
 
@@ -42,8 +43,8 @@ def protected_paths(
     file system to tell the two apart.
     """
     paths = [git_dir if git_dir is not None else tree / ".git"]
-    if execution is not None:
-        paths.append(pixi.provider_directory(tree / execution.manifest))
+    if execution is not None and provider is not None:
+        paths.append(provider.provider_directory(tree / execution.manifest))
     return tuple(paths)
 
 
@@ -90,6 +91,7 @@ def confinement(
     state_root: Path,
     git_dir: Path,
     execution: ExecutionEnvironment | None,
+    provider: Provider | None = None,
 ) -> Confinement:
     """Build the profiles of one run.
 
@@ -108,7 +110,7 @@ def confinement(
     metadata is always its own `.git`, and nothing here has to look at a
     checkout the run has not made yet.
     """
-    candidate_protected = protected_paths(worktree, execution)
+    candidate_protected = protected_paths(worktree, execution, provider=provider)
     return Confinement(
         actuator=Isolation(
             denied=(
@@ -120,7 +122,7 @@ def confinement(
             read_only=(repo, *candidate_protected),
         ),
         source_gates=Isolation(
-            read_only=(run_dir, *protected_paths(repo, execution, git_dir))
+            read_only=(run_dir, *protected_paths(repo, execution, git_dir, provider))
         ),
         candidate_gates=Isolation(read_only=(run_dir, *candidate_protected)),
         candidate_protected=candidate_protected,

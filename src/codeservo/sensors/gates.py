@@ -16,7 +16,7 @@ from ..domain.results import CommandResult, succeeded
 from ..evidence.digests import sha256_file, sha256_record
 from ..runtime.process import run_command
 from ..runtime.sandbox import Isolation
-from ..workspace import pixi
+from ..workspace.provider import Provider
 from . import observations
 from .observations import ObservationPathError
 
@@ -96,6 +96,7 @@ def gate_command(
     tree: Path,
     execution: ExecutionEnvironment | None,
     observation: Path | None = None,
+    provider: Provider | None = None,
 ) -> str:
     """The command one gate runs against the tree it measures.
 
@@ -113,9 +114,9 @@ def gate_command(
         if gate.command is None:
             raise ValueError(f"gate {gate.name}: declares neither command nor task")
         return gate.command
-    if execution is None:
+    if execution is None or provider is None:
         raise ValueError(f"gate {gate.name}: task requires an execution provider")
-    return pixi.task_command(
+    return provider.task_command(
         manifest=tree / execution.manifest,
         environment=execution.environment,
         task=gate.task,
@@ -177,6 +178,7 @@ def run_gates(
     isolation: Isolation = Isolation(),
     execution: ExecutionEnvironment | None = None,
     run_dir: Path | None = None,
+    provider: Provider | None = None,
 ) -> list[GateResult]:
     results: list[GateResult] = []
     sensors = sensor_paths or {}
@@ -191,7 +193,11 @@ def run_gates(
         # gate or not: none of them may resolve or install, so none of them can
         # change the environment they are all measured in. A run declaring no
         # provider sets nothing.
-        gate_env = pixi.measurement_environment() if execution is not None else {}
+        gate_env = (
+            provider.measurement_environment(repo / execution.manifest)
+            if execution is not None and provider is not None
+            else {}
+        )
         if sensor_path is not None:
             gate_env["CODESERVO_SENSOR_PATH"] = str(sensor_path)
         # Only a gate that declared the format is told where to write, and the
@@ -205,7 +211,11 @@ def run_gates(
         result = run_command(
             name=gate.name,
             command=gate_command(
-                gate, tree=repo, execution=execution, observation=document
+                gate,
+                tree=repo,
+                execution=execution,
+                observation=document,
+                provider=provider,
             ),
             cwd=repo,
             out_dir=out_dir,

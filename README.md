@@ -73,7 +73,8 @@ established, what they did not, and what follows for its design.
 - Claude Code or Codex CLI installed and authenticated
 - A clean target Git repository
 - macOS `sandbox-exec`: the controller confines every actuator and gate process
-- Pixi, only when a constitution declares an `[execution]` provider
+- Pixi or mise, only when a constitution declares an `[execution]` provider:
+  the one it names
 
 ## Install for development
 
@@ -151,11 +152,13 @@ Commit the constitution. CodeServo refuses to start from a dirty source reposito
 
 A constitution may declare an execution provider. A gate then names a task
 instead of a shell command, and the controller builds the command line, always
-naming the manifest of the tree that gate measures.
+naming the manifest of the tree that gate measures. Two providers answer the
+same port: `pixi`, whose lockfile is `pixi.lock`, and `mise`, whose lockfile is
+`mise.lock`. The lockfile lies beside the manifest and is not configurable.
 
 ```toml
 [execution]
-provider = "pixi"
+provider = "pixi"           # or "mise", with manifest = "mise.toml"
 manifest = "pyproject.toml"
 environment = "default"
 
@@ -167,15 +170,25 @@ timeout_seconds = 300
 baseline = true
 ```
 
-The lockfile is `pixi.lock` beside the manifest and is not configurable. Before
-the baseline the controller freezes the manifest and lockfile digests and the
-inventory the lockfile resolves to; a lockfile that disagrees with its manifest
-ends the run before any checkout exists. After the isolated checkout is created
-and before the first actuation, the environment is installed into the candidate
-from the committed lockfile without resolving — never into the source
-repository, whose environment must already be there for a baseline task gate.
-Every gate process runs under `PIXI_OFFLINE`, `PIXI_NO_INSTALL` and
-`PIXI_FROZEN`, so a measurement can neither resolve nor install.
+Before the baseline the controller freezes the manifest and lockfile digests
+and the inventory the lockfile resolves to; a lockfile that disagrees with its
+manifest ends the run before any checkout exists. Where the tools are installed
+depends on the provider. Pixi keeps them in the tree it measures, so the
+environment is installed into the candidate after the isolated checkout is
+created and before the first actuation — never into the source repository,
+whose environment must already be there for a baseline task gate. mise keeps
+them outside every tree, under `<state-dir>/providers/mise/`, so the controller
+installs them once, before the baseline, and both trees measure through the
+controller's directory; the operator's own mise installation, configuration and
+trust store are never read. mise declares no named environments, so
+`environment` can only be `default` there.
+
+Every gate process runs under variables that forbid the provider to resolve or
+install: `PIXI_OFFLINE`, `PIXI_NO_INSTALL` and `PIXI_FROZEN` for pixi;
+`MISE_OFFLINE`, `MISE_LOCKED` and the four auto-install settings for mise, with
+the one manifest read by name and the search for configuration stopped above
+it. A measurement can neither resolve nor install, whichever provider it runs
+through.
 
 A constitution that declares no provider keeps shell gates unchanged.
 
@@ -222,11 +235,12 @@ beside the gate's logs.
 
 The location reaches the two kinds of gate by two channels, because only one
 reaches each. A gate naming a shell command reads it from
-`CODESERVO_OBSERVATION_PATH`. A gate naming a provider task cannot: the task
-runs with a clean environment, so the location is appended to the command as
-the task's one argument, which the provider passes through. The target
-repository writes an adapter that takes a location, not one that knows where
-the location came from.
+`CODESERVO_OBSERVATION_PATH`. A gate naming a provider task is handed it as
+the task's one argument, which the provider passes through: a pixi task starts
+with an environment the provider cleans, so no variable would reach it, and a
+mise task — which does inherit its environment — is handed the argument too, so
+one adapter serves both. The target repository writes an adapter that takes a
+location, not one that knows where the location came from.
 
 A document that is absent, malformed, or that contradicts the exit code is a
 fault of the sensor and not a failure of the candidate: the run ends there, on
