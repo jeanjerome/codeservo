@@ -439,9 +439,12 @@ def _check_journal(report: _Report, run_dir: Path, record: dict) -> None:
 
     _check_chain(report, events, record.get("run_id"))
     if running:
-        statement = f"{location}: the run never finished"
-        report.absent("journal.events", statement)
-        report.absent("journal.decision", statement)
+        # Two distinct things are absent, not one thing twice: the block the
+        # record would describe, and the event that would close it. `missing`
+        # is a flat list of statements, so each names which of the two it is.
+        unfinished = f"{location}: the run never finished"
+        report.absent("journal.events", f"{unfinished}, so no events block is final")
+        report.absent("journal.decision", f"{unfinished}, so no decision closed it")
         return
     # The record describes the journal as the decision closed it. What follows
     # `run.finished` was appended afterwards, and is read on its own terms.
