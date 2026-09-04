@@ -12,11 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..domain.constitution import ExecutionEnvironment
+from ..runtime.confinement import mechanism
 from ..runtime.sandbox import Isolation, isolation_evidence
 from ..workspace.provider import Provider
 from .document import GateIsolation
-
-MECHANISM = "macos-sandbox-exec"
 
 
 def protected_paths(
@@ -77,9 +76,10 @@ class Confinement:
         )
 
     def gate_evidence(self) -> GateIsolation:
+        applied = mechanism()
         return GateIsolation(
-            source=isolation_evidence(self.source_gates, MECHANISM),
-            candidate=isolation_evidence(self.candidate_gates, MECHANISM),
+            source=isolation_evidence(self.source_gates, applied),
+            candidate=isolation_evidence(self.candidate_gates, applied),
         )
 
 

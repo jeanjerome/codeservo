@@ -7,7 +7,8 @@ from pathlib import Path
 
 from ..domain.results import CommandResult
 from ..evidence.digests import sha256_file
-from .sandbox import Isolation, seatbelt_command
+from .confinement import confined
+from .sandbox import Isolation
 
 
 def run_command(
@@ -35,16 +36,21 @@ def run_command(
 
     with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
         try:
-            completed = subprocess.run(
-                seatbelt_command(["/bin/sh", "-lc", command], isolation),
-                cwd=cwd,
-                stdout=stdout,
-                stderr=stderr,
-                timeout=timeout_seconds,
-                check=False,
-                env=process_env,
-            )
-            exit_code = completed.returncode
+            with confined(["/bin/sh", "-lc", command], isolation) as application:
+                completed = subprocess.run(
+                    application.command,
+                    cwd=cwd,
+                    stdout=stdout,
+                    stderr=stderr,
+                    timeout=timeout_seconds,
+                    check=False,
+                    env=process_env,
+                    pass_fds=application.pass_fds,
+                )
+                exit_code = completed.returncode
+                # A command that never ran measured nothing, so its exit code
+                # is not a verdict about the tree and the run stops here.
+                application.confirm(exit_code, stderr_path)
         except subprocess.TimeoutExpired:
             timed_out = True
 

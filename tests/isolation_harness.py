@@ -11,6 +11,8 @@ from functools import lru_cache
 from pathlib import Path
 from unittest.mock import patch
 
+from codeservo.runtime.confinement import ConfinedCommand
+
 NESTED_TEST_ENV = "CODESERVO_TEST_NESTED_SEATBELT"
 GATE_RECORD_ENV = "CODESERVO_TEST_GATE_RECORD"
 
@@ -37,8 +39,12 @@ def already_confined() -> bool:
     return nested_seatbelt_exit_code() == os.EX_OSERR
 
 
-def _without_additional_seatbelt(command: list[str], _isolation: object) -> list[str]:
-    return command
+@contextmanager
+def _without_additional_confinement(command: list[str], _isolation: object):
+    """The command as it is, under the profile the outer process already has."""
+    yield ConfinedCommand(
+        command=command, pass_fds=(), fault=lambda _code, _stderr: None
+    )
 
 
 def _descriptor_path(descriptor: int) -> Path | None:
@@ -110,18 +116,14 @@ def controller_test_isolation():
 
     gate_record = protected_gate_record()
     with ExitStack() as stack:
-        stack.enter_context(
-            patch("codeservo.runtime.process.seatbelt_command", _without_additional_seatbelt)
-        )
-        stack.enter_context(
-            patch("codeservo.actuators.codex.seatbelt_command", _without_additional_seatbelt)
-        )
-        stack.enter_context(
-            patch(
-                "codeservo.actuators.claude_code.seatbelt_command",
-                _without_additional_seatbelt,
+        for module in (
+            "codeservo.runtime.process",
+            "codeservo.actuators.codex",
+            "codeservo.actuators.claude_code",
+        ):
+            stack.enter_context(
+                patch(f"{module}.confined", _without_additional_confinement)
             )
-        )
         stack.enter_context(
             patch.dict(
                 os.environ,

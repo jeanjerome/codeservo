@@ -10,7 +10,8 @@ from unittest.mock import patch
 
 from codeservo.domain.constitution import ExecutionEnvironment, Gate, ResultFormat
 from codeservo.evidence.digests import sha256_file, sha256_record
-from codeservo.runtime.sandbox import Isolation, seatbelt_profile
+from codeservo.runtime.sandbox import Isolation
+from codeservo.runtime.seatbelt import profile as seatbelt_profile
 from codeservo.sensors.gates import GateResult, gate_command, run_gates
 from codeservo.sensors.observations import (
     OBSERVATION_PATH_VARIABLE,

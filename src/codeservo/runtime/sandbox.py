@@ -1,7 +1,14 @@
+"""The profile a confined process runs under, and what a record says of it.
+
+Nothing here names a mechanism. A profile states what a process may not reach
+and what it may only read; which mechanism enforces that is the host's answer,
+given in `confinement`.
+"""
+
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 from ..domain.document import Document
@@ -9,6 +16,21 @@ from ..domain.document import Document
 
 class SandboxError(RuntimeError):
     pass
+
+
+class Mechanism(StrEnum):
+    """What a record names as the confinement one process ran under.
+
+    The first is a controller-owned profile, applied by the host's own
+    mechanism and enforced whatever the confined process asks for. The second
+    is what an actuator applies to itself when the controller applies nothing,
+    and it is the backend's own sandbox rather than a profile of this package.
+    A mechanism is named here when an adapter produces it, so this is the whole
+    of what a record can hold rather than the whole of what is planned.
+    """
+
+    MACOS_SANDBOX_EXEC = "macos-sandbox-exec"
+    CODEX_WORKSPACE_WRITE = "codex-workspace-write"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -31,31 +53,6 @@ class Isolation:
     @property
     def empty(self) -> bool:
         return not self.denied and not self.read_only
-
-
-def _escape(path: Path) -> str:
-    return str(path.resolve()).replace("\\", "\\\\").replace('"', '\\"')
-
-
-def seatbelt_profile(isolation: Isolation) -> str:
-    rules = "".join(
-        f'(deny file-read* file-write* (subpath "{_escape(path)}"))'
-        for path in isolation.denied
-    )
-    rules += "".join(
-        f'(deny file-write* (subpath "{_escape(path)}"))'
-        for path in isolation.read_only
-    )
-    return f"(version 1)(allow default){rules}"
-
-
-def seatbelt_command(command: list[str], isolation: Isolation) -> list[str]:
-    """Confine a command with a macOS seatbelt profile enforcing isolation."""
-    if isolation.empty:
-        return command
-    if sys.platform != "darwin" or not Path("/usr/bin/sandbox-exec").is_file():
-        raise SandboxError("mechanical isolation requires macOS sandbox-exec")
-    return ["/usr/bin/sandbox-exec", "-p", seatbelt_profile(isolation), *command]
 
 
 def isolation_evidence(

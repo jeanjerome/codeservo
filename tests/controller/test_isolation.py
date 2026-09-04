@@ -5,7 +5,7 @@ from pathlib import Path
 
 from codeservo.controller.isolation import confinement, protected_paths
 from codeservo.domain.constitution import ExecutionEnvironment
-from codeservo.runtime.sandbox import seatbelt_profile
+from codeservo.runtime.seatbelt import profile as seatbelt_profile
 from codeservo.workspace.pixi import Pixi
 
 # A source repository checked out as a linked worktree: `/source/.git` is a

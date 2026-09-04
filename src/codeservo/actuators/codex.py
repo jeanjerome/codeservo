@@ -11,11 +11,12 @@ from typing import Any
 
 from ..domain.document import Document
 from ..evidence.digests import sha256_file, sha256_record
+from ..runtime.confinement import confined, mechanism
 from ..runtime.sandbox import (
     Isolation,
     IsolationEvidence,
+    Mechanism,
     isolation_evidence,
-    seatbelt_command,
 )
 from .base import ActuatorError, Billed, ObservedProfile, Tokens, Usage
 
@@ -240,9 +241,12 @@ def _usage(events: list[dict]) -> Usage:
 def _sandbox(isolation: Isolation, native: str) -> str:
     """Select the sandbox Codex applies to itself.
 
-    macOS refuses to apply a seatbelt profile inside another one, so Codex keeps
-    its own sandbox only while the controller does not confine it. Otherwise the
-    controller-owned profile is the single confinement authority.
+    A confined process has one confinement authority, and it is the
+    controller-owned profile: an actuator that also sandboxes itself would
+    decide part of what holds it. Codex therefore keeps its own sandbox only
+    while the controller applies none. The rule was first forced by macOS,
+    which refuses to apply a seatbelt profile inside another one, and it is
+    what the record states either way.
     """
     return native if isolation.empty else "danger-full-access"
 
@@ -250,7 +254,7 @@ def _sandbox(isolation: Isolation, native: str) -> str:
 def describe_isolation(isolation: Isolation) -> IsolationEvidence:
     return isolation_evidence(
         isolation,
-        "codex-workspace-write" if isolation.empty else "macos-sandbox-exec",
+        Mechanism.CODEX_WORKSPACE_WRITE if isolation.empty else mechanism(),
     )
 
 
@@ -280,23 +284,27 @@ def run_implementer(
         command.extend(
             ["--json", "--output-last-message", str(temporary_last_message), "-"]
         )
-        command = seatbelt_command(command, isolation)
-
         timeout_error: subprocess.TimeoutExpired | None = None
-        with temporary_events.open("wb") as stdout, temporary_stderr.open(
-            "wb"
-        ) as stderr:
-            try:
-                completed = subprocess.run(
-                    command,
-                    input=prompt.encode("utf-8"),
-                    stdout=stdout,
-                    stderr=stderr,
-                    timeout=timeout_seconds,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired as exc:
-                timeout_error = exc
+        with confined(command, isolation) as application:
+            with temporary_events.open("wb") as stdout, temporary_stderr.open(
+                "wb"
+            ) as stderr:
+                try:
+                    completed = subprocess.run(
+                        application.command,
+                        input=prompt.encode("utf-8"),
+                        stdout=stdout,
+                        stderr=stderr,
+                        timeout=timeout_seconds,
+                        check=False,
+                        pass_fds=application.pass_fds,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    timeout_error = exc
+            # A session that timed out leaves the same silence behind as a
+            # profile that was never applied, and the run already knows which.
+            if timeout_error is None:
+                application.confirm(completed.returncode, temporary_stderr)
         shutil.copyfile(temporary_events, events)
         shutil.copyfile(temporary_stderr, stderr_path)
         if temporary_last_message.is_file():
@@ -370,22 +378,23 @@ def run_reviewer(
                 "-",
             ]
         )
-        command = seatbelt_command(command, review_isolation)
-
-        with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
-            try:
-                completed = subprocess.run(
-                    command,
-                    input=prompt.encode("utf-8"),
-                    stdout=stdout,
-                    stderr=stderr,
-                    timeout=timeout_seconds,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise CodexError(
-                    f"reviewer timed out after {timeout_seconds}s"
-                ) from exc
+        with confined(command, review_isolation) as application:
+            with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+                try:
+                    completed = subprocess.run(
+                        application.command,
+                        input=prompt.encode("utf-8"),
+                        stdout=stdout,
+                        stderr=stderr,
+                        timeout=timeout_seconds,
+                        check=False,
+                        pass_fds=application.pass_fds,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    raise CodexError(
+                        f"reviewer timed out after {timeout_seconds}s"
+                    ) from exc
+            application.confirm(completed.returncode, stderr_path)
         if temporary_result.is_file():
             shutil.copyfile(temporary_result, result_path)
 

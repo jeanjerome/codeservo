@@ -12,12 +12,8 @@ from typing import Any
 
 from ..domain.document import UNSET, Document, Unset
 from ..evidence.digests import sha256_file, sha256_record, sha256_text
-from ..runtime.sandbox import (
-    Isolation,
-    IsolationEvidence,
-    isolation_evidence,
-    seatbelt_command,
-)
+from ..runtime.confinement import confined, mechanism
+from ..runtime.sandbox import Isolation, IsolationEvidence, isolation_evidence
 from .base import ActuatorError, Billed, ObservedProfile, Tokens, Usage
 
 # `--safe-mode` drops user memory, skills, plugins, hooks, custom agents and
@@ -378,7 +374,7 @@ def _observed(events: list[dict]) -> ObservedProfile:
 
 
 def describe_isolation(isolation: Isolation) -> IsolationEvidence:
-    return isolation_evidence(isolation, "macos-sandbox-exec")
+    return isolation_evidence(isolation, mechanism())
 
 
 def run_implementer(
@@ -404,21 +400,27 @@ def run_implementer(
         command, native = _implementer_command(model=model, effort=effort)
 
         timeout_error: subprocess.TimeoutExpired | None = None
-        with temporary_events.open("wb") as stdout, temporary_stderr.open(
-            "wb"
-        ) as stderr:
-            try:
-                completed = subprocess.run(
-                    seatbelt_command(command, isolation),
-                    input=prompt.encode("utf-8"),
-                    cwd=worktree,
-                    stdout=stdout,
-                    stderr=stderr,
-                    timeout=timeout_seconds,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired as exc:
-                timeout_error = exc
+        with confined(command, isolation) as application:
+            with temporary_events.open("wb") as stdout, temporary_stderr.open(
+                "wb"
+            ) as stderr:
+                try:
+                    completed = subprocess.run(
+                        application.command,
+                        input=prompt.encode("utf-8"),
+                        cwd=worktree,
+                        stdout=stdout,
+                        stderr=stderr,
+                        timeout=timeout_seconds,
+                        check=False,
+                        pass_fds=application.pass_fds,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    timeout_error = exc
+            # A session that timed out leaves the same silence behind as a
+            # profile that was never applied, and the run already knows which.
+            if timeout_error is None:
+                application.confirm(completed.returncode, temporary_stderr)
         shutil.copyfile(temporary_events, events_path)
         shutil.copyfile(temporary_stderr, stderr_path)
         if timeout_error is not None:
@@ -484,23 +486,26 @@ def run_reviewer(
         command, native = _reviewer_command(
             model=model, effort=effort, schema_path=schema_path
         )
-        with temporary_stdout.open("wb") as stdout, temporary_stderr.open(
-            "wb"
-        ) as stderr:
-            try:
-                completed = subprocess.run(
-                    seatbelt_command(command, review_isolation),
-                    input=prompt.encode("utf-8"),
-                    cwd=worktree,
-                    stdout=stdout,
-                    stderr=stderr,
-                    timeout=timeout_seconds,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise ClaudeCodeError(
-                    f"reviewer timed out after {timeout_seconds}s"
-                ) from exc
+        with confined(command, review_isolation) as application:
+            with temporary_stdout.open("wb") as stdout, temporary_stderr.open(
+                "wb"
+            ) as stderr:
+                try:
+                    completed = subprocess.run(
+                        application.command,
+                        input=prompt.encode("utf-8"),
+                        cwd=worktree,
+                        stdout=stdout,
+                        stderr=stderr,
+                        timeout=timeout_seconds,
+                        check=False,
+                        pass_fds=application.pass_fds,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    raise ClaudeCodeError(
+                        f"reviewer timed out after {timeout_seconds}s"
+                    ) from exc
+            application.confirm(completed.returncode, temporary_stderr)
         shutil.copyfile(temporary_stdout, stdout_path)
         shutil.copyfile(temporary_stderr, stderr_path)
 
