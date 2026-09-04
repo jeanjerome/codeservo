@@ -127,11 +127,16 @@ include = [
   "*/policies/*",
   "*/evidence/verify.py",
 ]
-# Read off this tree, which measures 94.38 percent over 427 statements. A floor
-# is a ratchet and carries no margin on purpose: leaving it under what the tree
-# reaches would license exactly that much regression.
+# Read off this tree, which measures 96.62 percent over 621 statements. This is
+# a floor and not a ratchet: a ratchet compares the document a gate wrote at the
+# baseline with the one it writes on the candidate, so it only speaks inside a
+# run. A change to this repository is an ordinary change, measured by these
+# gates and by CI, where there is no baseline to compare against and no ratchet
+# can speak; the floor is what holds coverage there. It carries no margin on
+# purpose: leaving it under what the tree reaches would license exactly that
+# much regression.
 precision = 2
-fail_under = 94
+fail_under = 96.62
 
 [tool.ruff]
 target-version = "py312"
