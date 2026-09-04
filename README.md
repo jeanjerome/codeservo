@@ -2,806 +2,137 @@
 
 **AI changes the code. The controller decides whether to accept it.**
 
-CodeServo is a deliberately small experiment in **Software Engineering as a Control System**.
-It is not another coding agent. It is an agent harness, with one difference: the harness decides.
-It wraps a coding agent in a deterministic control loop whose source of truth is the target repository.
+CodeServo is a coding agent harness with one difference: **the harness
+decides**. The agent is an actuator that proposes a change. A deterministic
+controller freezes the rules, isolates the work, measures the result, feeds
+back what failed and computes the verdict. `ACCEPTED` is never something a
+model says about itself.
+
+A harness of this kind has two halves. Feedforward controls shape what the
+agent attempts; feedback controls observe what it did and give it something
+specific to correct. The decision belongs to neither, and that is the part most
+harnesses leave to the model. CodeServo is one built end to end and small
+enough to read. Every claim below is measured rather than asserted, and the
+ones still to come say so. [FINDINGS.md](FINDINGS.md) records what the
+experiments established, what they did not, and what follows for the design.
 
 It grew out of [Vibe coding: how to stay in control of AI-generated
 code](https://scalastic.io/en/vibe-coding-ai-software-quality/), which argues
 that once agents generate code faster than anyone reads it, quality stops being
 a property of the code and becomes a property of the controls around it.
-CodeServo is the attempt to build those controls and see what they actually
-establish.
 
 ## The loop
 
 ```mermaid
 flowchart TD
-    task["TASK.md"] --> frozen["clean repository<br/>frozen constitution<br/>frozen inference profiles"]
-    frozen --> baseline["baseline gates"]
-    baseline --> checkout["isolated shallow Git checkout<br/>locked environment"]
-    checkout --> implementer["actuator implementer"]
-    implementer --> quick{"scope sensor<br/>+ quick gates"}
-    quick -- pass --> full{"full gates"}
-    full -- pass --> review{"independent read-only review sensor<br/>+ mechanical decision"}
-    review -- every criterion satisfied,<br/>no blocking finding --> accepted(["ACCEPTED"])
-    review -- a criterion nobody can verify,<br/>or a gate contradicted --> escalated(["ESCALATED"])
-    quick -- fail --> feedback["controller feedback:<br/>observations, findings, review objections"]
-    full -- fail --> feedback
-    review -- criterion not satisfied<br/>or blocking finding --> feedback
-    feedback --> budget{"iteration budget"}
-    budget -- remaining --> implementer
-    budget -- exhausted on a gate --> rejected(["REJECTED"])
-    budget -- exhausted on the review --> escalated
-    quick -- control error --> rejected
-    full -- control error --> rejected
-    review -- reviewer fault --> rejected
-    accepted --> record["events.jsonl<br/>evidence.json<br/>change.patch<br/>gate observations"]
+    freeze["Freeze<br/>the task, the constitution and the profiles<br/>a clean tree, a green baseline"]
+    actuate["Actuate<br/>one agent, confined,<br/>in an isolated checkout"]
+    measure["Measure<br/>scope and quick gates, full gates,<br/>then an independent review"]
+    decide{"Decide"}
+    record["Record<br/>events.jsonl, evidence.json,<br/>change.patch, gate observations"]
+
+    freeze --> actuate --> measure --> decide
+    measure -- "what failed, while the budget lasts" --> actuate
+    decide --> accepted(["ACCEPTED"])
+    decide --> rejected(["REJECTED"])
+    decide --> escalated(["ESCALATED"])
+    accepted --> record
     rejected --> record
     escalated --> record
 ```
 
-The implementer never gets to mark itself done. `ACCEPTED` is computed by CodeServo from explicit evidence, and so are the two other outcomes: `REJECTED` when a deterministic control refused the candidate or could not measure it, `ESCALATED` when every deterministic control let it through and what remains is a person's to decide.
+One iteration is one actuation followed by three measurements in order of cost.
+The first of them to decide against the candidate writes the feedback the next
+iteration starts from. `ACCEPTED` is computed from explicit evidence, and so
+are the two other outcomes: `REJECTED` when a deterministic control refused the
+candidate or could not measure it, `ESCALATED` when every deterministic control
+let it through and what remains is a person's to decide.
 
-One iteration is one actuation followed by three measurements in order of
-cost: the scope sensor and the quick gates, the full gates, then the review.
-The first to decide against the candidate writes the feedback the next
-iteration starts from, and the budget counts iterations whatever stage ended
-them. A gate that passed can still decide against the candidate through a
-ratchet it declares, read against what the same gate reported at the baseline.
-What ends a run early is a control error, never a failing measurement: a gate
-that changed the tree it measured, a sensor that could not say what it saw, a
-reviewer that misreported the criteria it was asked to decide.
+[The loop, phase by phase](docs/features/the-loop.md) carries the full diagram
+and what each of the five boxes stands for.
 
-`FINDINGS.md` records what the experiments run through this controller
-established, what they did not, and what follows for its design.
+## What it controls
 
-## Deliberate limits
+| Control | What CodeServo does |
+| --- | --- |
+| [Sandboxed execution for coding agents](docs/features/sandboxed-execution.md) | Every actuator, reviewer and gate process runs under a controller-owned profile the process cannot negotiate. The profile is one thing; the mechanism applying it is the host's — `sandbox-exec` on macOS, Bubblewrap on Linux — and a host with neither refuses the run rather than executing it unconfined. |
+| [Feedback sensors for coding agents](docs/features/feedback-sensors.md) | Compilers, linters, type checkers, test suites, coverage and mutation, wired into the loop so a failure triggers the next iteration before any commit. Each gate answers twice: an exit code, which stays the verdict, and a document saying what it measured. A tool that already writes JUnit XML, SARIF or LCOV needs no adapter at all. |
+| [Ratchets on what a gate measured](docs/features/ratchets.md) | A gate that passed can still decide against the candidate. The controller holds the document that gate wrote about the source tree and the one it wrote about the candidate, so a declared metric can be held to a direction across the change without any adapter reconstructing the state before it. |
+| [Structured output from LLMs](docs/features/structured-output.md) | The reviewer answers a published JSON schema with a status per acceptance criterion and typed findings. It renders no verdict. The decision is computed from those fields by the controller, in one module, against a rule written down in nine lines. |
+| [Context engineering](docs/features/context-engineering.md) | The actuator's context is constructed, never accumulated: a frozen task, a frozen constitution, a shallow checkout with no history, no memory, no session, no MCP. Feedback names each criterion by its id and the control that decides it, carries the findings and metrics of the document a gate wrote, and recaps the iterations already spent. |
+| [Findings that become controls](docs/features/evidence.md#the-findings-register) | Every review finding on a candidate that was landed goes to a register, one line each, with a column naming the gate that later covers it. A defect the review caught and no gate did is a control that is missing, recorded as such. |
+| [What a run is measured by](docs/features/evidence.md) | The record carries first-pass acceptance, iterations per task, review rounds, what each session consumed and what the controller rated it at, per run and per role. Not lines of code: [throughput is not a measure of productivity](docs/features/evidence.md#what-is-not-measured), and this record carries none. |
+| [UX workflows around the loop](docs/features/ux-workflows.md) **· coming** | Everything a person does before the loop and after it: what this repository and this host can actually hold, a task and a sensor that will not fail for one of the nine shapes a control input has failed in, the three outcomes presented as facts naming their artefacts, and a finding that recurs becoming the gate it is owed. Assistants may write those inputs; a person commits them, and the freeze cannot tell the difference. |
+| [A published record contract](docs/features/ux-workflows.md#the-contract-those-surfaces-read) **· coming** | `evidence.json` declares its shape through `schema_version` and publishes no schema, so a second reader has to read this code. The moment anything but the controller consumes a record, that contract is the interface. |
 
-- One actuator and one candidate per run: Claude Code or Codex CLI.
-- One target repository per run.
-- One bounded loop, one budget: quick gates, full gates and review each open
-  another iteration when they decide against the candidate, until the budget
-  is exhausted.
-- No auto-commit, auto-merge, PR creation, queue, daemon, UI, memory, multi-agent planning, or learning.
-- Review is semantic evidence, not an opaque verdict: the reviewer returns criterion statuses and findings; CodeServo computes the decision. Each review sees one iteration's candidate and nothing of the reviews before it, and is asked only about the criteria the task did not hand to a gate.
+Two more properties carry no industry name and are the reason the rest can be
+believed.
+**The oracle is independent by construction**: an external acceptance sensor is
+frozen and digested before the actuation, its source is never readable by the
+actuator, and it is re-digested after every measurement. And **a run is
+verifiable from its directory alone**: a chained journal, a record that
+distinguishes an absence from a measured null, and a `verify-run` command that
+reaches one of three verdicts about a directory it only reads.
 
-## Requirements
+## What the loop refuses
 
-- Python 3.12+
-- Git
-- Claude Code or Codex CLI installed and authenticated
-- A clean target Git repository
-- macOS `sandbox-exec`: the controller confines every actuator and gate process
-- Pixi or mise, only when a constitution declares an `[execution]` provider:
-  the one it names
+These are what keep one decision answerable, so they hold inside the loop and
+say nothing about what surrounds it — some of which is
+[coming](docs/features/ux-workflows.md).
 
-## Install for development
+- **One actuator, one candidate, one budget.** No swarm and no team of agents
+  negotiating inside the loop: parallel actuation needs an orchestrator, a work
+  ledger and a merge mechanism, and no gate could measure any of the three.
+  Three sequential review roles with disjoint contexts are three sensors and
+  stay in scope.
+- **No MCP, no memory, no session.** A run depends on the frozen inputs and the
+  repository content, and on nothing else the machine happens to carry.
+- **Nothing between the model and the verdict.** The decision is computed from
+  the record. A surface that summarised it would become what people read
+  instead, so none stands there; a surface that reads the record afterwards is
+  a different thing and does not decide.
+- **No agent instruction bloat.** A recurring defect becomes a gate or a
+  sensor, never one more paragraph of instructions.
+- **No durability left to chance.** Every transition reaches the file system
+  before it becomes visible, and the journal chains each event to the previous
+  one, so a decision never exists only in memory and an edit anywhere breaks
+  the chain from that point on.
+- **No auto-commit, auto-merge, PR or queue.** An accepted run is landed by a
+  person running one command.
 
-The reference validation is the locked environment:
+## Getting started
 
 ```bash
-pixi run --locked --no-config test
-```
-
-`pixi.lock` is a control input: it is committed and never updated implicitly
-while measuring. The suite also runs on the host interpreter, naming the tree it
-measures so an ambient install cannot answer for the checkout:
-
-```bash
-PYTHONPATH="$PWD/src" python3.12 -m unittest discover -s tests -v
-```
-
-An editable install is for development. Drive a run from an artifact installed
-outside the target repository, so the running controller never imports code from
-the tree it is changing.
-
-## Prepare a target repository
-
-```bash
+pip install git+https://github.com/jeanjerome/codeservo   # nothing is published yet
+codeservo doctor                 # what this host provides, and what is missing
 cd /path/to/project
-codeservo init
-```
-
-Then edit `.codeservo/constitution.toml`. It is the repository's stable executable constitution.
-
-```toml
-version = 1
-
-[scope]
-protected = [".codeservo/**", ".github/workflows/**"]
-max_changed_files = 20
-max_diff_lines = 800
-
-[[gate]]
-name = "lint"
-phase = "quick"
-command = "make lint"
-timeout_seconds = 120
-baseline = true
-
-[[gate]]
-name = "unit"
-phase = "quick"
-command = "make test-unit"
-timeout_seconds = 300
-baseline = true
-
-[[gate]]
-name = "full"
-phase = "full"
-command = "make check"
-timeout_seconds = 900
-baseline = true
-
-[[gate]]
-name = "acceptance"
-phase = "quick"
-command = "pytest -q \"$CODESERVO_SENSOR_PATH\""
-timeout_seconds = 300
-baseline = false
-sensor = "my-project/health-contract"
-
-[review]
-blocking_severities = ["blocker", "major"]
-```
-
-Commit the constitution. CodeServo refuses to start from a dirty source repository, freezes the constitution at run start, and treats changes under protected paths as control errors.
-
-### Measuring through a locked environment
-
-A constitution may declare an execution provider. A gate then names a task
-instead of a shell command, and the controller builds the command line, always
-naming the manifest of the tree that gate measures. Two providers answer the
-same port: `pixi`, whose lockfile is `pixi.lock`, and `mise`, whose lockfile is
-`mise.lock`. The lockfile lies beside the manifest and is not configurable.
-
-```toml
-[execution]
-provider = "pixi"           # or "mise", with manifest = "mise.toml"
-manifest = "pyproject.toml"
-environment = "default"
-
-[[gate]]
-name = "unit"
-phase = "quick"
-task = "test"
-timeout_seconds = 300
-baseline = true
-```
-
-Before the baseline the controller freezes the manifest and lockfile digests
-and the inventory the lockfile resolves to; a lockfile that disagrees with its
-manifest ends the run before any checkout exists. Where the tools are installed
-depends on the provider. Pixi keeps them in the tree it measures, so the
-environment is installed into the candidate after the isolated checkout is
-created and before the first actuation — never into the source repository,
-whose environment must already be there for a baseline task gate. mise keeps
-them outside every tree, under `<state-dir>/providers/mise/`, so the controller
-installs them once, before the baseline, and both trees measure through the
-controller's directory; the operator's own mise installation, configuration and
-trust store are never read. mise declares no named environments, so
-`environment` can only be `default` there.
-
-Every gate process runs under variables that forbid the provider to resolve or
-install: `PIXI_OFFLINE`, `PIXI_NO_INSTALL` and `PIXI_FROZEN` for pixi;
-`MISE_OFFLINE`, `MISE_LOCKED` and the four auto-install settings for mise, with
-the one manifest read by name and the search for configuration stopped above
-it. A measurement can neither resolve nor install, whichever provider it runs
-through.
-
-A constitution that declares no provider keeps shell gates unchanged.
-
-### Gates that report what they measured
-
-A gate answers with an exit code, and that stays the verdict. A gate that also
-declares `result_format = "codeservo-json"` answers a second time, with a
-document saying what it measured.
-
-```toml
-[[gate]]
-name = "coverage"
-phase = "full"
-task = "coverage"
-timeout_seconds = 600
-baseline = true
-result_format = "codeservo-json"
-```
-
-The controller creates a location it owns — outside the run directory and
-outside the tree that gate measures — tells the gate where to write, validates
-what was written against the six-field contract published at
-`observation.schema.json`, and keeps that document byte for byte in the record
-beside the gate's logs.
-
-```json
-{
-  "schema_version": 1,
-  "sensor": "coverage",
-  "status": "passed",
-  "summary": "94.91 percent of 432 statements in the decision core, floor 94",
-  "findings": [
-    {
-      "id": "below-floor:src/codeservo/evidence/verify.py",
-      "severity": "info",
-      "path": "src/codeservo/evidence/verify.py",
-      "line": null,
-      "message": "93.80 percent covered, under the floor of 94"
-    }
-  ],
-  "metrics": { "line_coverage": 94.91, "statements": 432, "floor": 94.0 }
-}
-```
-
-The location reaches the two kinds of gate by two channels, because only one
-reaches each. A gate naming a shell command reads it from
-`CODESERVO_OBSERVATION_PATH`. A gate naming a provider task is handed it as
-the task's one argument, which the provider passes through: a pixi task starts
-with an environment the provider cleans, so no variable would reach it, and a
-mise task — which does inherit its environment — is handed the argument too, so
-one adapter serves both. The target repository writes an adapter that takes a
-location, not one that knows where the location came from.
-
-### Gates whose tool already reports
-
-A tool that already writes JUnit XML, SARIF or LCOV needs no adapter. The gate
-declares `result_format = "junit-xml"` for test results, `"sarif"` for analysis
-results or `"lcov"` for coverage tracefiles and, in `reports`, where its tool
-writes them, as a pattern relative to the tree the gate measures:
-
-```toml
-[[gate]]
-name = "test"
-phase = "full"
-task = "test"
-timeout_seconds = 300
-baseline = true
-result_format = "junit-xml"
-reports = "**/target/surefire-reports/TEST-*.xml"
-```
-
-The gate is told nothing. The controller lists the files the pattern matches
-before the gate runs and again after it, reads the ones this measurement wrote
-— new, or rewritten since — and projects them onto the same six-field document.
-A test report becomes the counts of tests, failures, errors, skipped and
-seconds, with one finding per failed or errored case. An analysis report
-becomes the counts of results, errors, warnings, notes and suppressed, with one
-finding per result the tool reported and did not suppress. A coverage tracefile
-becomes the counts of lines, branches and functions found and covered, the
-share of each, and one finding per file no test reached at all. All three carry
-the status the exit code reached and name where each finding points.
-
-The tool writes where it always writes, which is inside the tree it measures,
-so **the target repository has to ignore that location**. A baseline gate that
-leaves a tracked file behind has changed the tree it was only measuring, and
-the run says so rather than reading the report.
-
-A report the gate left as it found it is not read, and the summary says how
-many were left. The projection is kept beside the gate's logs like a document
-the gate wrote itself, and a ratchet reads its metrics. A gate that passed and
-wrote no report measured nothing anyone can see, and that is a fault of the
-sensor; one that failed and wrote none failed before its tool reported
-anything, and its document says so. A report whose own content says its tool did not finish is
-a fault too: a SARIF log whose `invocations` say so, and an LCOV tracefile
-stopping inside a record, both report the same nothing as a clean measurement.
-Nothing is deleted from the tree to make any of this true.
-
-A document that is absent, malformed, or that contradicts the exit code is a
-fault of the sensor and not a failure of the candidate: the run ends there, on
-that classification alone, and nothing is fed back to the actuator. The schema
-is published for adapters to read and is never executed.
-
-Writing the adapter is the target repository's business, and it is where the
-controller stays agnostic: the tool keeps its own output format, and a script
-in the repository projects that output onto the six fields. Two properties are
-worth holding it to. The tool's own output must stay on the streams the
-controller handed the gate — it is what gets fed back when a gate fails, and a
-suite can recognise that it runs confined through the directory of its own
-descriptors. And the exit code must stay the tool's: an adapter that decided a
-verdict would be the thing being measured.
-
-### Ratchets between the baseline and the candidate
-
-A gate that reports what it measured can hold a metric of that report to a
-direction across the change. The rule is declared beside the gate and the
-controller applies it: it already holds the document the gate wrote about the
-source tree at the baseline and the one it wrote about the candidate, so no
-adapter has to reconstruct the state before the change to compare against.
-
-```toml
-[[gate]]
-name = "coverage"
-phase = "full"
-task = "coverage"
-timeout_seconds = 600
-baseline = true
-result_format = "codeservo-json"
-ratchet = { line_coverage = ">=", missing = "<=" }
-```
-
-`<=` says the candidate's value may not exceed the baseline's, `>=` that it may
-not fall below it, and an unchanged value always holds. A ratchet is read over
-a gate that passed: a failing gate has already decided against the candidate,
-and its document describes a different amount of work. When a ratchet breaks,
-the candidate is not let through, the decision names the gate, the metric and
-both values, and the actuator is told the same before the next iteration.
-
-A ratchet is silent when either document lacks the metric, because a comparison
-with a value nobody measured would be a verdict no measurement produced. That
-silence is safe only while the adapter writing the metric is a protected path,
-which is why `tools/**` sits under `protected` wherever a gate reports through
-one. The constitution refuses a ratchet on a gate answering with its exit code
-alone, and on a gate outside the baseline: neither could ever be compared.
-
-## Write one task
-
-```markdown
-# Task
-
-## Goal
-Add a health endpoint.
-
-## Acceptance criteria
-- [AC1] `GET /health` returns HTTP 200. {gate: api-tests}
-- [AC2] The response body is `{"status":"ok"}`. {review}
-- [AC3] Existing API tests remain green. {gate: unit}
-
-## Out of scope
-- Authentication changes.
-- Dependency upgrades.
-```
-
-Acceptance criterion ids are mandatory because the reviewer must account for every criterion and the controller, not the reviewer, computes acceptance.
-
-Each criterion also names what decides it. `{gate: <name>}` hands it to a gate
-the constitution declares: the gate measures it, and the reviewer is not asked
-about it. `{review}`, or naming nothing, leaves it to the independent reviewer.
-A criterion naming a gate no constitution declares ends the run before anything
-is frozen, because nothing would have decided it.
-
-## Commands
-
-```bash
-codeservo init [repo]                     # add a starter constitution
-codeservo run --task ./TASK.md --model <model> --effort <level>   # run one controlled change
-codeservo models                          # list the models a run may request, and their list prices
-codeservo verify-run <run-directory>      # verify one run directory
-codeservo land <run-directory>            # land an accepted run on the repository it measured
-```
-
-### run
-
-```bash
-codeservo run --repo /path/to/project --task ./TASK.md --model claude-sonnet-5 --effort medium
+codeservo init                   # writes a starter .codeservo/constitution.toml
+$EDITOR .codeservo/constitution.toml
+codeservo run --task ./TASK.md --model <model> --effort medium
 ```
 
 The exit status is the decision: 0 for `ACCEPTED`, 1 for `REJECTED`, 2 for
-`ESCALATED`. A usage error also exits 2, and honestly so: nothing was decided
-there either, and a person reads what was printed.
-
-```bash
-codeservo run \
-  --repo /path/to/project \
-  --task ./TASK.md \
-  --state-dir /path/to/codeservo-state \
-  --max-iterations 4 \
-  --agent-timeout-seconds 1800 \
-  --actuator claude --model <model> --effort low|medium|high|xhigh \
-  --review-actuator codex --review-model <model> --review-effort <level>
-```
-
-An inference profile is a backend, a model and an effort, and a run names all
-three. `--model` is the complete identifier of a model the catalogue lists for
-`--actuator`, never an alias such as `opus`, so a CLI update cannot silently
-select another version. `--effort` is one of the four levels, handed to the CLI
-unchanged; whether a model accepts it is the CLI's to decide, and it fails
-explicitly when it does not. The reviewer's profile defaults to the
-implementer's and can differ on every field, so a Codex implementation can be
-decided by a Claude review or the reverse. A model the catalogue does not list,
-or lists for the other backend, is refused by name before the run directory
-exists. The record keeps the requested profile beside the observed one and never
-fills the second from the first.
-
-### land
-
-```bash
-codeservo land <run-directory> [--message "feat: health endpoint"] [--json]
-```
-
-Applies an accepted run's `change.patch` to the repository the run measured and
-commits it there, with the run, the base commit and the patch digest in the
-commit body. It refuses everything that would make the commit a change nothing
-measured: a run directory that does not verify, a run that was not accepted, a
-run already landed, a repository whose head is no longer the base commit the
-run froze, or one holding uncommitted work.
-
-The record is not touched. The integration is one more event, `run.landed`,
-appended to the run's journal after the decision and chained like every other,
-and `verify-run` reads it as the one event allowed there: a landing that names
-another base, another patch, or a run that was not accepted is invalid, and
-one altered afterwards breaks the chain. The findings the review reported on
-the landed candidate go to `<state-dir>/findings/<repository>.tsv`, one line
-each, with `none` in the last column until a gate covers them and a person
-writes its name there.
-
-### models
-
-```bash
-codeservo models [--actuator claude|codex] [--model <model>] [--json]
-```
-
-Lists the catalogue the package publishes: every model a run may request, the
-backend that drives it, and the list prices its tokens are rated at, in USD per
-million tokens, dated and sourced. No agent starts and no provider cache is
-read. The catalogue is `templates/models.toml`, copied into the package; a run
-freezes the copy it was rated by beside its task and constitution, and
-`verify-run` holds the record to it.
-
-### What a run consumed, and what it cost
-
-Each actuation records what the backend reported it consumed, in the five
-categories both backends count: uncached input, cache reads, cache writes,
-output, and the reasoning part of the output. The two CLIs spell them
-differently, and each adapter puts every count under the same name. The
-controller rates them at the frozen catalogue's list prices, block by block,
-and the record carries the rated cost beside whatever cost the backend itself
-reported, never merged. Codex names no model, so its tokens are rated at the
-requested one and the record says the attribution is the controller's. A block
-the catalogue cannot rate, a model it does not list or a cache duration it has
-no price for, leaves the cost unknown rather than understated. A list price is
-a measure comparable across backends and runs, not an invoice.
-
-### verify-run
-
-```bash
-codeservo verify-run <run-directory> [--json]
-```
-
-Decides about a run directory from that directory alone.
-
-```text
-VALID       every required artefact is present and matches
-INVALID     a digest or a relation is false
-INCOMPLETE  the record predates a proof this contract requires, or the run never finished
-```
-
-Exit status is 0, 1 and 2 in that order, and 3 when the argument holds no
-readable `evidence.json`. The command only reads: it writes nothing and never
-rewrites the status a run recorded.
-
-It checks the frozen task and constitution, the frozen sensors, the environment
-inventory, every artefact the record names by a path and a digest, the digests a
-record recomputes from itself, the journal's chain, and the agreement between
-the last two events and the recorded decision. A record edited after the fact
-cannot make a rejected run look accepted, because the decision is itself an
-event the chain closes over.
-
-## Actuators
-
-`--actuator` selects the agent CLI that proposes the change, and reviews it
-unless `--review-actuator` names another one. It accepts `claude` and `codex`,
-defaults to `$CODESERVO_ACTUATOR`, and falls back to `claude`.
-
-Both backends run without session persistence and without MCP servers, so a run
-depends on the frozen task, the frozen constitution, the controller feedback,
-and the repository content. Claude Code additionally runs with user memory,
-settings, hooks, skills and custom commands disabled; plugin and subagent
-definitions installed on the machine stay registered, but the actuator tool set
-excludes the tools that would reach them.
-
-| | implementer | reviewer |
-| --- | --- | --- |
-| `claude` | `--print --safe-mode --strict-mcp-config --disable-slash-commands --no-session-persistence`, tools `Bash,Read,Write,Edit,NotebookEdit` | same, tools `Bash,Read`, structured output validated against the review schema |
-| `codex` | `exec --ephemeral --ignore-user-config` | same, plus the frozen output schema |
-
-An effort reaches Claude Code as `--effort` and Codex as
-`-c model_reasoning_effort=<level>`; the fast speed tier reaches Claude Code as a
-controller-written settings document and Codex as `-c service_tier=priority`.
-The record keeps the keys the command actually carried.
-
-Because macOS refuses to apply a seatbelt profile inside another one, a confined
-Codex process runs with `--sandbox danger-full-access` and the controller
-profile becomes its only confinement. Claude Code runs with its permission
-checks bypassed for the same reason, so the controller profile is always its
-only confinement.
-
-## State directory
-
-`--state-dir` selects where controller-owned sensors, evidence, and temporary
-working trees are stored. It defaults to `~/.codeservo` and must be outside the
-target repository. Sensor references in the constitution resolve below
-`<state-dir>/sensors/`.
-
-```text
-<state-dir>/
-├── sensors/<repo>/<sensor>/
-├── worktrees/<repo>/<run-id>/
-└── runs/<repo>/<run-id>/
-    ├── TASK.md
-    ├── constitution.toml
-    ├── sensors/                 # frozen sensor snapshot
-    ├── environment/             # packages.json, when a provider is declared
-    ├── baseline/
-    ├── iterations/
-    │   ├── 01/
-    │   │   ├── input.patch
-    │   │   ├── prompt.md
-    │   │   ├── agent/
-    │   │   ├── actuator.patch
-    │   │   ├── quick/
-    │   │   ├── observed.patch
-    │   │   ├── full/                   # once the quick gates passed
-    │   │   ├── full.patch
-    │   │   ├── review/                 # once the full gates passed
-    │   │   └── controller-feedback.md  # when a measurement decided against the candidate
-    │   └── ...
-    ├── change.patch
-    ├── events.jsonl
-    └── evidence.json
-```
-
-The evidence directory is outside the target worktree so the actuator cannot
-rewrite the controller's record.
-
-## Evidence
-
-`evidence.json` is the summary, checkpointed during the run and declaring its
-own shape through `schema_version`. A gate that answered with a document has it
-beside its logs, digested like every other artefact, so what a gate measured is
-part of the record and not only part of a log. Each iteration records the exact feedback
-received, the prompt digest, the repository state before and after actuation,
-the state observed after the quick gates, and any feedback generated for the
-next iteration. Paths are relative to the run directory, so a copied run remains
-self-contained and verifies wherever it is moved. SHA-256 digests cover frozen
-sensors, patch snapshots, prompts, feedback, gate outcomes and logs, agent
-events and messages, and reviewer artefacts.
-
-The record names the controller that produced it — CodeServo version and source
-commit, both actuator names and versions, Python and Git versions — and, for
-each role, the requested inference profile beside what the backend reported. A
-Claude Code session records the model identifier it resolved to and the tokens
-every model spent, because a model alias moves over time while two runs have to
-stay comparable.
-
-`events.jsonl` is the trajectory. One immutable event per transition, carrying a
-sequence, a payload, the previous event's digest and its own; the digest covers
-the canonical form of the event without that field, so the order is verifiable
-and an edit anywhere breaks the chain from that point on. Each event reaches the
-file system before the transition it records becomes visible, so a decision
-never exists only in memory.
-
-```text
-run.started  inputs.frozen  inference.profiles_frozen
-environment.validated  environment.prepared
-gate.finished  baseline.finished  workspace.ready
-actuator.started  actuator.finished  actuator.profile_observed
-feedback.emitted  budget.exhausted
-review.finished  review.profile_observed
-decision.recorded  run.finished
-```
-
-Events appear where the run took the transition: a constitution declaring no
-provider produces no environment event, and nothing claims one happened.
-
-## Isolation
-
-Gates marked `baseline=false` must reference an external acceptance sensor.
-CodeServo freezes the sensor and its digest before baseline verification, then
-provides its path only to the gate process through `CODESERVO_SENSOR_PATH`.
-
-Every gate runs under a controller-owned profile that makes the run directory
-read-only, so a gate reads the frozen sensor it was given but cannot write
-anywhere in the record it produces; its own log files are opened by the
-controller before the gate starts. Each gate is confined to the tree it
-measures — the source repository during the baseline, the isolated checkout
-afterwards — whose Git metadata and provider directory are readable and not
-writable. Reading survives that confinement: `git status`, `diff`, `log`,
-`ls-files` and `rev-parse` all work, and a task gate runs on the environment it
-cannot write.
-
-What a profile cannot express is caught afterwards. The controller recomputes
-every frozen sensor digest and compares the candidate's state across each
-measurement phase, so a gate that changed the tree it was measuring ends the run
-even when every gate exited zero — as a control failure naming the phase, not as
-a failing gate.
-
-The implementer receives a shallow checkout with no remote, so target repository
-history is absent. It runs inside a controller-owned macOS sandbox profile that
-denies reads and writes to source sensors, frozen sensors, run evidence, state
-repository metadata, and the source repository's Git object store, denies every
-write to the source repository, and leaves the candidate's Git metadata and
-provider directory readable but not writable. The reviewer runs under the same
-profile extended with a write denial covering the whole candidate worktree, so
-its read-only nature is mechanical rather than instructed. The actuator receives
-only the controller-selected gate output on the next iteration. CodeServo fails
-closed where `sandbox-exec` is unavailable.
-
-## Mechanical acceptance rule
-
-A candidate is `ACCEPTED` only when all of the following hold:
-
-1. Both inference profiles were accepted before any checkout existed.
-2. The original repository baseline was green.
-3. The source repository was and remained clean during baseline.
-4. Scope invariants pass.
-5. Every quick gate passes within the iteration budget, and no ratchet a quick gate declares is broken.
-6. Every full gate passes, and no ratchet a full gate declares is broken.
-7. No frozen sensor changed, and no measurement phase changed the candidate.
-8. The independent review returns exactly the acceptance criteria left to it, each as `satisfied`.
-9. The review contains no finding whose severity is configured as blocking.
-
-A criterion naming a gate is decided by rules 5 and 6, one left to the review
-by rule 8, and no criterion is decided twice.
-
-A candidate is `ESCALATED` when rules 1 to 7 hold and the review alone leaves
-it undecided: a criterion left to the review that the reviewer could not
-verify, with nothing else to correct; a criterion a gate passed that the
-reviewer reports as not satisfied; or an iteration budget spent on review
-objections alone, every gate and ratchet green. Nothing is fed back in those
-cases, because nothing there is the candidate's to correct.
-
-Anything else is `REJECTED`.
-
-## Why this shape
-
-The target repository owns the desired operating envelope
-(`.codeservo/constitution.toml`). `TASK.md` supplies a temporary desired delta.
-The coding agent is only an actuator. Tests, linters, scope constraints and
-independent semantic review are sensors. CodeServo is the controller. Git is the
-state substrate. `events.jsonl` and `evidence.json` are the audit record, and
-`verify-run` is what makes that record answerable rather than merely stored.
-
-The source is organised in those same terms, one package per role: `controller`
-holds the loop and its phases, `actuators` the backend port and its two
-adapters, `sensors` the gates, the scope check and the observation contract,
-`workspace` the trees a run works on, `evidence` the record and its
-verification, `policies` the constitution, `runtime` the process and its
-confinement, and `domain` the values the other layers are written in terms of.
-Dependencies point inward, so no adapter reaches the values a decision is
-expressed in.
-
-## Self-hosting
-
-From 0.1.0 to 0.6.0, CodeServo developed CodeServo. Every behavioural change in
-those releases was proposed by a run of the previous frozen version, against a
-pre-registered task and an external acceptance sensor written before the
-actuation it constrains, and was accepted only by that version's gates and its
-independent reviewer. A frozen version is installed outside this repository and
-never imports code from the candidate it is measuring, so a generation never
-controls its own construction.
-
-It is no longer the implementation mode. Driving the controller's own changes
-through the loop cost run time and tokens out of proportion with what the loop
-had to decide, and the sharpest result of the track came from what a
-specification said rather than from the loop deciding it. A change to the
-controller is now made directly and held by this repository's own gates, which
-is why 0.7.0 is the first version not built by a run of the one before it.
-
-What remains is a periodic verification: a run at intervals, from a frozen
-version, establishing that the tool still works end to end — freeze, isolation,
-gates, feedback, review, decision, evidence. It obeys every rule above without
-exception, because a verification that skipped one would establish nothing. The
-two that froze 0.7.0 ran at a zero iteration budget, so no actuator process
-started, and they still rejected a gate of this repository over a defect no
-direct run of that gate could show.
-
-Two things stay maintainer work by construction. Control inputs — the
-constitution, the external sensors, the task — cannot come from the actuator
-that is measured against them; `.codeservo/**` is a protected path for exactly
-that reason. And two early changes that made the test suite compose with gate
-and review isolation were made by hand, because the loop could not build the
-bridge it needed in order to measure itself.
-
-One further change was maintainer work by choice rather than by construction.
-The package was reorganised into the layers above and the loop split into its
-phases outside the loop, because driving a structural refactor through it cost
-run time and tokens out of proportion with what it had to decide. It alters no
-behaviour a gate measures: the record keeps the same fields, the same event
-sequence and the same artefacts, and a run recorded before the change still
-verifies.
-
-## Release notes
-
-### 0.7.2
-
-The execution environment block asserts only what a measurement established. It
-opened every record with a constant saying no execution provider was declared,
-so a run refused while its control inputs are still being verified — refused
-after its record exists and before the execution table is read — closed denying
-a provider beside the digest of a constitution that declares one. The block now
-opens with the provider the constitution declares, and `none` keeps meaning that
-none was declared.
-
-The candidate's `unchanged_at_end` carries no value until a recomputation
-produces one. Whether the workspace still holds what was installed into it is
-what taking the digests a second time answers, and the field was set when the
-installation finished: every run that stopped before the first recomputation —
-a verification run at a zero iteration budget among them — recorded a comparison
-nobody made. The document says so in its type, so the block omits the verdict
-rather than defaulting it.
-
-### 0.7.1
-
-The Git metadata of a measured tree is protected where Git writes it. The gates
-measuring the source repository were held to `<repo>/.git`, which is that
-metadata only in an ordinary checkout: in a linked worktree it is a file holding
-a pointer, Git writes elsewhere, and a baseline gate could rewrite the refs, the
-objects and the index of a repository it was only supposed to read. The
-directory the controller already resolves, and already denies to the actuator,
-now bounds those gates too.
-
-The actuator's view of the frozen constitution names what each gate measures. It
-rendered a gate's command alone, so a gate naming a provider task reached the
-actuator as `command = null` — a declaration no constitution can make, and not a
-TOML document either.
-
-### 0.7.0
-
-Gates report what they measured. A gate declaring `result_format =
-"codeservo-json"` answers with a document beside its exit code, and the record
-carries it: violations with their rule, file and line, type errors, test counts
-and the cases that failed, the layer graph and every forbidden import, coverage
-against its floor, fuzzing budgets and the coverage each boundary reached,
-durations against their ceilings. Before this, the number a tool computed lived
-in a log nothing compared.
-
-The location that document goes to reaches a provider task as its argument.
-`pixi run --clean-env` empties the environment a task starts with, so no
-variable could carry it, and until now no gate could both run in a locked
-environment and report what it measured.
-
-Parsing boundaries are stated as properties and searched as bytes: the six
-surfaces a document, a record or a stream arrives through, and a coverage-guided
-fuzzer on the three another party supplies. Records declare `schema_version` 16.
-
-### 0.6.0
-
-A run records its own trajectory. `events.jsonl` sits beside the record: one
-event per transition, chained by digests and flushed before the transition it
-records becomes visible. `codeservo verify-run` decides about a run directory
-from that directory alone, reporting `VALID`, `INVALID` or `INCOMPLETE`. A
-record edited after the fact can no longer make a rejected run look accepted.
-Records declare `schema_version` 14 and name their journal.
-
-### 0.5.0
-
-A repository can be measured through an environment its lockfile pins. A
-constitution declares an `[execution]` provider, a gate names a task, and the
-controller freezes the manifest and lockfile digests and the resolved inventory
-before the baseline, then installs the environment into the isolated checkout
-without resolving. Every gate is confined to the tree it measures, whose Git
-metadata and provider directory become readable and not writable for gates and
-actuator alike, and the candidate's state is compared across each measurement
-phase, so a gate that changed the tree ends the run even when it exited zero.
-Records declare `schema_version` 13 and carry one isolation document per
-measured tree.
-
-### 0.4.0
-
-Inference becomes an explicit control input. `codeservo models` projects the
-provider caches on this machine into an inventory; a run freezes a complete
-backend, model, effort and speed profile and refuses a request that inventory
-contradicts, before any checkout or agent process exists. The reviewer carries
-its own backend and profile, so the two roles vary independently. The
-development environment is locked with Pixi. Records declare `schema_version`
-10.
-
-### 0.3.0
-
-The record declares what it is and who produced it: `schema_version` 8, the
-CodeServo version and source commit, the actuator name and version, and the
-Python and Git versions.
-
-### 0.2.0
-
-The reviewer receives the deterministic gate observations it cannot produce
-itself — what each gate measured, carrying no filesystem path and no sensor
-source. The controller's own test suite composes with gate and review isolation,
-so the confinement is exercised rather than described.
-
-### 0.1.0
-
-The first frozen controller: baseline gates, an isolated shallow checkout, the
-actuator, the scope sensor and quick gates, deterministic feedback, full gates,
-an independent read-only semantic review, a mechanical decision, portable run
-evidence, external acceptance sensors, and a configurable state directory.
+`ESCALATED`. You need Python 3.12+, Git, Claude Code or Codex CLI installed and
+authenticated, a clean target repository, and a host carrying a confinement
+mechanism — macOS, or Linux with Bubblewrap installed and unprivileged user
+namespaces allowed.
+
+[Prepare a target repository](docs/features/target-repository.md) says what a
+constitution declares and how a task is written. [Commands](docs/features/commands.md)
+is the command line in full. [Running one controlled change](docs/RUNNING-A-CHANGE.md)
+is the order of operations around a single run.
+
+## Where the rest lives
+
+| | |
+| --- | --- |
+| What the controller is made of, layer by layer | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Rules a change to the controller must respect | [docs/QUALITY.md](docs/QUALITY.md) |
+| How the controller measures itself | [docs/COMMANDS.md](docs/COMMANDS.md) |
+| Every feature above, in detail | [docs/features/](docs/features/) |
+| What the experiments established | [FINDINGS.md](FINDINGS.md) |
+| What each version brought | [docs/RELEASE-NOTES.md](docs/RELEASE-NOTES.md) |
+
+CodeServo developed CodeServo from 0.1.0 to 0.6.0, one frozen generation
+proposing the next through this loop. It no longer does, and
+[why](docs/features/self-hosting.md) is a result rather than a retreat.

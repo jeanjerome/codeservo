@@ -1,9 +1,10 @@
 # Running One Controlled Change
 
-The order of operations around `codeservo run`. The [README](../README.md) says
-what each piece is — the constitution, the task, the state directory, the
-record; this says when each is prepared, what must be true when it is, and what
-to do with what the run returns.
+The order of operations around `codeservo run`. [docs/features/](features/)
+says what each piece is — the [constitution and the
+task](features/target-repository.md), the [gates](features/feedback-sensors.md),
+the [record](features/evidence.md); this says when each is prepared, what must
+be true when it is, and what to do with what the run returns.
 
 One rule governs the whole order: **a control input is versioned before the
 actuation it constrains.** A contract written after the change it judges cannot
@@ -149,7 +150,9 @@ codeservo run \
   --repo /path/to/project \
   --task ./TASK.md \
   --state-dir /path/to/state \
-  --max-iterations 2
+  --max-iterations 2 \
+  --model <model> \
+  --effort medium
 ```
 
 Nothing else touches the repository while it runs. The controller measures the
