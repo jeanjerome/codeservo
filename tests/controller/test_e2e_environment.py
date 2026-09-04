@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from codeservo.evidence.digests import sha256_file
+from codeservo.runtime.confinement import mechanism
 from harness import (
     COMPILE_COMMAND,
     PIXI_PACKAGES,
@@ -444,7 +445,7 @@ class ExecutionEnvironmentE2ETests(unittest.TestCase):
                 candidate["read_only_paths"],
             )
             for document in (source, candidate):
-                self.assertEqual("macos-sandbox-exec", document["mechanism"])
+                self.assertEqual(mechanism(), document["mechanism"])
                 self.assertEqual([], document["denied_paths"])
             self.assertFalse(
                 [path for path in source["read_only_paths"][1:] if str(worktree) in path]

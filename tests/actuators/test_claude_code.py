@@ -18,6 +18,7 @@ from codeservo.actuators.claude_code import (
     _usage,
     describe_isolation,
 )
+from codeservo.runtime.confinement import mechanism
 from codeservo.runtime.sandbox import Isolation
 
 REVIEW_SCHEMA = {
@@ -420,9 +421,7 @@ class SessionRecordTests(unittest.TestCase):
 
 class IsolationTests(unittest.TestCase):
     def test_always_reports_the_controller_owned_mechanism(self) -> None:
-        self.assertEqual(
-            "macos-sandbox-exec", describe_isolation(Isolation()).mechanism
-        )
+        self.assertEqual(mechanism(), describe_isolation(Isolation()).mechanism)
 
 
 if __name__ == "__main__":

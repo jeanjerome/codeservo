@@ -1,11 +1,11 @@
 """A candidate corrected after the full gates or the review decided against it."""
 
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from harness import build_case, constitution
+from isolation_harness import requires_a_mechanism
 
 # The implementer counts its attempts in the candidate, so a measurement can
 # decide against the first and let the second through.
@@ -44,10 +44,7 @@ else:
 FULL_PASSES_ON_THE_SECOND_ATTEMPT = "test ! -f attempts.txt || grep -q 2 attempts.txt"
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "controller confinement requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class CorrectionAfterReviewTests(unittest.TestCase):
     def test_a_review_that_objects_opens_another_iteration(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

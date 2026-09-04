@@ -1,19 +1,16 @@
 """A gate that fails, and a gate that changed what it was measuring."""
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from e2e_support import MUTATING_SENSOR
 from harness import build_case, constitution
+from isolation_harness import requires_a_mechanism
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "controller confinement requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class GateFailureE2ETests(unittest.TestCase):
     def test_a_red_gate_stops_the_run_before_any_observation(self) -> None:
         stale = "grep -q 'return 0' app.py"

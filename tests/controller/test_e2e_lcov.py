@@ -1,7 +1,6 @@
 """A gate whose coverage tool writes LCOV, from the constitution to the ratchet."""
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,15 +9,13 @@ from codeservo.evidence.digests import sha256_file
 from codeservo.evidence.verify import verify_run
 from e2e_support import lcov_report, writes_report
 from harness import build_case, constitution
+from isolation_harness import requires_a_mechanism
 
 REPORTS = "**/*.info"
 INTO = "coverage/lcov.info"
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "external sensor isolation requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class LcovGateE2ETests(unittest.TestCase):
     """The record carries the projection, and a ratchet reads its metrics."""
 

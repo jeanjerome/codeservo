@@ -12,6 +12,7 @@ from codeservo.actuators.codex import (
     _usage,
     describe_isolation,
 )
+from codeservo.runtime.confinement import mechanism
 from codeservo.runtime.sandbox import Isolation
 
 
@@ -260,7 +261,7 @@ class IsolationTests(unittest.TestCase):
             "codex-workspace-write", describe_isolation(Isolation()).mechanism
         )
         self.assertEqual(
-            "macos-sandbox-exec",
+            mechanism(),
             describe_isolation(Isolation(denied=(Path("sensors"),))).mechanism,
         )
 

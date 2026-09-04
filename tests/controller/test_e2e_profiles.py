@@ -2,7 +2,6 @@
 
 import json
 import stat
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +13,7 @@ from codeservo.controller import ControlFailure
 from codeservo.evidence.digests import sha256_text
 from codeservo.evidence.journal import JOURNAL_NAME, read_journal
 from codeservo.evidence.verify import verify_run
+from codeservo.runtime.confinement import mechanism
 from e2e_support import FAKE_CODEX
 from harness import (
     AGENT_COST_USD,
@@ -24,16 +24,14 @@ from harness import (
     REVIEW_MODEL,
     build_case,
 )
+from isolation_harness import requires_a_mechanism
 
 # What the fake Codex reviewer bills at gpt-5.6-sol's prices: 200 uncached
 # input at 4, 1000 cache reads at 0.4, 300 output at 20, per million.
 CODEX_REVIEW_COST_USD = 0.0072
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "controller confinement requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class InferenceProfileE2ETests(unittest.TestCase):
     def _codex_case(self, root: Path):
         """A run whose reviewer can be the scripted Codex."""
@@ -300,7 +298,7 @@ class InferenceProfileE2ETests(unittest.TestCase):
             # The confinement the reviewer runs under, recorded before it ran.
             frozen_review = frozen[0]["iterations"][-1]["review"]
             isolation = frozen_review["isolation"]
-            self.assertEqual("macos-sandbox-exec", isolation["mechanism"])
+            self.assertEqual(mechanism(), isolation["mechanism"])
             self.assertTrue(isolation["user_config_ignored"])
             self.assertNotIn("result", frozen_review)
             self.assertFalse(Path(result["worktree"], "reviewer-write.txt").exists())

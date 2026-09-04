@@ -1,12 +1,12 @@
 """A criterion that names its verification, from the task file to the decision."""
 
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from codeservo.controller.errors import ControlFailure
 from harness import build_case
+from isolation_harness import requires_a_mechanism
 
 REVIEWED_AND_GATED = """# Task
 
@@ -21,10 +21,7 @@ NAMING_AN_ABSENT_GATE = """# Task
 """
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "controller confinement requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class CriterionVerificationE2ETests(unittest.TestCase):
     def test_the_reviewer_is_asked_only_about_the_criteria_left_to_it(self) -> None:
         """The scripted reviewer answers about AC1 alone, and that is complete.

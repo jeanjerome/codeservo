@@ -1,7 +1,6 @@
 """What the read-only reviewer is told, and what it is never told."""
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,12 +8,10 @@ from pathlib import Path
 from codeservo.evidence.digests import sha256_text
 from e2e_support import canonical
 from harness import build_case, constitution
+from isolation_harness import requires_a_mechanism
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "controller confinement requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class ReviewObservationE2ETests(unittest.TestCase):
     def test_bounds_gate_observations_and_hides_controller_locations(self) -> None:
         chatty_sensor = (

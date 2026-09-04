@@ -1,13 +1,13 @@
 """A run that ends with a question no control answers."""
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from codeservo.evidence.verify import verify_run
 from harness import build_case
+from isolation_harness import requires_a_mechanism
 
 UNVERIFIABLE = """
 emit_review(
@@ -102,10 +102,7 @@ def _events(result: dict) -> list[dict]:
     ]
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "controller confinement requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class EscalationE2ETests(unittest.TestCase):
     def test_a_criterion_nobody_can_verify_ends_the_run_with_budget_left(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -1,16 +1,13 @@
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from harness import build_case, constitution
+from isolation_harness import requires_a_mechanism
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "controller confinement requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class RejectionPathTests(unittest.TestCase):
     def assert_rejected(self, result: dict, reason: str) -> None:
         self.assertEqual("REJECTED", result["status"])

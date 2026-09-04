@@ -2,7 +2,6 @@
 
 import json
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +12,7 @@ from codeservo.evidence.register import COLUMNS
 from codeservo.evidence.verify import verify_run
 from e2e_support import LOCATING_REVIEWER
 from harness import build_case, commit_repository
+from isolation_harness import requires_a_mechanism
 
 ADDS_A_FILE = """
 (worktree / "NOTES.md").write_text("landed with the change\\n")
@@ -26,10 +26,7 @@ def _git(repo: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "controller confinement requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class LandingE2ETests(unittest.TestCase):
     def test_an_accepted_run_lands_as_one_commit_on_its_base(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

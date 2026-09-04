@@ -1,7 +1,6 @@
 """The structured document a gate writes beside its exit code."""
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,12 +9,10 @@ from codeservo.evidence.digests import sha256_file
 from codeservo.evidence.verify import verify_run
 from e2e_support import OBSERVATION, toml_basic, writes_observation
 from harness import build_case, constitution
+from isolation_harness import requires_a_mechanism
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "external sensor isolation requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class GateObservationE2ETests(unittest.TestCase):
     """A gate's second, structured answer, from the constitution to the record."""
 

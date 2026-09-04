@@ -3,14 +3,15 @@
 import json
 import stat
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from codeservo.evidence.digests import sha256_text
+from codeservo.runtime.confinement import mechanism
 from e2e_support import FAKE_AGENTS, canonical
 from harness import TASK_TEXT, Case, commit_repository, constitution
+from isolation_harness import requires_a_mechanism
 
 # A catalogue model of each backend, which the scripted CLI never reports
 # running on: the record keeps the request and the report apart.
@@ -20,10 +21,7 @@ MODELS = {"claude": "claude-sonnet-5", "codex": "gpt-5.6-terra"}
 CODEX_TURN_COST_USD = 0.0042
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "controller confinement requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class AcceptedRunTests(unittest.TestCase):
     def test_feedback_loop_converges_and_accepts(self) -> None:
         for actuator in sorted(FAKE_AGENTS):
@@ -160,7 +158,9 @@ class AcceptedRunTests(unittest.TestCase):
             self.assertTrue(frozen_sensor_path.is_dir())
             self.assertTrue(Path(frozen_sensor_path, "README.md").is_file())
             isolation = evidence["actuator_isolation"]
-            self.assertEqual("macos-sandbox-exec", isolation["mechanism"])
+            # The record names the mechanism that held the run, which is the
+            # host's answer and not a property of the run.
+            self.assertEqual(mechanism(), isolation["mechanism"])
             self.assertIn("../../../sensors", isolation["denied_paths"])
             self.assertTrue(isolation["read_only_paths"])
             self.assertTrue(
@@ -212,7 +212,7 @@ class AcceptedRunTests(unittest.TestCase):
         metadata = str(worktree / ".git")
 
         for document in evidence["gate_isolation"].values():
-            self.assertEqual("macos-sandbox-exec", document["mechanism"])
+            self.assertEqual(mechanism(), document["mechanism"])
             self.assertEqual([], document["denied_paths"])
             self.assertTrue(document["user_config_ignored"])
             self.assertEqual(".", document["read_only_paths"][0])

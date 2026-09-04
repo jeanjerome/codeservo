@@ -1,7 +1,6 @@
 """A gate whose tool writes JUnit XML, from the constitution to the feedback."""
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,14 +9,12 @@ from codeservo.evidence.digests import sha256_file
 from codeservo.evidence.verify import verify_run
 from e2e_support import junit_report, writes_junit_report
 from harness import build_case, constitution
+from isolation_harness import requires_a_mechanism
 
 REPORTS = "reports/TEST-*.xml"
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "external sensor isolation requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class JunitGateE2ETests(unittest.TestCase):
     """The record carries the projection, and the actuator reads the findings."""
 

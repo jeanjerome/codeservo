@@ -1,13 +1,13 @@
 """A ratchet declared in the constitution, from the baseline to the decision."""
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from e2e_support import toml_basic
 from harness import build_case, constitution
+from isolation_harness import requires_a_mechanism
 
 
 def _counts_lines(metric: str) -> str:
@@ -43,10 +43,7 @@ implement(ACCEPTABLE if attempts >= 2 else ACCEPTABLE + "\\n\\n\\n")
 """
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "controller confinement requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class RatchetE2ETests(unittest.TestCase):
     def test_a_metric_moving_the_wrong_way_opens_another_iteration(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

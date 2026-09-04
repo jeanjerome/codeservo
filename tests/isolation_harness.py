@@ -6,12 +6,14 @@ import fcntl
 import os
 import subprocess
 import sys
+import unittest
 from contextlib import ExitStack, contextmanager
 from functools import lru_cache
 from pathlib import Path
 from unittest.mock import patch
 
-from codeservo.runtime.confinement import ConfinedCommand
+from codeservo.runtime.confinement import ConfinedCommand, host_confiner
+from codeservo.runtime.sandbox import SandboxError
 
 NESTED_TEST_ENV = "CODESERVO_TEST_NESTED_SEATBELT"
 GATE_RECORD_ENV = "CODESERVO_TEST_GATE_RECORD"
@@ -37,6 +39,33 @@ def nested_seatbelt_exit_code() -> int:
 def already_confined() -> bool:
     """Whether macOS refused a second seatbelt application with EX_OSERR."""
     return nested_seatbelt_exit_code() == os.EX_OSERR
+
+
+@lru_cache(maxsize=1)
+def unconfinable() -> str | None:
+    """Why this host cannot confine a process at all, or nothing.
+
+    A run that cannot confine cannot measure, so the controller refuses to
+    start one. `runtime.test_confinement` fails on exactly that, once, and
+    what drives the controller names it as the reason it did not run rather
+    than repeating the same failure for every trajectory.
+    """
+    try:
+        host_confiner()
+    except SandboxError as refused:
+        return str(refused)
+    return None
+
+
+def requires_a_mechanism(subject):
+    """Mark what drives the controller, which confines everything it starts.
+
+    The guard is the host having a mechanism, not the host being one operating
+    system: the profile is the same on either, and what applies it is the
+    port's answer.
+    """
+    reason = unconfinable()
+    return unittest.skipIf(reason is not None, reason or "")(subject)
 
 
 @contextmanager

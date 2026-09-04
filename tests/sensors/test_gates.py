@@ -1,7 +1,6 @@
 import hashlib
 import json
 import os
-import sys
 import tempfile
 import unittest
 from dataclasses import replace
@@ -25,6 +24,7 @@ from isolation_harness import (
     already_confined,
     nested_seatbelt_exit_code,
     protected_gate_record,
+    requires_a_mechanism,
 )
 
 
@@ -563,7 +563,7 @@ class ObservationLocationTests(unittest.TestCase):
         self._refuses("tree")
 
 
-@unittest.skipUnless(sys.platform == "darwin", "requires macOS sandbox-exec")
+@requires_a_mechanism
 class GateConfinementTests(unittest.TestCase):
     def test_reads_the_run_directory_without_writing_to_it(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

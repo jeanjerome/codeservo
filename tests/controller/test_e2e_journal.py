@@ -11,12 +11,10 @@ from codeservo.evidence.journal import JOURNAL_NAME, read_journal
 from codeservo.evidence.verify import verify_run
 from e2e_support import CONVERGING_IMPLEMENTER, JOURNAL_PROBE, LOCATING_REVIEWER
 from harness import PIXI_TASK, build_case, commit_repository, constitution
+from isolation_harness import requires_a_mechanism
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin",
-    "controller confinement requires macOS sandbox-exec",
-)
+@requires_a_mechanism
 class RunJournalE2ETests(unittest.TestCase):
     def journal(self, result: dict) -> list[dict]:
         return read_journal(Path(result["run_dir"], JOURNAL_NAME))
