@@ -32,7 +32,10 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests")]
 from codeservo.evidence.verify import verify_run  # noqa: E402
 from harness import PIXI_TASK, build_case, constitution  # noqa: E402
 
-# Scalars the host, the clock or a temporary path decides.
+# Scalars the host, the clock or a temporary path decides. The confinement
+# mechanism is one of them: the profile is the record's, the mechanism applying
+# it is whichever one the host carries, so pinning its name would make this a
+# measurement of one operating system.
 VOLATILE = frozenset(
     {
         "run_id", "started_at", "finished_at", "duration_ms", "repo", "state_dir",
@@ -46,7 +49,8 @@ VOLATILE = frozenset(
         "actuator_version", "review_actuator_version", "python_version",
         "git_version", "session_id", "stdout_tail", "stderr_tail", "text",
         "summary", "details", "evidence", "cost_usd", "duration",
-        "provider_version", "platform", "declared_tasks", "profile_sha256",
+        "provider_version", "platform", "mechanism", "declared_tasks",
+        "profile_sha256",
         "message", "reference", "codeservo_version", "num_turns",
         "total_cost_usd", "usage",
     }

@@ -144,7 +144,7 @@
           "../../../.git",
           "../../../../repo/.git"
         ],
-        "mechanism": "macos-sandbox-exec",
+        "mechanism": "<str>",
         "read_only_paths": [
           "../../../../repo",
           "../../../worktrees/repo/<run-id>/.git"
@@ -200,7 +200,7 @@
       "gate_isolation": {
         "candidate": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../worktrees/repo/<run-id>/.git"
@@ -209,7 +209,7 @@
         },
         "source": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../../repo/.git"
@@ -401,7 +401,7 @@
                 "../../../.git",
                 "../../../../repo/.git"
               ],
-              "mechanism": "macos-sandbox-exec",
+              "mechanism": "<str>",
               "read_only_paths": [
                 "../../../../repo",
                 "../../../worktrees/repo/<run-id>"
@@ -963,7 +963,7 @@
           "../../../.git",
           "../../../../repo/.git"
         ],
-        "mechanism": "macos-sandbox-exec",
+        "mechanism": "<str>",
         "read_only_paths": [
           "../../../../repo",
           "../../../worktrees/repo/<run-id>/.git"
@@ -1019,7 +1019,7 @@
       "gate_isolation": {
         "candidate": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../worktrees/repo/<run-id>/.git"
@@ -1028,7 +1028,7 @@
         },
         "source": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../../repo/.git"
@@ -1327,7 +1327,7 @@
                 "../../../.git",
                 "../../../../repo/.git"
               ],
-              "mechanism": "macos-sandbox-exec",
+              "mechanism": "<str>",
               "read_only_paths": [
                 "../../../../repo",
                 "../../../worktrees/repo/<run-id>"
@@ -1952,7 +1952,7 @@
           "../../../.git",
           "../../../../repo/.git"
         ],
-        "mechanism": "macos-sandbox-exec",
+        "mechanism": "<str>",
         "read_only_paths": [
           "../../../../repo",
           "../../../worktrees/repo/<run-id>/.git"
@@ -2011,7 +2011,7 @@
       "gate_isolation": {
         "candidate": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../worktrees/repo/<run-id>/.git"
@@ -2020,7 +2020,7 @@
         },
         "source": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../../repo/.git"
@@ -2798,7 +2798,7 @@
           "../../../.git",
           "../../../../repo/.git"
         ],
-        "mechanism": "macos-sandbox-exec",
+        "mechanism": "<str>",
         "read_only_paths": [
           "../../../../repo",
           "../../../worktrees/repo/<run-id>/.git"
@@ -2858,7 +2858,7 @@
       "gate_isolation": {
         "candidate": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../worktrees/repo/<run-id>/.git"
@@ -2867,7 +2867,7 @@
         },
         "source": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../../repo/.git"
@@ -3063,7 +3063,7 @@
                 "../../../.git",
                 "../../../../repo/.git"
               ],
-              "mechanism": "macos-sandbox-exec",
+              "mechanism": "<str>",
               "read_only_paths": [
                 "../../../../repo",
                 "../../../worktrees/repo/<run-id>"
@@ -3327,7 +3327,7 @@
                 "../../../.git",
                 "../../../../repo/.git"
               ],
-              "mechanism": "macos-sandbox-exec",
+              "mechanism": "<str>",
               "read_only_paths": [
                 "../../../../repo",
                 "../../../worktrees/repo/<run-id>"
@@ -4057,7 +4057,7 @@
           "../../../.git",
           "../../../../repo/.git"
         ],
-        "mechanism": "macos-sandbox-exec",
+        "mechanism": "<str>",
         "read_only_paths": [
           "../../../../repo",
           "../../../worktrees/repo/<run-id>/.git"
@@ -4113,7 +4113,7 @@
       "gate_isolation": {
         "candidate": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../worktrees/repo/<run-id>/.git"
@@ -4122,7 +4122,7 @@
         },
         "source": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../../repo/.git"
@@ -4318,7 +4318,7 @@
                 "../../../.git",
                 "../../../../repo/.git"
               ],
-              "mechanism": "macos-sandbox-exec",
+              "mechanism": "<str>",
               "read_only_paths": [
                 "../../../../repo",
                 "../../../worktrees/repo/<run-id>"
@@ -4578,7 +4578,7 @@
                 "../../../.git",
                 "../../../../repo/.git"
               ],
-              "mechanism": "macos-sandbox-exec",
+              "mechanism": "<str>",
               "read_only_paths": [
                 "../../../../repo",
                 "../../../worktrees/repo/<run-id>"
@@ -5223,7 +5223,7 @@
           "../../../.git",
           "../../../../repo/.git"
         ],
-        "mechanism": "macos-sandbox-exec",
+        "mechanism": "<str>",
         "read_only_paths": [
           "../../../../repo",
           "../../../worktrees/repo/<run-id>/.git"
@@ -5281,7 +5281,7 @@
       "gate_isolation": {
         "candidate": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../worktrees/repo/<run-id>/.git"
@@ -5290,7 +5290,7 @@
         },
         "source": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../../repo/.git"
@@ -5482,7 +5482,7 @@
                 "../../../.git",
                 "../../../../repo/.git"
               ],
-              "mechanism": "macos-sandbox-exec",
+              "mechanism": "<str>",
               "read_only_paths": [
                 "../../../../repo",
                 "../../../worktrees/repo/<run-id>"
@@ -6007,7 +6007,7 @@
           "../../../.git",
           "../../../../repo/.git"
         ],
-        "mechanism": "macos-sandbox-exec",
+        "mechanism": "<str>",
         "read_only_paths": [
           "../../../../repo",
           "../../../worktrees/repo/<run-id>/.git",
@@ -6085,7 +6085,7 @@
       "gate_isolation": {
         "candidate": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../worktrees/repo/<run-id>/.git",
@@ -6095,7 +6095,7 @@
         },
         "source": {
           "denied_paths": [],
-          "mechanism": "macos-sandbox-exec",
+          "mechanism": "<str>",
           "read_only_paths": [
             ".",
             "../../../../repo/.git",
@@ -6288,7 +6288,7 @@
                 "../../../.git",
                 "../../../../repo/.git"
               ],
-              "mechanism": "macos-sandbox-exec",
+              "mechanism": "<str>",
               "read_only_paths": [
                 "../../../../repo",
                 "../../../worktrees/repo/<run-id>"
