@@ -25,12 +25,36 @@ env:
 
 jobs:
   gates:
-    # The workspace declares osx-arm64 and osx-64 because sandbox-exec is the
-    # isolation mechanism. Only arm64 is exercised here; osx-64 is resolved by
-    # the lockfile check and run by nothing.
-    runs-on: macos-15
+    # The same gates under both mechanisms. A profile says what a process may
+    # not reach; which mechanism enforces it belongs to the host, so measuring
+    # on one operating system would leave the other one claimed rather than
+    # measured. The workspace also declares osx-64, which the lockfile check
+    # resolves and nothing runs.
+    strategy:
+      # One host failing is a result about that host, and hiding the other's
+      # would turn two measurements into one.
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+
+      - name: The mechanism this host confines with
+        if: runner.os == 'Linux'
+        # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor,
+        # and the bubblewrap package installs no profile of its own, so bwrap
+        # fails setting up its uid map and does not start at all. Lifting the
+        # restriction is what a Linux host running the controller has to do,
+        # and it is a property of the host rather than of this repository. The
+        # controller establishes its mechanism by applying a profile, so a host
+        # where this step were skipped refuses the run rather than executing it
+        # unconfined.
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --dev-bind / / -- /bin/sh -c 'echo a profile applies here'
 
       - name: Install Pixi
         run: |
