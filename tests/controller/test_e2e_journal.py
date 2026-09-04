@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from codeservo.evidence.digests import sha256_file, sha256_json
 from codeservo.evidence.journal import JOURNAL_NAME, read_journal
@@ -297,6 +298,43 @@ class RunJournalE2ETests(unittest.TestCase):
             self.assertTrue(
                 all(JOURNAL_NAME in failure for failure in edited["failures"])
             )
+
+    def test_a_run_that_stops_short_of_a_decision_records_what_ended_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            case = build_case(Path(temp), implementer=CONVERGING_IMPLEMENTER)
+
+            # Not a control refusing the candidate: the measurement itself
+            # could not happen, which is neither a rejection nor an escalation.
+            with patch(
+                "codeservo.controller.run.measure_baseline",
+                side_effect=OSError("the state directory went away"),
+            ):
+                with self.assertRaises(OSError):
+                    case.run()
+
+            run_dir = case.run_directory()
+            events = read_journal(run_dir / JOURNAL_NAME)
+            recorded = [event["type"] for event in events]
+
+            self.assertEqual("run.aborted", recorded[-1])
+            self.assertNotIn("run.finished", recorded)
+            self.assertNotIn("decision.recorded", recorded)
+            self.assertEqual("OSError", events[-1]["payload"]["error"])
+            self.assertIn(
+                "the state directory went away", events[-1]["payload"]["detail"]
+            )
+
+            # No status is stated, because no control spoke.
+            record = json.loads(
+                (run_dir / "evidence.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("RUNNING", record["status"])
+
+            # The chain still closes over itself, and the verification says
+            # the run is unfinished rather than broken.
+            report = verify_run(run_dir)
+            self.assertEqual("INCOMPLETE", report["status"])
+            self.assertEqual([], report["failures"])
 
 
 if __name__ == "__main__":

@@ -274,6 +274,24 @@ class Case:
             with patch.dict(os.environ, {"PATH": path, **(env or {})}, clear=False):
                 return run(**arguments)
 
+    def run_directory(self) -> Path:
+        """Where the one run this case drove wrote its evidence.
+
+        A run that raised never returned its record, so a test that measures
+        what such a run left behind reads the location from the state
+        directory rather than from a result it never got.
+        """
+        directories = sorted(
+            path
+            for path in (self.state_dir / "runs" / self.repo.name).iterdir()
+            if path.is_dir()
+        )
+        if len(directories) != 1:
+            raise AssertionError(
+                f"expected one run directory, found {len(directories)}"
+            )
+        return directories[0]
+
 
 def build_case(
     root: Path,

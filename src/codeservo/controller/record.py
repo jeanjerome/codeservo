@@ -15,7 +15,7 @@ from pathlib import Path
 from ..domain.document import Unset, rendered
 from ..domain.run import RunStatus
 from ..evidence.digests import relative_evidence_paths, sha256_text, write_json
-from ..evidence.journal import Journal
+from ..evidence.journal import ABORTED_EVENT, Journal
 from ..sensors.gates import GateResult
 from ..workspace.git import make_patch
 from .document import Decision, Evidence, Iteration
@@ -106,6 +106,21 @@ class RunRecord:
                 document, iterations=(*document.iterations, self.attempt)
             )
         return rendered(document)
+
+    def abort(self, error: BaseException) -> None:
+        """Say in the journal why the run stopped short of a decision.
+
+        Nothing here decides. The record keeps the status it had, because no
+        control spoke and no status would be true of a measurement that did
+        not happen; what the journal gains is the reason the chain ends where
+        it does. The record is not persisted either: its events block would
+        then claim to describe a journal the decision never closed, and a
+        verification reads that block only once a decision has.
+        """
+        self.journal.record(
+            ABORTED_EVENT,
+            {"error": type(error).__name__, "detail": str(error)},
+        )
 
     def close(
         self,

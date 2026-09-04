@@ -79,10 +79,18 @@ actuator.started  actuator.finished  actuator.profile_observed
 feedback.emitted  budget.exhausted
 review.finished  review.profile_observed
 decision.recorded  run.finished
+run.aborted
 ```
 
 Events appear where the run took the transition: a constitution declaring no
 provider produces no environment event, and nothing claims one happened.
+
+A run that stops before any control has spoken ends on `run.aborted` instead:
+a control input that broke, a Git operation that failed, an operator
+interrupting. It names what ended the run and states no status, and the record
+keeps `RUNNING`, because none of the three issues would be true of a
+measurement that did not happen. The verification then reports the run
+unfinished rather than broken.
 
 ## Verifying one run
 

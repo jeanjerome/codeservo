@@ -73,6 +73,14 @@ def run(
         return _close(context, record, RunStatus.REJECTED, rejection.reasons)
     except Escalation as escalation:
         return _close(context, record, RunStatus.ESCALATED, escalation.reasons)
+    except BaseException as error:
+        # Everything else ends the run without any control having spoken: a
+        # broken control input, a Git operation that failed, the operator
+        # interrupting. None of the three statuses would be true of it, so the
+        # run keeps the one it has and the journal records what ended it. The
+        # error goes on to the caller, which is what asked for the run.
+        record.abort(error)
+        raise
     return _close(context, record, RunStatus.ACCEPTED, [])
 
 

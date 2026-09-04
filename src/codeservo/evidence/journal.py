@@ -32,6 +32,12 @@ JOURNAL_NAME = "events.jsonl"
 # decision closed and the integration is still evidence rather than a note.
 LANDED_EVENT = "run.landed"
 
+# The transition of a run that stopped without reaching a decision. It names
+# what ended the trajectory where a decision would otherwise close it, so a
+# reader of the journal is not left with a run that merely stops. It states no
+# status, because no control spoke and none would be true.
+ABORTED_EVENT = "run.aborted"
+
 
 @dataclass(frozen=True, kw_only=True)
 class UnsignedEvent(Document):
