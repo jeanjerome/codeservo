@@ -29,6 +29,13 @@ timeout_seconds = 300
 baseline = true
 result_format = "codeservo-json"
 
+# The gate the suite answers for itself, and the two numbers that say it still
+# measures what it measured. A suite that stops discovering runs fewer tests,
+# and a test that stops running skips rather than fails: either leaves every
+# remaining assertion green, and neither shows in an exit code. The
+# confinement mechanism belongs to the host, so a test this host cannot
+# exercise skips here rather than failing, and adding one moves the second
+# number -- which is then a decision taken in the open instead of by accident.
 [[gate]]
 name = "unit"
 phase = "quick"
@@ -36,6 +43,7 @@ task = "test"
 timeout_seconds = 600
 baseline = true
 result_format = "codeservo-json"
+ratchet = { tests = ">=", skipped = "<=" }
 
 [[gate]]
 name = "compile"
