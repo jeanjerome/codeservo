@@ -1,6 +1,5 @@
 import io
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,17 +11,7 @@ from codeservo.cli.commands import report_host
 from codeservo.cli.doctor import Reading, readings
 from codeservo.runtime.confinement import host_confiner, mechanism
 from codeservo.runtime.sandbox import SandboxError
-
-
-def commit(repo: Path) -> None:
-    for command in (
-        ["git", "init", "-q"],
-        ["git", "config", "user.email", "a@b"],
-        ["git", "config", "user.name", "a"],
-        ["git", "add", "-A"],
-        ["git", "commit", "-qm", "base"],
-    ):
-        subprocess.run(command, cwd=repo, check=True, capture_output=True)
+from harness import commit_repository
 
 
 def named(found: list[Reading], subject: str) -> Reading:
@@ -101,7 +90,7 @@ class RepositoryReadingTests(unittest.TestCase):
             'command = "true"\ntimeout_seconds = 60\nbaseline = true\n',
             encoding="utf-8",
         )
-        commit(self.repo)
+        commit_repository(self.repo)
 
         found = readings(repo=self.repo)
 
@@ -110,7 +99,7 @@ class RepositoryReadingTests(unittest.TestCase):
 
     def test_an_uncommitted_path_is_not_what_a_run_would_measure(self) -> None:
         (self.repo / "app.py").write_text("value = 1\n", encoding="utf-8")
-        commit(self.repo)
+        commit_repository(self.repo)
         (self.repo / "app.py").write_text("value = 2\n", encoding="utf-8")
 
         clean = named(readings(repo=self.repo), "clean tree")
@@ -125,7 +114,7 @@ class RepositoryReadingTests(unittest.TestCase):
         (self.repo / ".codeservo" / "constitution.toml").write_text(
             "version = 1\n[[gate]]\nname = 1\n", encoding="utf-8"
         )
-        commit(self.repo)
+        commit_repository(self.repo)
 
         constitution = named(readings(repo=self.repo), "constitution")
 
