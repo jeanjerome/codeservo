@@ -4,6 +4,92 @@ What each version of the controller brought. The versions up to 0.6.0 were
 proposed by a run of the one before them; see
 [self-hosting](features/self-hosting.md).
 
+### 0.8.0
+
+The loop iterates on what a control said. A failing gate's observation reaches
+the implementer before the raw output tail: its summary, its findings with the
+path and line each names, its metrics. The prompt names every acceptance
+criterion by its id and, from the second iteration on, carries one line per
+iteration already spent. The full gates and the review no longer end a run: one
+iteration chains scope, quick gates, full gates and review, and the first stage
+that decides against the candidate writes the feedback of the next. Records
+declare `schema_version` 17 and place the full gates and the review under the
+iteration that measured them.
+
+A criterion names what decides it. `{gate: <name>}` hands it to a gate the
+constitution declares, `{review}` leaves it to the reviewer, and a task naming
+a gate that is not declared is refused before anything is frozen. A criterion a
+gate decided is not put to the reviewer, and a failing gate names the criteria
+it leaves unsatisfied.
+
+A gate that writes a document can be held to its own metrics. `ratchet = {
+missing = "<=", line_coverage = ">=" }` is held between the document the gate
+wrote at the baseline and the one it writes on the candidate, and a passing
+gate that breaks a ratchet decides against the candidate as a failing one does.
+A ratchet is refused on a gate that writes no document and on a gate outside
+the baseline, either of which would be a control that can never speak.
+
+A run closes on three issues rather than two. `ESCALATED` says every
+deterministic control let the candidate through and what remains is a person's
+to settle: a criterion nobody could verify, a review contradicting a gate that
+passed, a budget spent on review objections alone. Nothing is fed back on that
+path, because nothing there is the actuator's to correct. Records declare
+`schema_version` 18.
+
+An accepted run is landed by a person. `codeservo land` applies the patch to
+the repository the run measured it against and appends `run.landed` after
+`run.finished`, chained like every other event, so the record stays the
+document the decision closed. The findings the review reported on the landed
+candidate go to a register, one line each, with no gate named until one covers
+them: a defect the review caught and no deterministic control did is a control
+that is missing, and the register is where that is visible.
+
+Every token a run consumes is counted and priced. One catalogue names every
+model and effort a run may request, with dated list prices, and a model it does
+not list — or lists for the other backend — is refused by name before the run
+directory exists. Each actuation records what its backend reported consuming in
+the five categories both count, the controller prices that from the catalogue
+beside whatever cost the backend reported itself, and the run freezes the copy
+that priced it next to the task and the constitution. Records declare
+`schema_version` 19.
+
+A second ecosystem. The execution provider sits behind a port of six
+operations, with `pixi` and `mise` as its adapters, so a repository declares
+the manifest and lockfile its own toolchain is pinned by and the controller
+freezes, installs and measures through them. A Java repository under Maven is
+measured the way a Python one is, and no tool of either ecosystem enters the
+product.
+
+Gates report through the formats their tools already write. JUnit XML, SARIF
+and LCOV are read and projected onto the observation every reader already
+knows, so the adapter a target repository supplies is reduced to running its
+tool with a standard output option. A gate names its format and the pattern its
+tool writes reports under, and only the files that measurement wrote are read.
+One reading matters more than any count, and it is the same question in all
+three: a tool that died in the middle writes the same empty set as a clean
+tree, so a report saying it did not finish is a fault of measurement and never
+a pass.
+
+Confinement is portable. The profile and the mechanism are separated: one
+module carries the profile and names no mechanism, a port answers whether this
+host can apply one, runs a command under it and says whether the command really
+ran under it, and `sandbox-exec` and Bubblewrap are the two adapters behind it.
+A target repository declares its execution provider and never its confinement,
+because a candidate able to name the mechanism holding it would be negotiating
+its own cage.
+
+`codeservo doctor` says what a host provides before a run finds out. A run
+refuses where no mechanism can confine a process, where the agent CLI it names
+is absent, or where the provider it would measure through is missing — and it
+refuses at the point where it finds out, after a run directory exists. Every
+reading is taken by asking rather than by inferring: the mechanism by applying
+a profile, a tool by running it, a repository by reading what it declares.
+
+A run that stops before any control has spoken says so. `run.aborted` names
+what ended it — a control input that broke, a Git operation that failed, an
+operator interrupting — and states no status, because none of the three issues
+would be true of a measurement that did not happen.
+
 ### 0.7.2
 
 The execution environment block asserts only what a measurement established. It
