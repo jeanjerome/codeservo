@@ -34,6 +34,20 @@ them are in [COMMANDS.md](COMMANDS.md).
   being frozen, built by name, and rendered as what JSON carries.
 - The actuator port states its three operations as call signatures. Backend
   behaviour stays in the adapter; nothing else names a flag or a stream field.
+- The confinement port states the same way what a mechanism answers: why this
+  host cannot apply a profile, the command to run under one, and whether the
+  command ran under it at all. A profile names no mechanism, and nothing
+  outside `runtime/seatbelt.py` and `runtime/bubblewrap.py` names a rule
+  syntax or an exit code either of them owns. The mechanism belongs to the
+  host and is established by applying a profile, never inferred from the
+  platform name; a target repository declares its execution provider and never
+  its confinement.
+- A test guarded on an operating system where it means a capability reports
+  nothing on every other host while passing. Guard it on the capability, name
+  the reason the host gave, and let the one assertion that the capability is
+  missing fail rather than skip. A refusal is evidence only when the same
+  profile also permits something, so a suite measuring a denial asserts a
+  reading beside it.
 - Use four-space indentation and type hints. Use `snake_case` for modules, functions, and variables, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants.
 - Preserve dependency direction toward the domain layer. Group imports as standard library, third party, then local.
 - Name tests `test_*.py` and test methods `test_<behavior>`. Use `unittest` in `codeservo` and `pytest` in deployment-tracker.

@@ -79,9 +79,9 @@ workspace whose lockfile and manifest disagree it exits 1 and rewrites
 `pixi.lock`, mutating the very control input it reports as stale. A run gets the
 same verdict, and the package inventory with it, from `pixi list --json --locked
 --no-install --no-config`, which writes nothing. The
-workspace declares `osx-arm64` and `osx-64` only, because `sandbox-exec` is the
-isolation mechanism and the project does not advertise a platform it cannot
-confine.
+workspace declares `osx-arm64`, `osx-64` and `linux-64`, one platform for each
+host carrying a confinement mechanism the controller has an adapter for, and
+the project does not advertise a platform it cannot confine.
 
 ## Quick Loop
 
@@ -135,13 +135,20 @@ constitution change was verified only at the baseline of the next run, so
 detection was deferred and it was the run that failed rather than the commit.
 
 It runs the reference validation above and the record comparison, on
-`macos-15`. The gates are named twice, in the constitution and in the
+`macos-15` and on `ubuntu-24.04`. A profile is the record's and the mechanism
+applying it is the host's, so measuring on one operating system would leave
+the other claimed rather than measured; the matrix does not fail fast, because
+one host failing is a result about that host and hiding the other's would turn
+two measurements into one. The Ubuntu runner installs `bubblewrap` and lifts
+`kernel.apparmor_restrict_unprivileged_userns` first, which is what a Linux
+host running the controller has to do and a property of the host rather than
+of this repository. The gates are named twice, in the constitution and in the
 workflow, so a step holds the two sets to being equal. Two jobs stand apart
 and also run weekly, because they are the checks that can go red without this
 repository moving: the dependency audit, and the longer fuzz search.
 
-Only `osx-arm64` is exercised. The lockfile check resolves `osx-64` and
-nothing runs it.
+`osx-arm64` and `linux-64` are exercised. The lockfile check resolves `osx-64`
+and nothing runs it.
 
 ## Fuzzing
 
