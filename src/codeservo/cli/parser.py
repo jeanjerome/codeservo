@@ -18,6 +18,15 @@ def build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init", help="add a starter repository constitution")
     init.add_argument("repo", nargs="?", default=".")
 
+    doctor = sub.add_parser(
+        "doctor", help="what this host provides, and what a run would find missing"
+    )
+    doctor.add_argument(
+        "--repo", help="also read what this target repository declares"
+    )
+    doctor.add_argument("--state-dir")
+    doctor.add_argument("--json", action="store_true")
+
     execute = sub.add_parser("run", help="run one controlled software change")
     execute.add_argument("--repo", default=".")
     execute.add_argument("--task", required=True)

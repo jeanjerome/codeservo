@@ -26,6 +26,7 @@ from ..evidence.verify import (
 )
 from ..policies.constitution import ConstitutionError
 from ..resources import constitution_example
+from .doctor import Reading, readings
 
 # What the verification of a run directory reports through the exit status.
 VERIFY_EXIT_STATUS = {
@@ -45,6 +46,42 @@ RUN_EXIT_STATUS = {
     RunStatus.REJECTED: 1,
     RunStatus.ESCALATED: 2,
 }
+
+
+def report_host(repo: Path | None, state_dir: Path | None, as_json: bool) -> int:
+    """Say what this host answers, and exit non-zero when a run could not start.
+
+    A reading a run does not need is reported like the others and decides
+    nothing: one absent actuator narrows the choice, it does not stop a run.
+    """
+    found = readings(repo, state_dir)
+    if as_json:
+        print(json.dumps([_reading_document(one) for one in found], indent=2))
+    else:
+        _render_readings(found)
+    return 1 if any(one.required and not one.holds for one in found) else 0
+
+
+def _reading_document(one: Reading) -> dict:
+    return {
+        "subject": one.subject,
+        "answer": one.answer,
+        "holds": one.holds,
+        "required": one.required,
+        "remedy": one.remedy,
+    }
+
+
+def _render_readings(found: list[Reading]) -> None:
+    width = max(len(one.subject) for one in found)
+    for one in found:
+        state = "ok" if one.holds else ("missing" if one.required else "absent")
+        print(f"{state:<8}{one.subject.ljust(width)}  {one.answer}")
+    unmet = [one for one in found if not one.holds and one.remedy]
+    if unmet:
+        print()
+        for one in unmet:
+            print(f"{one.subject}: {one.remedy}")
 
 
 def init_repo(repo: Path) -> int:
