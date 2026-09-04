@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from codeservo.runtime.confinement import (
+    MECHANISMS,
     ConfinedCommand,
     confined,
     host_confiner,
@@ -37,15 +38,26 @@ class HostConfinerTests(unittest.TestCase):
         with patch(
             "codeservo.runtime.seatbelt.unusable", return_value="not this host"
         ):
-            with self.assertRaises(SandboxError) as refused:
-                host_confiner()
+            with patch(
+                "codeservo.runtime.bubblewrap.unusable", return_value="nor this one"
+            ):
+                with self.assertRaises(SandboxError) as refused:
+                    host_confiner()
 
         self.assertIn("no confinement mechanism on this host", str(refused.exception))
         self.assertIn("macos-sandbox-exec: not this host", str(refused.exception))
+        self.assertIn("linux-bubblewrap: nor this one", str(refused.exception))
+
+    def test_every_mechanism_a_record_can_hold_has_an_adapter_or_a_producer(
+        self,
+    ) -> None:
+        for name in MECHANISMS:
+            with self.subTest(mechanism=name):
+                self.assertEqual(name, load_confiner(name).mechanism)
 
     def test_a_mechanism_no_adapter_answers_for_is_refused_by_name(self) -> None:
         with self.assertRaisesRegex(SandboxError, "unknown confinement mechanism"):
-            load_confiner("linux-bubblewrap")
+            load_confiner("linux-landlock")
 
 
 class ConfinedCommandTests(unittest.TestCase):

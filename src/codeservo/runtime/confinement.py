@@ -74,11 +74,22 @@ def load_confiner(mechanism: str) -> Confiner:
             unusable=seatbelt.unusable,
             applied=seatbelt.applied,
         )
+    if mechanism == Mechanism.LINUX_BUBBLEWRAP:
+        from . import bubblewrap
+
+        return Confiner(
+            mechanism=bubblewrap.MECHANISM,
+            unusable=bubblewrap.unusable,
+            applied=bubblewrap.applied,
+        )
     raise SandboxError(f"unknown confinement mechanism: {mechanism}")
 
 
 # Tried in this order, and the first one this host can apply is the one it uses.
-MECHANISMS: tuple[str, ...] = (Mechanism.MACOS_SANDBOX_EXEC,)
+MECHANISMS: tuple[str, ...] = (
+    Mechanism.MACOS_SANDBOX_EXEC,
+    Mechanism.LINUX_BUBBLEWRAP,
+)
 
 
 @lru_cache(maxsize=1)
