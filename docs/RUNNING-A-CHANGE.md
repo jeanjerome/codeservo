@@ -35,11 +35,16 @@ a preference:
   cleans, so no variable survives into it. It is handed the document location as
   the task's one argument, and it cannot be given a sensor location at all;
 - a gate that names a **mise task** inherits the environment it is started from,
-  so it reads the sensor's location like a shell command does, and is handed the
-  document location as its argument like any task.
+  so it reads the sensor's location like a shell command does. The document
+  location reaches it by a narrower path than the word *argument* suggests:
+  mise appends a task's arguments as text to the end of its script instead of
+  binding them to `$1`. A task whose `run` is one line naming a script
+  therefore receives the location as that script's first argument, and a
+  multi-line task receives it glued to its last command, where it is a wrong
+  argument or a syntax error.
 
 Under pixi a sensor gate therefore names a command; under mise it may name a
-task.
+task. Under mise a gate that writes a document names a **one-line** task.
 
 ### 3. Write the external sensor
 

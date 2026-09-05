@@ -173,9 +173,12 @@ reaches each. A gate naming a shell command reads it from
 runs with a clean environment, so a variable set around the command does not
 survive into it, and neither does one the manifest re-exports from it. Its
 location is therefore appended to the command as the task's one argument,
-which the provider passes through. Both are the controller's business: the
-target repository writes an adapter that takes a location, not one that knows
-where the location came from.
+which the provider passes through. How far it passes it is the provider's
+answer and not the same one: pixi hands it to the task's command, while mise
+appends it as text to the end of the task's script, so under mise the location
+reaches an adapter only when the task is one line naming it. Both are the
+controller's business: the target repository writes an adapter that takes a
+location, not one that knows where the location came from.
 
 A gate may instead declare a format the controller projects, `junit-xml` for
 test results, `sarif` for analysis results or `lcov` for coverage tracefiles,
